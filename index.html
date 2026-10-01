@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Game Sandbox</title>
+<style>
+  :root { --bg: #070b14; --fg: #dff6ff; --dim: #7f9fb3; --accent: #8ef2ff; --gold: #ffd23f; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: "Courier New", ui-monospace, monospace;
+    min-height: 100vh; padding: 48px 16px; }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { letter-spacing: 10px; color: var(--accent); font-size: clamp(28px, 6vw, 44px); }
+  p.sub { color: var(--dim); letter-spacing: 3px; margin: 8px 0 36px; font-size: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+  a.game { display: block; padding: 20px; border: 1px solid rgba(142,242,255,.25); text-decoration: none;
+    color: inherit; background: linear-gradient(180deg, rgba(20,40,60,.5), rgba(10,20,30,.2)); transition: border-color .2s, transform .2s; }
+  a.game:hover { border-color: var(--accent); transform: translateY(-2px); }
+  a.game h2 { letter-spacing: 6px; color: var(--gold); font-size: 20px; margin-bottom: 8px; }
+  a.game p { color: var(--dim); font-size: 13px; line-height: 1.6; }
+  .tags { margin-top: 12px; font-size: 10px; letter-spacing: 2px; color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>GAME SANDBOX</h1>
+  <p class="sub">EXPERIMENTOS JUGABLES</p>
+  <div class="grid">
+    <a class="game" href="./games/elytra/">
+      <h2>ELYTRA</h2>
+      <p>Vuelo libre con alas y circuito de puertas entre agujas, cañones, ruinas e islas flotantes. Choca y disfruta del ragdoll.</p>
+      <div class="tags">THREE.JS · RAPIER · VUELO · RAGDOLL</div>
+    </a>
+  </div>
+</main>
+</body>
+</html>

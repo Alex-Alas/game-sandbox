@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+<title>ELYTRA — Vuelo Libre</title>
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud" class="hidden">
+  <div class="panel tl">
+    <div class="lbl">VELOCIDAD</div>
+    <div class="val" id="speed">0<span class="unit">m/s</span></div>
+    <div class="bar"><i id="speedbar"></i></div>
+    <div class="lbl" style="margin-top:9px">ENERGÍA</div>
+    <div class="bar energy"><i id="energybar"></i><b class="tick" style="left:34%"></b></div>
+    <div class="sub" id="mode">PLANEANDO</div>
+  </div>
+
+  <div class="panel tr">
+    <div class="lbl">ALTITUD</div>
+    <div class="val" id="alt">0<span class="unit">m</span></div>
+    <div class="row"><span class="lbl">VARIO</span><span id="vario">0.0</span></div>
+    <div class="row"><span class="lbl">CARGA</span><span id="gload">1.0 G</span></div>
+  </div>
+
+  <div class="panel tc" id="racepanel">
+    <div class="race-time" id="racetime">00:00.00</div>
+    <div class="race-sub"><span id="gatecount">PUERTA 0/0</span> · MEJOR <span id="besttime">--:--.--</span></div>
+    <div class="split" id="split"></div>
+  </div>
+
+  <div id="zone"></div>
+  <div id="callout"></div>
+  <div id="reticle"></div>
+  <div id="gatemark"><div class="arrow"></div><span id="gatedist"></span></div>
+  <div id="stall">¡ PÉRDIDA !</div>
+  <div id="bottombar">
+    CRISTALES <b id="crystals">0</b> · RASANTES <b id="nears">0</b> · <span id="hint"></span>
+  </div>
+</div>
+
+<div id="vignette"></div>
+<div id="flash"></div>
+
+<div id="loading">
+  <div class="logo">ELYTRA</div>
+  <div class="loadbar"><i id="loadbar"></i></div>
+  <div id="loadmsg">CARGANDO ASSETS…</div>
+</div>
+
+<div id="overlay" class="hidden">
+  <div class="card">
+    <h1>ELYTRA</h1>
+    <div class="sub2">V U E L O &nbsp; L I B R E</div>
+    <div class="skins">
+      <button id="skinPrev" aria-label="Personaje anterior">‹</button>
+      <span id="skinName">PILOTO A</span>
+      <button id="skinNext" aria-label="Personaje siguiente">›</button>
+    </div>
+    <div class="keys">
+      <div><kbd>RATÓN</kbd></div><div class="txt">Dirigir (cabeceo / guiñada)</div>
+      <div><kbd>W</kbd> / <kbd>S</kbd></div><div class="txt">Plegar alas (picado) / frenar y girar cerrado</div>
+      <div><kbd>ESPACIO</kbd></div><div class="txt">Aletazo — gana altura, rescata pérdidas</div>
+      <div><kbd>A</kbd> / <kbd>D</kbd></div><div class="txt">Tonel lateral para esquivar</div>
+      <div><kbd>SHIFT</kbd></div><div class="txt">Impulso</div>
+      <div><kbd>X</kbd></div><div class="txt">Soltarse (ragdoll voluntario)</div>
+      <div><kbd>R</kbd> / <kbd>T</kbd></div><div class="txt">Reaparecer en puerta / reiniciar carrera</div>
+      <div><kbd>V</kbd> · <kbd>M</kbd></div><div class="txt">Cámara · silenciar</div>
+    </div>
+    <div class="cta">HAZ CLIC PARA VOLAR</div>
+    <div class="tip">
+      Atraviesa las <b>puertas doradas</b> lo más rápido posible. Vuela <b>pegado</b> a la roca
+      para recargar energía. Las <b>corrientes térmicas</b> te elevan. Rozar está bien; chocar de frente, no.
+    </div>
+  </div>
+</div>
+
+<div id="crashpanel" class="hidden">
+  <div class="big" id="crashtitle">¡ZAS!</div>
+  <div class="stats">
+    <div><span class="lbl">DAÑO</span><b id="cDamage">0</b></div>
+    <div><span class="lbl">FRACTURAS</span><b id="cFract">0</b></div>
+    <div><span class="lbl">GOLPES</span><b id="cBounce">0</b></div>
+    <div><span class="lbl">DANDO TUMBOS</span><b id="cDist">0 m</b></div>
+    <div><span class="lbl">IMPACTO</span><b id="cImpact">0 m/s</b></div>
+  </div>
+  <div class="cta" id="crashcta">R · CLIC PARA REAPARECER</div>
+  <div class="tip">ARRASTRA EL RATÓN PARA ORBITAR · RUEDA PARA ACERCAR</div>
+</div>
+
+<div id="pause" class="hidden">
+  <div class="big">PAUSA</div>
+  <div class="cta">CLIC PARA SEGUIR VOLANDO</div>
+</div>
+
+<div id="finishpanel" class="hidden">
+  <div class="big" id="finishtitle">¡META!</div>
+  <div class="finish-time" id="finishtime">00:00.00</div>
+  <div class="tip" id="finishsub"></div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
