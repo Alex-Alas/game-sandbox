@@ -1,7 +1,8 @@
 /* Ragdoll con cuerpos rígidos Rapier: una caja por parte del personaje (cabeza,
    torso, brazos, piernas y alas), articulaciones esféricas con "tono muscular"
    (motores que se relajan tras el impacto), CCD y eventos de fuerza de contacto
-   para sonido, partículas y el contador de daño. */
+   para sonido, partículas y el contador de daño. Las partes no chocan entre sí:
+   las cajas se solapan en la pose de vuelo y generaban "golpes invisibles". */
 import * as THREE from 'three';
 import { RAPIER, phys } from './physics.js';
 import { CFG } from './config.js';
@@ -19,15 +20,31 @@ export const ragdoll = {
   stats: null,
   settleTimer: 0,
   settled: false,
-  lastImpact: {},
+  simT: 0,          // tiempo de simulación (avanza un paso de física por evento)
+  mass: {},         // name → masa (kg)
+  contact: {},      // name → { seen, level, hit } para distinguir golpes de apoyos
 };
 
 const _p = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
 const _c = new THREE.Vector3();
+const _min = new THREE.Vector3(0.03, 0.03, 0.03);
+const _hits = new Map();
 
 const PART_DENSITY = { 'wing-left': 40, 'wing-right': 40, head: 520 };
+
+/* Grupos de colisión (16 bits de pertenencia << 16 | 16 bits de filtro): el ragdoll
+   choca con todo menos consigo mismo. */
+const G_RAGDOLL = 0x0002;
+const RAGDOLL_GROUPS = (G_RAGDOLL << 16) | (0xffff & ~G_RAGDOLL);
+
+/* Detección de golpes por cambio de velocidad en un paso (Δv = F·dt / m), no por
+   fuerza bruta: así una cabeza pesada y un ala ligera se miden igual. */
+const HIT_DV = 2.0;          // m/s: por debajo es apoyo/rozamiento, no golpe
+const HARD_DV = 11;          // m/s: golpe que cuenta como fractura
+const PART_COOLDOWN = 0.22;  // s entre golpes de la misma parte
+const FRESH_GAP = 0.1;       // s sin contacto para que el siguiente sea un contacto nuevo
 
 /* Límites angulares (rad) en el marco de reposo (de pie): X = cabeceo, Y = giro,
    Z = apertura lateral. Evitan hiperextensiones grotescas pero dejan mucho juego. */
@@ -86,19 +103,24 @@ export function spawnRagdoll(scene, rig, vel, angVel) {
 
     src.geometry.computeBoundingBox();
     const bb = src.geometry.boundingBox;
-    const he = bb.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+    const he = bb.getSize(new THREE.Vector3()).multiplyScalar(0.5).max(_min);
     const ctr = bb.getCenter(new THREE.Vector3());
-    const cd = RAPIER.ColliderDesc.cuboid(Math.max(0.03, he.x), Math.max(0.03, he.y), Math.max(0.03, he.z))
+    const density = PART_DENSITY[name] ?? CFG.RAGDOLL_DENSITY;
+    const mass = density * 8 * he.x * he.y * he.z;
+    const cd = RAPIER.ColliderDesc.cuboid(he.x, he.y, he.z)
       .setTranslation(ctr.x, ctr.y, ctr.z)
-      .setDensity(PART_DENSITY[name] ?? CFG.RAGDOLL_DENSITY)
+      .setDensity(density)
       .setFriction(0.65)
       .setRestitution(0.28)
+      .setCollisionGroups(RAGDOLL_GROUPS)
       .setActiveEvents(RAPIER.ActiveEvents.CONTACT_FORCE_EVENTS)
-      .setContactForceEventThreshold(2500);
+      // Umbral bajo (≈4 m/s²): también llegan los apoyos, para saber si el contacto es nuevo
+      .setContactForceEventThreshold(mass * 4);
     const col = W.createCollider(cd, body);
     col.userData = { kind: 'ragdoll', part: name };
     ragdoll.handleToPart.set(col.handle, name);
     ragdoll.bodies[name] = body;
+    ragdoll.mass[name] = body.mass() || mass;
   }
 
   // Articulaciones esféricas en el pivote del hijo
@@ -118,14 +140,13 @@ export function spawnRagdoll(scene, rig, vel, angVel) {
     }
     ragdoll.joints.push({ j, name: ch });
   }
-  // Sin colisión brazo-torso/pierna-pierna inmediata gracias a las articulaciones;
-  // las alas no chocan con las piernas para evitar enganches.
   ragdoll.active = true;
   ragdoll.t = 0;
   ragdoll.tone = 1;
   ragdoll.settleTimer = 0;
   ragdoll.settled = false;
-  ragdoll.lastImpact = {};
+  ragdoll.simT = 0;
+  ragdoll.contact = {};
   ragdoll.stats = {
     damage: 0, fractures: 0, bounces: 0, distance: 0, maxSpeed: vel.length(),
     start: _c.clone(), last: _c.clone(), airtime: 0,
@@ -148,24 +169,48 @@ export function kickRagdoll(impulse) {
   if (b) b.applyImpulse(impulse, true);
 }
 
-/* Procesa eventos de fuerza de contacto. onImpact(part, force, pos) */
-export function handleContactForces(events, now, onImpact) {
+/* Procesa los eventos de fuerza de contacto de UN paso de física.
+   onImpact(part, dv, fracture, pos) recibe como mucho un golpe por paso (el más fuerte). */
+export function handleContactForces(events, onImpact) {
   if (!ragdoll.active) return;
+  ragdoll.simT += phys.STEP;
+  const now = ragdoll.simT;
+
+  // Δv máximo por parte en este paso (una parte puede tocar varios colliders)
+  _hits.clear();
   events.drainContactForceEvents((ev) => {
-    let part = ragdoll.handleToPart.get(ev.collider1());
-    if (!part) part = ragdoll.handleToPart.get(ev.collider2());
+    const p1 = ragdoll.handleToPart.get(ev.collider1());
+    const p2 = ragdoll.handleToPart.get(ev.collider2());
+    if (p1 && p2) return; // autocolisión (los grupos ya la evitan)
+    const part = p1 ?? p2;
     if (!part) return;
-    const f = ev.totalForceMagnitude();
-    const last = ragdoll.lastImpact[part] ?? -1;
-    if (now - last < 0.09) return;
-    ragdoll.lastImpact[part] = now;
-    const st = ragdoll.stats;
-    st.damage += Math.max(0, f - 2500) / 220 * (part === 'head' ? 1.8 : 1);
-    st.bounces++;
-    if (f > 38000 && !part.startsWith('wing')) st.fractures++;
-    const t = ragdoll.bodies[part].translation();
-    onImpact?.(part, f, _p.set(t.x, t.y, t.z));
+    const dv = ev.totalForceMagnitude() * phys.STEP / ragdoll.mass[part];
+    if (dv > (_hits.get(part) ?? 0)) _hits.set(part, dv);
   });
+
+  let best = null;
+  const st = ragdoll.stats;
+  for (const [part, dv] of _hits) {
+    const c = (ragdoll.contact[part] ??= { seen: -1, level: 0, hit: -1 });
+    const fresh = now - c.seen > FRESH_GAP;
+    // En contacto sostenido (rodar, arrastrarse) solo cuenta un pico claro sobre el apoyo
+    const spike = fresh ? dv : dv - c.level * 2.5;
+    c.level = fresh ? dv : c.level + (dv - c.level) * 0.25;
+    c.seen = now;
+    const wing = part.startsWith('wing');
+    const minDv = wing ? HIT_DV * 2 : HIT_DV;
+    if (spike < minDv || now - c.hit < PART_COOLDOWN) continue;
+    c.hit = now;
+    st.damage += (dv - minDv) * ragdoll.mass[part] * 1.2 * (part === 'head' ? 1.8 : 1);
+    st.bounces++;
+    const fracture = dv > HARD_DV && !wing;
+    if (fracture) st.fractures++;
+    if (!best || dv > best.dv) best = { part, dv, fracture };
+  }
+  if (best && onImpact) {
+    const t = ragdoll.bodies[best.part].translation();
+    onImpact(best.part, best.dv, best.fracture, _p.set(t.x, t.y, t.z));
+  }
 }
 
 export function updateRagdoll(dt) {
@@ -214,6 +259,7 @@ export function clearRagdoll(scene) {
   ragdoll.meshes = {};
   ragdoll.joints = [];
   ragdoll.handleToPart.clear();
+  ragdoll.mass = {};
   ragdoll.group = null;
   ragdoll.active = false;
 }

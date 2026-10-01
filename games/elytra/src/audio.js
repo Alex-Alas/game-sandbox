@@ -4,7 +4,22 @@ const A = {
   ctx: null, master: null, sfx: null,
   windGain: null, windFilter: null, scrapeGain: null, scrapeFilter: null,
   noise: null, muted: false,
+  voices: [],       // fin (ctx.currentTime) de cada golpe sonando
 };
+
+/* Limita la polifonía de los golpes: como mucho MAX_HITS a la vez y un mínimo de
+   separación, salvo que el nuevo sea claramente más fuerte que el anterior. */
+const MAX_HITS = 3, HIT_GAP = 0.05;
+let lastHit = { t: -1, s: 0 };
+function claimHit(strength, dur) {
+  const now = A.ctx.currentTime;
+  A.voices = A.voices.filter((end) => end > now);
+  if (A.voices.length >= MAX_HITS) return false;
+  if (now - lastHit.t < HIT_GAP && strength < lastHit.s * 1.5) return false;
+  A.voices.push(now + dur);
+  lastHit = { t: now, s: strength };
+  return true;
+}
 
 export function initAudio() {
   if (A.ctx) { if (A.ctx.state === 'suspended') A.ctx.resume(); return; }
@@ -142,15 +157,30 @@ export const sfx = {
   },
   crash(strength = 1) {
     if (!A.ctx) return;
-    noiseHit({ freq: 180, q: 0.7, gain: 0.9 * strength, dur: 0.9 });
-    noiseHit({ freq: 2500, q: 0.5, type: 'highpass', gain: 0.25 * strength, dur: 0.2 });
-    tone({ type: 'sine', f0: 110, f1: 32, gain: 0.7 * strength, dur: 0.6 });
+    // Golpe seco con cuerpo (medios) + chasquido + algo de peso, sin sub-bajo retumbante
+    noiseHit({ freq: 420, q: 0.8, type: 'bandpass', gain: 0.75 * strength, dur: 0.45 });
+    noiseHit({ freq: 1300, q: 1.2, type: 'bandpass', gain: 0.35 * strength, dur: 0.16 });
+    noiseHit({ freq: 2800, q: 0.5, type: 'highpass', gain: 0.25 * strength, dur: 0.12 });
+    tone({ type: 'triangle', f0: 190, f1: 70, gain: 0.4 * strength, dur: 0.35, attack: 0.002 });
   },
-  thud(strength = 0.5) {
+  /* Golpe del ragdoll. kind: 'body' | 'head' (más agudo, "bonk") | 'wing' (suave). */
+  thud(strength = 0.5, kind = 'body') {
     if (!A.ctx) return;
-    const s = Math.min(1, strength);
-    noiseHit({ freq: 120 + Math.random() * 120, q: 0.9, gain: 0.55 * s, dur: 0.18 + s * 0.2 });
-    tone({ type: 'sine', f0: 90 + Math.random() * 40, f1: 40, gain: 0.45 * s, dur: 0.2 });
+    const s = Math.max(0, Math.min(1, strength));
+    const dur = 0.08 + s * 0.08;
+    if (!claimHit(s, dur)) return;
+    const p = (0.88 + Math.random() * 0.24) * (kind === 'head' ? 1.35 : kind === 'wing' ? 0.85 : 1);
+    if (kind === 'wing') {
+      // Aleteo contra el suelo: ruido suave, sin clic ni tono
+      noiseHit({ freq: 900 * p, q: 0.7, type: 'bandpass', gain: 0.18 + 0.2 * s, dur: dur + 0.04 });
+      return;
+    }
+    // Clic del contacto (le da nitidez) + "slap" en medios + nudillo tonal corto
+    noiseHit({ freq: 3200 * p, q: 1.4, type: 'bandpass', gain: 0.12 + 0.22 * s, dur: 0.02 });
+    noiseHit({ freq: (600 + 500 * s) * p, q: 1.1, type: 'bandpass', gain: 0.3 + 0.35 * s, dur });
+    tone({ type: 'triangle', f0: (250 + 90 * s) * p, f1: 120 * p, gain: 0.14 + 0.2 * s, dur, attack: 0.002 });
+    // Solo los golpes fuertes tienen algo de peso grave
+    if (s > 0.6) tone({ type: 'sine', f0: 160 * p, f1: 75, gain: (s - 0.6) * 0.6, dur: 0.14, attack: 0.002 });
   },
   crack() {
     if (!A.ctx) return;

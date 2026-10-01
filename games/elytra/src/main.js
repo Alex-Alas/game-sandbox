@@ -358,12 +358,12 @@ function crash(ev) {
   startRagdollCamera(camera);
 }
 
-function onImpact(part, force, pos) {
-  const s = THREE.MathUtils.clamp((Math.log10(force) - 3.4) / 1.6, 0, 1);
-  sfx.thud(s);
-  if (force > 38000 && !part.startsWith('wing')) { sfx.crack(); callout('¡CRAC!', 'var(--red)', 500); }
-  if (part === 'head' && force > 20000) callout('¡CABEZAZO!', 'var(--red)', 700);
-  if (s > 0.25) dustPuff(pos, 1, 0.25 + s * 0.6);
+function onImpact(part, dv, fracture, pos) {
+  const s = THREE.MathUtils.clamp((dv - 2) / 16, 0, 1);
+  sfx.thud(s, part === 'head' ? 'head' : part.startsWith('wing') ? 'wing' : 'body');
+  if (fracture) { sfx.crack(); callout('¡CRAC!', 'var(--red)', 500); }
+  if (part === 'head' && dv > 6) callout('¡CABEZAZO!', 'var(--red)', 700);
+  if (s > 0.15) dustPuff(pos, 1, 0.25 + s * 0.6);
   addTrauma(s * 0.25);
 }
 
@@ -503,7 +503,7 @@ function tick(now) {
   if (state.mode === 'fly' && !paused) flyUpdate(dt, rdt);
 
   stepPhysics(dt, (events) => {
-    if (ragdoll.active) handleContactForces(events, state.time, onImpact);
+    if (ragdoll.active) handleContactForces(events, onImpact);
     else events.clear();
   });
   syncDynamic();
