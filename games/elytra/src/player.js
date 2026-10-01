@@ -10,6 +10,7 @@ import { thermalLift } from './world.js';
 
 export const player = {
   pos: new THREE.Vector3(),
+  rpos: new THREE.Vector3(),   // posición de render: interpolada entre pasos fijos
   vel: new THREE.Vector3(),
   yaw: 0, pitch: 0, roll: 0,
   bank: 0,
@@ -51,6 +52,7 @@ export function bodyAxes(outRight, outUp) {
 
 export function resetPlayer(pos, dir, speed = 60) {
   player.pos.copy(pos);
+  player.rpos.copy(pos);
   player.vel.copy(dir).normalize().multiplyScalar(speed);
   player.yaw = Math.atan2(-dir.x, -dir.z);
   player.pitch = Math.asin(THREE.MathUtils.clamp(dir.y / dir.length(), -1, 1)) * 0.5;

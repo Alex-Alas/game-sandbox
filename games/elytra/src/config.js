@@ -44,10 +44,30 @@ export const CFG = {
   // Corriente ascendente
   THERMAL_LIFT: 48,
 
-  // Render
-  MAX_PIXEL_RATIO: 1.5,
-  SHADOW_SIZE: 2048,
+  // Render: ver QUALITY más abajo (pixel ratio, sombras, distancias de dibujo)
 };
 
 export const HALF = CFG.WORLD_SIZE / 2;
+
+/* Presets de calidad. Se elige con ?q=low|med|high o desde la pantalla de título
+   (se recuerda en localStorage). La resolución se adapta sola entre minScale y 1
+   para sostener ~60 fps; el MSAA solo cambia al recargar. */
+export const PRESETS = {
+  low:  { id: 'low',  label: 'BAJA',  pixelRatio: 1,    minScale: 0.5,  msaa: false, shadowSize: 1024, vegDist: 900,  propDist: 1600, detailDist: 220 },
+  med:  { id: 'med',  label: 'MEDIA', pixelRatio: 1.25, minScale: 0.6,  msaa: false, shadowSize: 2048, vegDist: 1300, propDist: 2400, detailDist: 380 },
+  high: { id: 'high', label: 'ALTA',  pixelRatio: 1.5,  minScale: 0.75, msaa: true,  shadowSize: 2048, vegDist: 2200, propDist: 3600, detailDist: 600 },
+};
+export const PRESET_ORDER = ['low', 'med', 'high'];
+const QKEY = 'elytra.quality';
+
+function pickQuality() {
+  const fromUrl = new URLSearchParams(location.search).get('q');
+  if (PRESETS[fromUrl]) { saveQuality(fromUrl); return PRESETS[fromUrl]; }
+  try { const v = localStorage.getItem(QKEY); if (PRESETS[v]) return PRESETS[v]; } catch { /* sin storage */ }
+  return PRESETS.med;
+}
+export function saveQuality(id) {
+  try { localStorage.setItem(QKEY, id); } catch { /* sin storage */ }
+}
+export const QUALITY = pickQuality();
 export const ASSET_BASE = '/elytra/';

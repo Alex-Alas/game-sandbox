@@ -1,9 +1,9 @@
 /* ELYTRA — bucle principal, estados, entrada y HUD. */
 import * as THREE from 'three';
-import { CFG } from './config.js';
+import { CFG, QUALITY, PRESETS, PRESET_ORDER } from './config.js';
 import { loadAssets, CHARACTERS } from './assets.js';
 import { initPhysics, stepPhysics, syncDynamic, phys, castPlayer } from './physics.js';
-import { buildWorld, updateWorld, updateSunShadow, world } from './world.js';
+import { buildWorld, updateWorld, updateSunShadow, updateCulling, world } from './world.js';
 import { buildCharacter, poseFlight, wingTips } from './character.js';
 import { spawnRagdoll, updateRagdoll, clearRagdoll, ragdoll, handleContactForces } from './ragdoll.js';
 import {
@@ -13,14 +13,14 @@ import {
   cam, addTrauma, updateFlightCamera, updateRagdollCamera, startRagdollCamera, orbitInput, zoomInput, updateAttractCamera,
 } from './camera.js';
 import { course, checkGates, resetCourse, animateCourse, fmtTime } from './course.js';
-import { fx, initEffects, updateEffects, updateStreaks, burst, dustPuff } from './effects.js';
+import { fx, initEffects, updateEffects, updateStreaks, burst, dustPuff, setParticleScale } from './effects.js';
 import { initAudio, updateWind, sfx, toggleMute } from './audio.js';
 import { surfaceHeight } from './terrain.js';
+import { setDetailDistance } from './materials.js';
 
 /* ── Render ──────────────────────────────────────────────── */
 const canvas = document.getElementById('game');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, CFG.MAX_PIXEL_RATIO));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: QUALITY.msaa, powerPreference: 'high-performance' });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.62;
@@ -30,8 +30,38 @@ renderer.shadowMap.type = THREE.PCFShadowMap;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(70, 1, 0.3, 9000);
 
-function resize() {
+/* Resolución adaptativa: si el frame tarda más de lo que permiten ~60 fps se baja el
+   pixel ratio (hasta QUALITY.minScale) y con margen se vuelve a subir. Si una subida
+   provoca una bajada enseguida, esa escala queda vetada un rato para no oscilar. */
+const res = { scale: 1, avg: 16.7, timer: 0, clock: 0, hold: 0, lastUp: -99, ceil: 1, ceilUntil: 0 };
+
+function applyResolution() {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, QUALITY.pixelRatio) * res.scale);
   renderer.setSize(window.innerWidth, window.innerHeight, false);
+  setParticleScale(renderer.domElement.height);
+}
+
+function adaptResolution(frameMs) {
+  if (frameMs > 100) return; // pestaña oculta, depurador, carga…
+  res.clock += frameMs / 1000;
+  res.timer += frameMs / 1000;
+  res.avg += (frameMs - res.avg) * 0.08;
+  if (res.timer < 0.6) return;
+  res.timer = 0;
+  let s = res.scale;
+  if (res.avg > 19 && s > QUALITY.minScale) {
+    if (res.clock - res.lastUp < 3) { res.ceil = s - 0.05; res.ceilUntil = res.clock + 30; }
+    s = Math.max(QUALITY.minScale, s - (res.avg > 26 ? 0.15 : 0.07));
+    res.hold = res.clock + 3;
+  } else if (res.avg < 17.6 && s < 1 && res.clock > res.hold) {
+    const cap = res.clock < res.ceilUntil ? res.ceil : 1;
+    if (s + 0.05 <= cap + 1e-6) { s = Math.min(1, s + 0.05); res.lastUp = res.clock; res.hold = res.clock + 1.5; }
+  }
+  if (s !== res.scale) { res.scale = s; applyResolution(); }
+}
+
+function resize() {
+  applyResolution();
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
 }
@@ -67,7 +97,7 @@ const el = {
   overlay: $('overlay'), skinName: $('skinName'), crashpanel: $('crashpanel'), crashtitle: $('crashtitle'),
   cDamage: $('cDamage'), cFract: $('cFract'), cBounce: $('cBounce'), cDist: $('cDist'), cImpact: $('cImpact'),
   crashcta: $('crashcta'), finishpanel: $('finishpanel'), finishtitle: $('finishtitle'), finishtime: $('finishtime'),
-  finishsub: $('finishsub'), pause: $('pause'),
+  finishsub: $('finishsub'), pause: $('pause'), perf: $('perf'), qualName: $('qualName'),
 };
 
 /* ── Avisos temporales ───────────────────────────────────── */
@@ -103,8 +133,9 @@ function setSkin(i) {
 
 /* ── Entrada ─────────────────────────────────────────────── */
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+  if (e.code === 'Space' || e.code.startsWith('Arrow') || e.code === 'F3') e.preventDefault();
   if (e.repeat) return;
+  if (e.code === 'F3') { perf.on = !perf.on; el.perf.classList.toggle('hidden', !perf.on); return; }
   keys[e.code] = true;
   if (state.mode === 'title') {
     if (e.code === 'ArrowLeft') setSkin(state.skin - 1);
@@ -155,6 +186,17 @@ canvas.addEventListener('click', () => {
 });
 $('skinPrev').addEventListener('click', (e) => { e.stopPropagation(); setSkin(state.skin - 1); });
 $('skinNext').addEventListener('click', (e) => { e.stopPropagation(); setSkin(state.skin + 1); });
+
+/* Cambiar el preset recarga la página (el MSAA solo se elige al crear el contexto). */
+function cycleQuality(d) {
+  const i = PRESET_ORDER.indexOf(QUALITY.id);
+  const id = PRESET_ORDER[(i + d + PRESET_ORDER.length) % PRESET_ORDER.length];
+  el.qualName.textContent = 'CALIDAD ' + PRESETS[id].label + ' · RECARGANDO…';
+  location.replace(location.pathname + '?q=' + id);
+}
+el.qualName.textContent = 'CALIDAD ' + QUALITY.label;
+$('qualPrev').addEventListener('click', (e) => { e.stopPropagation(); cycleQuality(-1); });
+$('qualNext').addEventListener('click', (e) => { e.stopPropagation(); cycleQuality(1); });
 el.overlay.addEventListener('click', startGame);
 
 function startGame() {
@@ -195,7 +237,9 @@ function flyUpdate(dt, rdt) {
       onFlightEvent(ev);
     }
   }
-  if (steps >= 16) flyAcc = 0;
+  if (steps >= 16) { flyAcc = 0; _prev.copy(player.pos); }
+  // Render interpolado entre el último paso fijo y el actual (sin tirones a cualquier Hz)
+  player.rpos.lerpVectors(_prev, player.pos, flyAcc / FIXED);
   updateBank(rdt, input);
 
   // Cristales
@@ -215,7 +259,7 @@ function flyUpdate(dt, rdt) {
   }
 
   // Visual del jugador
-  rig.root.position.copy(player.pos);
+  rig.root.position.copy(player.rpos);
   rig.root.rotation.set(player.pitch, player.yaw, player.roll, 'YXZ');
   rig.root.visible = cam.mode === 'third';
   forwardVector(player.yaw, player.pitch, _fwd);
@@ -235,7 +279,7 @@ function flyUpdate(dt, rdt) {
   fx.trailR.update(camera.position, 0.08 + player.boostFlash * 0.12, trailOp);
 
   // Llama del impulso
-  fx.flame.position.copy(player.pos).addScaledVector(_fwd, -1.6);
+  fx.flame.position.copy(player.rpos).addScaledVector(_fwd, -1.6);
   fx.flame.material.opacity = player.boostFlash * 0.9;
   fx.flame.scale.setScalar(2 + player.boostFlash * 7);
   if (player.boostFlash > 0.25) {
@@ -262,7 +306,7 @@ function flyUpdate(dt, rdt) {
     fx.add.emit(_tmp, new THREE.Vector3(0, 30, 0), _col, 1.2, 0.8);
   }
 
-  updateStreaks(rdt, player.pos, player.vel, player.speed, player.boostFlash);
+  updateStreaks(rdt, player.rpos, player.vel, player.speed, player.boostFlash);
   updateWind(player.speed, rdt, player.scrape);
   updateFlightCamera(camera, rdt, state.time);
 }
@@ -377,6 +421,7 @@ function respawn(fromStart = false) {
   const pos = cp.pos.clone().addScaledVector(dir, 14);
   pos.y = Math.max(pos.y, surfaceHeight(pos.x, pos.z) + 25);
   resetPlayer(pos, dir, 70);
+  _prev.copy(player.pos);
   state.mode = 'fly';
   state.slowmo = 0;
   flyAcc = 0;
@@ -474,6 +519,27 @@ function updateCrashPanel(dt) {
   if (ragdoll.t > 0.8) el.crashcta.classList.add('on');
 }
 
+/* ── Overlay de rendimiento (F3) ─────────────────────────── */
+const perf = { on: false, frames: 0, ms: 0, worst: 0, steps: 0 };
+
+function updatePerf(frameMs, steps) {
+  if (!perf.on || frameMs > 250) return; // ignora saltos (pestaña oculta, carga)
+  perf.frames++;
+  perf.ms += frameMs;
+  perf.steps += steps;
+  perf.worst = Math.max(perf.worst, frameMs);
+  if (perf.ms < 500) return;
+  const ms = perf.ms / perf.frames;
+  const r = renderer.info.render, c = renderer.domElement;
+  el.perf.textContent =
+    `${Math.round(1000 / ms)} FPS · ${ms.toFixed(1)} ms (peor ${perf.worst.toFixed(0)})\n` +
+    `${r.calls} draws · ${(r.triangles / 1e6).toFixed(2)} M tri\n` +
+    `res ${Math.round(res.scale * 100)}% ${c.width}×${c.height} · ${QUALITY.label}${QUALITY.msaa ? ' · MSAA' : ''}\n` +
+    `instancias ${world.stats.visibleInstances ?? 0} / sombra ${world.stats.shadowInstances ?? 0}\n` +
+    `física ${(perf.steps / perf.frames).toFixed(1)} pasos/frame`;
+  perf.frames = perf.ms = perf.worst = perf.steps = 0;
+}
+
 /* ── Bucle ───────────────────────────────────────────────── */
 let last = performance.now();
 let debugNoRender = false;
@@ -485,8 +551,10 @@ function frame(now) {
 }
 
 function tick(now) {
-  const rdt = Math.max(0, Math.min(0.05, (now - last) / 1000));
+  const frameMs = now - last;
+  const rdt = Math.max(0, Math.min(0.05, frameMs / 1000));
   last = now;
+  adaptResolution(frameMs);
 
   let scale = 1;
   if (state.slowmo > 0) {
@@ -502,7 +570,7 @@ function tick(now) {
 
   if (state.mode === 'fly' && !paused) flyUpdate(dt, rdt);
 
-  stepPhysics(dt, (events) => {
+  const steps = stepPhysics(dt, (events) => {
     if (ragdoll.active) handleContactForces(events, onImpact);
     else events.clear();
   });
@@ -517,15 +585,17 @@ function tick(now) {
     updateAttractCamera(camera, rdt, course.gates);
     _focus.copy(camera.position);
   } else {
-    _focus.copy(player.pos);
+    _focus.copy(player.rpos);
   }
 
   updateEffects(dt);
   updateWorld(dt, state.time, camera);
   animateCourse(state.time);
   updateSunShadow(_focus);
+  updateCulling(camera);
   updateHUD(rdt);
   if (!debugNoRender) renderer.render(scene, camera);
+  updatePerf(frameMs, steps);
 }
 
 /* ── Arranque ────────────────────────────────────────────── */
@@ -535,6 +605,7 @@ async function boot() {
   try {
     el.loadmsg.textContent = 'INICIANDO FÍSICA…';
     await initPhysics();
+    setDetailDistance(QUALITY.detailDist);
     el.loadmsg.textContent = 'CARGANDO ASSETS…';
     await loadAssets(renderer, (f) => { el.loadbar.style.width = Math.round(f * 70) + '%'; });
     await buildWorld(scene, renderer, async (msg) => {
@@ -543,6 +614,7 @@ async function boot() {
       await nextFrame();
     });
     initEffects(scene, world.glowTex);
+    setParticleScale(renderer.domElement.height);
     setSkin(0);
     resetPlayer(course.start.pos, course.start.dir, 60);
     renderer.compile(scene, camera);
@@ -576,7 +648,7 @@ async function boot() {
       }
       return out;
     };
-    window.__elytra = { probePath, state, player, course, world, phys, ragdoll, scene, camera, renderer, advance, respawn, crash, keys };
+    window.__elytra = { probePath, state, player, course, world, phys, ragdoll, scene, camera, renderer, advance, respawn, crash, keys, res, perf, QUALITY };
     requestAnimationFrame(frame);
   } catch (err) {
     console.error(err);

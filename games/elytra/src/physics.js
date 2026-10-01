@@ -9,8 +9,10 @@ export { RAPIER };
 export const phys = {
   world: null,
   events: null,
-  dynamic: [],      // { body, mesh } sincronizados cada frame
+  tracked: [],      // cuerpos dinámicos con malla: { body, mesh, p0, p1, q0, q1, still }
   acc: 0,
+  alpha: 1,         // fracción entre los dos últimos pasos, para interpolar el render
+  dirty: false,     // hay que dar al menos un paso (p. ej. tras quitar cuerpos)
   STEP: 1 / 60,
 };
 
@@ -23,18 +25,51 @@ export async function initPhysics() {
   return phys.world;
 }
 
-/* Avanza el mundo con paso fijo. Devuelve el número de pasos ejecutados. */
+/* Avanza el mundo con paso fijo. Si no hay nada despierto no se simula: el mundo
+   estático no cambia y un paso con ~5000 colliders cuesta ~2 ms. Devuelve los pasos. */
 export function stepPhysics(dt, onStep) {
+  if (!phys.tracked.some((e) => !e.body.isSleeping())) {
+    if (phys.dirty) phys.world.step(phys.events); // actualiza la broad-phase tras quitar cuerpos
+    phys.dirty = false;
+    phys.acc = 0;
+    phys.alpha = 1;
+    return 0;
+  }
   phys.acc += dt;
   let n = 0;
   while (phys.acc >= phys.STEP && n < 5) {
+    for (const e of phys.tracked) { e.p0.copy(e.p1); e.q0.copy(e.q1); }
     phys.world.step(phys.events);
     onStep?.(phys.events);
+    for (const e of phys.tracked) {
+      const t = e.body.translation(), r = e.body.rotation();
+      e.p1.set(t.x, t.y, t.z);
+      e.q1.set(r.x, r.y, r.z, r.w);
+    }
     phys.acc -= phys.STEP;
     n++;
   }
   if (n >= 5) phys.acc = 0;
+  phys.dirty = false;
+  phys.alpha = phys.acc / phys.STEP;
   return n;
+}
+
+/* Registra un cuerpo cuya malla se interpola entre pasos (ver syncDynamic). */
+export function track(body, mesh) {
+  const t = body.translation(), r = body.rotation();
+  const p = new THREE.Vector3(t.x, t.y, t.z), q = new THREE.Quaternion(r.x, r.y, r.z, r.w);
+  const e = { body, mesh, p0: p.clone(), p1: p, q0: q.clone(), q1: q, still: false };
+  phys.tracked.push(e);
+  return e;
+}
+
+/* Deja de seguir y elimina del mundo los cuerpos dados. */
+export function removeBodies(bodies) {
+  const set = new Set(bodies);
+  phys.tracked = phys.tracked.filter((e) => !set.has(e.body));
+  for (const b of bodies) phys.world.removeRigidBody(b);
+  phys.dirty = true;
 }
 
 const _q = new THREE.Quaternion();
@@ -104,17 +139,20 @@ export function addDynamicBody(mesh, colliderDesc, { sleeping = true, density = 
   colliderDesc.setDensity(density);
   const c = phys.world.createCollider(colliderDesc, body);
   c.userData = userData;
-  phys.dynamic.push({ body, mesh });
+  track(body, mesh);
   return { body, collider: c };
 }
 
+/* Coloca las mallas interpolando entre los dos últimos pasos de física: se ve fluido a
+   cualquier tasa de refresco y en cámara lenta (cuando no hay paso en cada frame). */
 export function syncDynamic() {
-  for (const d of phys.dynamic) {
-    if (d.body.isSleeping()) continue;
-    const t = d.body.translation();
-    const r = d.body.rotation();
-    d.mesh.position.set(t.x, t.y, t.z);
-    d.mesh.quaternion.set(r.x, r.y, r.z, r.w);
+  const a = phys.alpha;
+  for (const e of phys.tracked) {
+    const sleeping = e.body.isSleeping();
+    if (sleeping && e.still) continue;
+    e.mesh.position.lerpVectors(e.p0, e.p1, sleeping ? 1 : a);
+    e.mesh.quaternion.slerpQuaternions(e.q0, e.q1, sleeping ? 1 : a);
+    e.still = sleeping;
   }
 }
 

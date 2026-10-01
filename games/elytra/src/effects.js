@@ -221,6 +221,14 @@ export function dustPuff(pos, normalUp = 1, strength = 1) {
   }
 }
 
+/* Tamaño de los puntos en píxeles del framebuffer: se ajusta a la resolución real
+   (que cambia con la escala adaptativa) para que las partículas no crezcan ni encojan. */
+export function setParticleScale(bufferHeight) {
+  const v = bufferHeight * 0.55;
+  if (fx.add) fx.add.points.material.uniforms.scale.value = v;
+  if (fx.dust) fx.dust.points.material.uniforms.scale.value = v;
+}
+
 export function updateEffects(dt) {
   fx.add.update(dt);
   fx.dust.update(dt);

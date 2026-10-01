@@ -4,7 +4,7 @@
    para sonido, partículas y el contador de daño. Las partes no chocan entre sí:
    las cajas se solapan en la pose de vuelo y generaban "golpes invisibles". */
 import * as THREE from 'three';
-import { RAPIER, phys } from './physics.js';
+import { RAPIER, phys, track, removeBodies } from './physics.js';
 import { CFG } from './config.js';
 import { JOINTS } from './character.js';
 
@@ -121,6 +121,7 @@ export function spawnRagdoll(scene, rig, vel, angVel) {
     ragdoll.handleToPart.set(col.handle, name);
     ragdoll.bodies[name] = body;
     ragdoll.mass[name] = body.mass() || mass;
+    track(body, mesh); // la malla se interpola entre pasos (physics.syncDynamic)
   }
 
   // Articulaciones esféricas en el pivote del hijo
@@ -152,6 +153,9 @@ export function spawnRagdoll(scene, rig, vel, angVel) {
     start: _c.clone(), last: _c.clone(), airtime: 0,
   };
   applyTone(1);
+  // Forzar un paso en el próximo frame: con la interpolación, el ragdoll se quedaría
+  // quieto hasta el primer paso (varios frames en cámara lenta).
+  phys.acc = Math.max(phys.acc, phys.STEP);
 }
 
 function applyTone(k) {
@@ -222,12 +226,7 @@ export function updateRagdoll(dt) {
 
   let maxV = 0;
   for (const name in ragdoll.bodies) {
-    const b = ragdoll.bodies[name];
-    const t = b.translation(), r = b.rotation();
-    const m = ragdoll.meshes[name];
-    m.position.set(t.x, t.y, t.z);
-    m.quaternion.set(r.x, r.y, r.z, r.w);
-    const lv = b.linvel();
+    const lv = ragdoll.bodies[name].linvel();
     maxV = Math.max(maxV, Math.hypot(lv.x, lv.y, lv.z));
   }
   const st = ragdoll.stats;
@@ -240,9 +239,9 @@ export function updateRagdoll(dt) {
   if (ragdoll.settleTimer > 1.2) ragdoll.settled = true;
 }
 
+/* Centro visual (interpolado) del ragdoll. */
 export function ragdollCenter(out) {
-  const t = ragdoll.bodies.torso.translation();
-  return out.set(t.x, t.y, t.z);
+  return out.copy(ragdoll.meshes.torso.position);
 }
 
 export function ragdollVelocity(out) {
@@ -253,7 +252,7 @@ export function ragdollVelocity(out) {
 export function clearRagdoll(scene) {
   const W = phys.world;
   for (const { j } of ragdoll.joints) W.removeImpulseJoint(j, true);
-  for (const name in ragdoll.bodies) W.removeRigidBody(ragdoll.bodies[name]);
+  removeBodies(Object.values(ragdoll.bodies));
   if (ragdoll.group) scene.remove(ragdoll.group);
   ragdoll.bodies = {};
   ragdoll.meshes = {};

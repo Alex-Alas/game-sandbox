@@ -24,6 +24,7 @@ const _up = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _tmp = new THREE.Vector3();
+const _eul = new THREE.Euler();
 
 export function addTrauma(t) { cam.trauma = Math.min(1, cam.trauma + t); }
 
@@ -52,20 +53,20 @@ export function updateFlightCamera(camera, dt, time) {
   forwardVector(p.yaw, p.pitch, _fwd);
   const spd = p.speed;
   if (cam.mode === 'first') {
-    camera.position.copy(p.pos).addScaledVector(_fwd, 0.4);
+    camera.position.copy(p.rpos).addScaledVector(_fwd, 0.4);
     camera.rotation.set(p.pitch, p.yaw, p.bank * 0.6, 'YXZ');
   } else {
     // Mezcla entre la dirección de mira y la de la velocidad: se nota el derrape
     if (spd > 1) _vd.copy(p.vel).divideScalar(spd); else _vd.copy(_fwd);
     const look = _tmp.copy(_fwd).lerp(_vd, 0.35).normalize();
     const dist = 6.2 + Math.min(spd * 0.014, 3.5) - p.tuck * 0.8 + p.flare * 0.8;
-    _q.setFromEuler(new THREE.Euler(p.pitch, p.yaw, p.bank * 0.35, 'YXZ'));
+    _q.setFromEuler(_eul.set(p.pitch, p.yaw, p.bank * 0.35, 'YXZ'));
     _up.set(0, 1, 0).applyQuaternion(_q);
     _des.copy(look).multiplyScalar(-dist).addScaledVector(_up, 1.7);
     cam.offset.lerp(_des, 1 - Math.exp(-dt * 9));
-    camera.position.copy(p.pos).add(cam.offset);
-    clampCamera(p.pos, camera.position);
-    _look.copy(p.pos).addScaledVector(_fwd, 24).addScaledVector(_up, 1.0);
+    camera.position.copy(p.rpos).add(cam.offset);
+    clampCamera(p.rpos, camera.position);
+    _look.copy(p.rpos).addScaledVector(_fwd, 24).addScaledVector(_up, 1.0);
     camera.up.copy(_up);
     camera.lookAt(_look);
     camera.up.set(0, 1, 0);

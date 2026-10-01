@@ -3,7 +3,7 @@
    islas flotantes, bosques, rocas), además de corrientes térmicas y cristales. */
 import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
-import { CFG, HALF } from './config.js';
+import { CFG, HALF, QUALITY } from './config.js';
 import { assets, flattenModel, modelPoints } from './assets.js';
 import { rng, fbm, smoothstep } from './noise.js';
 import {
@@ -48,31 +48,130 @@ function rockMat(tint = 0xffffff, scale = 0.035) {
   return (matCache[k] ??= makeTriplanarMaterial({ map: assets.tex.rock, tint, scale }));
 }
 
-/* Crea InstancedMesh por cada sub-malla del modelo. */
-function instanced(name, matrices, { shadow = true, material = null, receive = true, vary = 0 } = {}) {
+/* ── Instancias con culling propio ──────────────────────────
+   Un InstancedMesh con instancias por todo el mapa no se descarta nunca: se dibujaba
+   entero en la pasada principal y en la de sombras. Ahora cada grupo guarda todas sus
+   matrices y, cada frame, copia solo las que caen en el frustum de la cámara y dentro
+   de la distancia de dibujo (encogiéndolas cerca del límite para que no "aparezcan"), y
+   aparte las que caen en el frustum de la sombra. Ambas listas viven intercaladas en un
+   solo buffer (stride 32: [visible | sombra]); onBeforeShadow cambia la vista. */
+const cullGroups = [];
+
+function instanced(name, matrices, { shadow = true, material = null, receive = true, vary = 0, dist = QUALITY.propDist } = {}) {
   if (!matrices.length) return [];
   const f = flat(name);
-  const out = [];
-  for (const part of f.parts) {
-    const mesh = new THREE.InstancedMesh(part.geometry, material ?? part.material, matrices.length);
-    for (let i = 0; i < matrices.length; i++) mesh.setMatrixAt(i, matrices[i]);
-    mesh.instanceMatrix.needsUpdate = true;
-    if (vary > 0) {
-      const c = new THREE.Color();
-      for (let i = 0; i < matrices.length; i++) {
-        const h = Math.sin(i * 12.9898 + matrices[i].elements[12] * 0.01) * 43758.5453;
-        const f = 1 - vary + (h - Math.floor(h)) * vary * 2;
-        mesh.setColorAt(i, c.setRGB(f, f * (0.97 + (h * 7 % 1) * 0.06), f));
-      }
-      mesh.instanceColor.needsUpdate = true;
+  const n = matrices.length;
+  const all = new Float32Array(n * 16);
+  const spheres = new Float32Array(n * 4);
+  const colors = vary > 0 ? new Float32Array(n * 3) : null;
+  const center = f.box.getCenter(new THREE.Vector3());
+  const r0 = f.box.getSize(new THREE.Vector3()).length() / 2;
+  const c = new THREE.Vector3();
+  for (let i = 0; i < n; i++) {
+    const m = matrices[i];
+    m.toArray(all, i * 16);
+    c.copy(center).applyMatrix4(m);
+    spheres.set([c.x, c.y, c.z, r0 * m.getMaxScaleOnAxis()], i * 4);
+    if (colors) {
+      const h = Math.sin(i * 12.9898 + m.elements[12] * 0.01) * 43758.5453;
+      const k = 1 - vary + (h - Math.floor(h)) * vary * 2;
+      colors.set([k, k * (0.97 + (h * 7 % 1) * 0.06), k], i * 3);
     }
+  }
+  const buf = new THREE.InstancedInterleavedBuffer(new Float32Array(n * 32), 32).setUsage(THREE.DynamicDrawUsage);
+  const g = {
+    n, all, spheres, colors, dist, shadow, buf,
+    visM: new THREE.InterleavedBufferAttribute(buf, 16, 0),
+    castM: new THREE.InterleavedBufferAttribute(buf, 16, 16),
+    color: colors ? new THREE.InstancedBufferAttribute(new Float32Array(n * 3), 3).setUsage(THREE.DynamicDrawUsage) : null,
+    visCount: 0, castCount: 0, meshes: [],
+  };
+  for (const part of f.parts) {
+    const mesh = new THREE.InstancedMesh(part.geometry, material ?? part.material, n);
+    mesh.instanceMatrix = g.visM;
+    if (g.color) mesh.instanceColor = g.color;
+    mesh.count = 0;
+    mesh.frustumCulled = false;
     mesh.castShadow = shadow;
     mesh.receiveShadow = receive;
-    mesh.computeBoundingSphere();
+    if (shadow) {
+      mesh.onBeforeShadow = () => { mesh.instanceMatrix = g.castM; mesh.count = g.castCount; };
+      mesh.onAfterShadow = () => { mesh.instanceMatrix = g.visM; mesh.count = g.visCount; };
+    }
     world.scene.add(mesh);
-    out.push(mesh);
+    g.meshes.push(mesh);
   }
-  return out;
+  cullGroups.push(g);
+  return g.meshes;
+}
+
+const _frustum = new THREE.Frustum();
+const _pv = new THREE.Matrix4();
+const _sph = new THREE.Sphere();
+
+/* Escribe en el buffer (desplazamiento off: 0 visible, 16 sombra) las instancias que
+   pasan el frustum y, si se pasa camPos, la distancia; entre fadeFrom y g.dist se
+   encogen hasta desaparecer. Devuelve cuántas quedaron. */
+function fillSet(g, off, frustum, camPos, fadeFrom) {
+  const { all, spheres, colors } = g;
+  const dst = g.buf.array;
+  const cdst = off === 0 ? g.color?.array : null;
+  const maxD2 = g.dist * g.dist;
+  let k = 0;
+  for (let i = 0; i < g.n; i++) {
+    const i4 = i * 4;
+    let fade = 1;
+    if (camPos) {
+      const dx = spheres[i4] - camPos.x, dy = spheres[i4 + 1] - camPos.y, dz = spheres[i4 + 2] - camPos.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > maxD2) continue;
+      const d = Math.sqrt(d2);
+      if (d > fadeFrom) fade = 1 - (d - fadeFrom) / (g.dist - fadeFrom);
+      if (fade <= 0.02) continue;
+    }
+    _sph.center.set(spheres[i4], spheres[i4 + 1], spheres[i4 + 2]);
+    _sph.radius = spheres[i4 + 3];
+    if (!frustum.intersectsSphere(_sph)) continue;
+    const s = i * 16, o = k * 32 + off;
+    for (let e = 0; e < 16; e++) dst[o + e] = all[s + e];
+    if (fade < 1) {
+      // Escala en espacio local (alrededor de la base del modelo): se hunde al alejarse
+      for (let e = 0; e < 3; e++) { dst[o + e] *= fade; dst[o + 4 + e] *= fade; dst[o + 8 + e] *= fade; }
+    }
+    if (cdst) { cdst[k * 3] = colors[i * 3]; cdst[k * 3 + 1] = colors[i * 3 + 1]; cdst[k * 3 + 2] = colors[i * 3 + 2]; }
+    k++;
+  }
+  return k;
+}
+
+/* Llamar cada frame, después de mover la cámara y la sombra (updateSunShadow). */
+export function updateCulling(camera) {
+  camera.updateMatrixWorld();
+  _pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  _frustum.setFromProjectionMatrix(_pv);
+  const sun = world.sun;
+  sun.updateMatrixWorld();
+  sun.shadow.updateMatrices(sun);
+  const shadowFrustum = sun.shadow.getFrustum();
+  let vis = 0, cast = 0;
+  for (const g of cullGroups) {
+    g.visCount = fillSet(g, 0, _frustum, camera.position, g.dist * 0.85);
+    g.castCount = g.shadow ? fillSet(g, 16, shadowFrustum, null, 0) : 0;
+    for (const m of g.meshes) m.count = g.visCount;
+    const used = Math.max(g.visCount, g.castCount);
+    g.buf.clearUpdateRanges();
+    if (used) g.buf.addUpdateRange(0, used * 32);
+    g.buf.needsUpdate = true;
+    if (g.color) {
+      g.color.clearUpdateRanges();
+      if (g.visCount) g.color.addUpdateRange(0, g.visCount * 3);
+      g.color.needsUpdate = true;
+    }
+    vis += g.visCount;
+    cast += g.castCount;
+  }
+  world.stats.visibleInstances = vis;
+  world.stats.shadowInstances = cast;
 }
 
 function slopeAt(x, z) {
@@ -96,6 +195,10 @@ function buildSky(renderer) {
   const theta = THREE.MathUtils.degToRad(145);
   world.sunDir.setFromSphericalCoords(1, phi, theta);
   u.sunPosition.value.copy(world.sunDir);
+  // Los opacos se ordenan por material antes que por distancia: sin esto el cielo (shader
+  // caro, pantalla completa) se pintaba primero y el terreno lo tapaba. Al final, el
+  // z-buffer descarta todo lo que ya está cubierto.
+  sky.renderOrder = 2;
   scene.add(sky);
   world.sky = sky;
 
@@ -121,7 +224,7 @@ function buildSky(renderer) {
   const sun = new THREE.DirectionalLight(0xfff1d6, 2.7);
   sun.position.copy(world.sunDir).multiplyScalar(600);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(CFG.SHADOW_SIZE, CFG.SHADOW_SIZE);
+  sun.shadow.mapSize.set(QUALITY.shadowSize, QUALITY.shadowSize);
   const sc = sun.shadow.camera;
   sc.left = -160; sc.right = 160; sc.top = 160; sc.bottom = -160;
   sc.near = 10; sc.far = 1600;
@@ -134,7 +237,7 @@ function buildSky(renderer) {
 /* La sombra sigue al jugador (texel-snapping para que no "nade"). */
 export function updateSunShadow(focus) {
   const sun = world.sun;
-  const texel = 320 / CFG.SHADOW_SIZE;
+  const texel = 320 / QUALITY.shadowSize;
   const fx = Math.round(focus.x / texel) * texel;
   const fz = Math.round(focus.z / texel) * texel;
   sun.target.position.set(fx, focus.y, fz);
@@ -367,7 +470,7 @@ function buildStoneRing() {
   const dir = new THREE.Vector3(g.normal.x, 0, g.normal.z).normalize();
   _q.setFromAxisAngle(UP, Math.atan2(dir.x, dir.z));
   const m = new THREE.Matrix4().compose(new THREE.Vector3(g.pos.x, gy - f.box.min.y * scale, g.pos.z), _q, _s.setScalar(scale));
-  instanced('statue_ring', [m], { material: rockMat(0xe8dfcf, 0.05) });
+  instanced('statue_ring', [m], { material: rockMat(0xe8dfcf, 0.05), dist: 1e5 });
   for (const p of f.parts) addStaticTrimesh(p.geometry, m, { kind: 'stone' });
   // Recentrar la puerta en el hueco
   g.pos.copy(c).applyMatrix4(m);
@@ -449,7 +552,7 @@ function buildRuins(r) {
     _q.setFromAxisAngle(UP, -2.3);
     const m = new THREE.Matrix4().compose(_p.set(x, gy - 6, z), _q, _s.setScalar(sc));
     if (isPathClear(x, z, 50, gy, gy + 120, 10)) {
-      instanced('statue_head', [m], { material: marble });
+      instanced('statue_head', [m], { material: marble, dist: 1e5 });
       addStaticHull(modelPoints(f, m), { kind: 'stone' });
     }
   }
@@ -559,7 +662,7 @@ function buildForests(r) {
     addStaticCylinder(H / 2, Math.max(1.2, rad * 0.62), new THREE.Vector3(x, h + H / 2, z), { kind: 'tree' });
     n++;
   }
-  for (const t of all) instanced(t, M[t], { vary: 0.16 });
+  for (const t of all) instanced(t, M[t], { vary: 0.16, dist: QUALITY.vegDist });
 
   // Rocas grandes
   const ROCKS = ['rock_largeA', 'rock_largeB', 'rock_largeD'];
@@ -717,7 +820,9 @@ export async function buildWorld(scene, renderer, onStep) {
   setCarveSegments(pathSegments());
   buildHeightGrid();
   const terrainMat = makeTerrainMaterial({ grass: assets.tex.grass, rock: assets.tex.rock, snow: assets.tex.snow });
-  scene.add(buildTerrainMesh(terrainMat));
+  const terrain = buildTerrainMesh(terrainMat);
+  terrain.renderOrder = 1; // después de rocas/árboles/islas: no se sombrea lo que tapan
+  scene.add(terrain);
   buildTerrainCollider(phys.world);
   buildWater();
   buildClouds(r);
@@ -736,6 +841,9 @@ export async function buildWorld(scene, renderer, onStep) {
   buildCourseVisuals(scene, world.glowTex);
 
   phys.world.step(); // inicializa estructuras de consulta
+  // Al crear sus colliders los cuerpos se despiertan y algunas columnas (con un tambor
+  // rozando el terreno) se derrumbaban solas. Duermen hasta que algo las golpee.
+  for (const e of phys.tracked) e.body.sleep();
   return world;
 }
 

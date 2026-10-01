@@ -2,15 +2,28 @@
    Evitan costuras/estiramientos en geometría procedural y en modelos escalados. */
 import * as THREE from 'three';
 
+/* Muestreo triplanar barato: derivadas calculadas una vez (textureGrad, válido dentro
+   de ramas), se saltan los planos con peso casi nulo y la octava fina se desvanece
+   con la distancia (lejos se sustituye por el color medio de la textura). */
 const TRI_GLSL = /* glsl */`
 varying vec3 vTriPos;
 varying vec3 vTriN;
-vec3 triSample(sampler2D t, vec3 p, vec3 w) {
-  return texture2D(t, p.zy).rgb * w.x + texture2D(t, p.xz).rgb * w.y + texture2D(t, p.xy).rgb * w.z;
-}
+vec3 triDx, triDy;
+vec3 sampleXZ(sampler2D t, float s) { return textureGrad(t, vTriPos.xz * s, triDx.xz * s, triDy.xz * s).rgb; }
+vec3 sampleZY(sampler2D t, float s) { return textureGrad(t, vTriPos.zy * s, triDx.zy * s, triDy.zy * s).rgb; }
+vec3 sampleXY(sampler2D t, float s) { return textureGrad(t, vTriPos.xy * s, triDx.xy * s, triDy.xy * s).rgb; }
 vec3 triWeights(vec3 n) {
   vec3 w = pow(abs(n), vec3(4.0));
+  w /= (w.x + w.y + w.z);
+  w *= step(vec3(0.03), w);
   return w / (w.x + w.y + w.z);
+}
+vec3 triSample(sampler2D t, float s, vec3 w) {
+  vec3 c = vec3(0.0);
+  if (w.x > 0.0) c += sampleZY(t, s) * w.x;
+  if (w.y > 0.0) c += sampleXZ(t, s) * w.y;
+  if (w.z > 0.0) c += sampleXY(t, s) * w.z;
+  return c;
 }
 `;
 
@@ -34,68 +47,108 @@ function injectVertex(shader) {
     .replace('#include <project_vertex>', '#include <project_vertex>\n' + TRI_VERT);
 }
 
+/* Color medio (lineal) de una textura sRGB: sustituye a la octava fina a distancia. */
+const avgCache = new WeakMap();
+export function averageColor(tex) {
+  if (avgCache.has(tex)) return avgCache.get(tex);
+  const S = 32;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(tex.image, 0, 0, S, S);
+  const d = g.getImageData(0, 0, S, S).data;
+  const lin = (v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const out = new THREE.Vector3();
+  for (let i = 0; i < d.length; i += 4) out.x += lin(d[i]), out.y += lin(d[i + 1]), out.z += lin(d[i + 2]);
+  out.divideScalar(d.length / 4);
+  avgCache.set(tex, out);
+  return out;
+}
+
+/* Distancia (m) a la que se apaga el detalle fino; la fija el preset de calidad. */
+let detailDist = 380;
+export function setDetailDistance(d) { detailDist = d; }
+
 /* Roca/piedra genérica para obstáculos. */
 export function makeTriplanarMaterial({ map, scale = 0.04, tint = 0xffffff, roughness = 0.92, vertexColors = false }) {
   const mat = new THREE.MeshStandardMaterial({ color: tint, roughness, metalness: 0, vertexColors });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.tTri = { value: map };
     shader.uniforms.uTriScale = { value: scale };
+    shader.uniforms.uTriAvg = { value: averageColor(map) };
+    shader.uniforms.uDetail = { value: detailDist };
     injectVertex(shader);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform sampler2D tTri;\nuniform float uTriScale;\n' + TRI_GLSL)
+      .replace('#include <common>', '#include <common>\nuniform sampler2D tTri;\nuniform float uTriScale;\nuniform vec3 uTriAvg;\nuniform float uDetail;\n' + TRI_GLSL)
       .replace('#include <map_fragment>', /* glsl */`
         {
+          triDx = dFdx(vTriPos); triDy = dFdy(vTriPos);
           vec3 tw = triWeights(normalize(vTriN));
-          vec3 c1 = triSample(tTri, vTriPos * uTriScale, tw);
-          vec3 c2 = triSample(tTri, vTriPos * uTriScale * 0.21, tw);
+          float near = 1.0 - smoothstep(uDetail * 0.6, uDetail, distance(cameraPosition, vTriPos));
+          vec3 c2 = triSample(tTri, uTriScale * 0.21, tw);
+          vec3 c1 = uTriAvg;
+          if (near > 0.0) c1 = mix(uTriAvg, triSample(tTri, uTriScale, tw), near);
           diffuseColor.rgb *= mix(c1, c1 * c2 * 2.2, 0.4) * 2.1;
         }`);
   };
-  mat.customProgramCacheKey = () => 'tri-' + scale;
+  mat.customProgramCacheKey = () => 'tri2-' + scale;
   return mat;
 }
 
-/* Terreno: pasto en llano, roca en pendiente, nieve en altura, arena en la orilla. */
+/* Terreno: pasto en llano, roca en pendiente, nieve en altura, arena en la orilla.
+   Cada capa solo se muestrea donde pesa algo. */
 export function makeTerrainMaterial({ grass, rock, snow }) {
   const mat = new THREE.MeshStandardMaterial({ roughness: 0.96, metalness: 0 });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.tGrass = { value: grass };
     shader.uniforms.tRock = { value: rock };
     shader.uniforms.tSnow = { value: snow };
+    shader.uniforms.uGrassAvg = { value: averageColor(grass) };
+    shader.uniforms.uRockAvg = { value: averageColor(rock) };
+    shader.uniforms.uDetail = { value: detailDist };
     injectVertex(shader);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform sampler2D tGrass;\nuniform sampler2D tRock;\nuniform sampler2D tSnow;\n' + TRI_GLSL)
+      .replace('#include <common>', '#include <common>\nuniform sampler2D tGrass;\nuniform sampler2D tRock;\nuniform sampler2D tSnow;\nuniform vec3 uGrassAvg;\nuniform vec3 uRockAvg;\nuniform float uDetail;\n' + TRI_GLSL)
       .replace('#include <map_fragment>', /* glsl */`
         {
+          triDx = dFdx(vTriPos); triDy = dFdy(vTriPos);
           vec3 n = normalize(vTriN);
-          vec3 tw = triWeights(n);
           float slope = 1.0 - n.y;
           float h = vTriPos.y;
-          float macro = texture2D(tRock, vTriPos.xz * 0.0013).r;
-
-          vec3 grass = texture2D(tGrass, vTriPos.xz * 0.05).rgb;
-          vec3 grassFar = texture2D(tGrass, vTriPos.xz * 0.0065).rgb;
-          grass = grass * mix(vec3(0.9), grassFar * 1.7, 0.45);
-          grass *= mix(vec3(1.0, 0.92, 0.7), vec3(0.78, 0.9, 0.72), macro);
-
-          vec3 rock = triSample(tRock, vTriPos * 0.028, tw);
-          rock = mix(rock, rock * triSample(tRock, vTriPos * 0.0061, tw) * 2.0, 0.45) * vec3(1.75, 1.6, 1.45);
-
-          vec3 snow = texture2D(tSnow, vTriPos.xz * 0.04).rgb;
-          vec3 sand = vec3(0.58, 0.5, 0.36) * (0.55 + 0.9 * texture2D(tRock, vTriPos.xz * 0.09).r);
+          float near = 1.0 - smoothstep(uDetail * 0.6, uDetail, distance(cameraPosition, vTriPos));
+          float macro = sampleXZ(tRock, 0.0013).r;
 
           float rockW = smoothstep(0.26, 0.42, slope + (macro - 0.5) * 0.18);
           float snowW = smoothstep(330.0, 420.0, h + (macro - 0.5) * 140.0) * (1.0 - smoothstep(0.5, 0.75, slope));
           float sandW = 1.0 - smoothstep(1.5, 6.0, h + (macro - 0.5) * 5.0);
 
-          vec3 col = mix(grass, sand, sandW);
-          col = mix(col, rock, rockW);
-          col = mix(col, snow, snowW);
+          vec3 col = vec3(0.0);
+          if (rockW < 1.0) {
+            vec3 grassFar = sampleXZ(tGrass, 0.0065);
+            vec3 g = uGrassAvg;
+            if (near > 0.0) g = mix(uGrassAvg, sampleXZ(tGrass, 0.05), near);
+            vec3 grassC = g * mix(vec3(0.9), grassFar * 1.7, 0.45);
+            grassC *= mix(vec3(1.0, 0.92, 0.7), vec3(0.78, 0.9, 0.72), macro);
+            if (sandW > 0.0) {
+              float sn = near > 0.0 ? mix(uRockAvg.r, sampleXZ(tRock, 0.09).r, near) : uRockAvg.r;
+              vec3 sand = vec3(0.58, 0.5, 0.36) * (0.55 + 0.9 * sn);
+              grassC = mix(grassC, sand, sandW);
+            }
+            col = grassC;
+          }
+          if (rockW > 0.0) {
+            vec3 tw = triWeights(n);
+            vec3 r1 = uRockAvg;
+            if (near > 0.0) r1 = mix(uRockAvg, triSample(tRock, 0.028, tw), near);
+            vec3 rockC = mix(r1, r1 * triSample(tRock, 0.0061, tw) * 2.0, 0.45) * vec3(1.75, 1.6, 1.45);
+            col = mix(col, rockC, rockW);
+          }
+          if (snowW > 0.0) col = mix(col, sampleXZ(tSnow, 0.04), snowW);
           col *= mix(0.5, 1.0, smoothstep(-28.0, 0.0, h));
           diffuseColor.rgb *= col;
         }`);
   };
-  mat.customProgramCacheKey = () => 'terrain';
+  mat.customProgramCacheKey = () => 'terrain2';
   return mat;
 }
 

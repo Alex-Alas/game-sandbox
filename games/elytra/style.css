@@ -92,6 +92,12 @@ canvas#game { display: block; width: 100%; height: 100%; cursor: crosshair; }
   color: var(--cyan); font: inherit; font-size: 20px; width: 34px; height: 30px; cursor: pointer; }
 .skins button:hover { background: rgba(120,220,255,.25); }
 #skinName { min-width: 130px; letter-spacing: 3px; font-size: 13px; }
+.skins.quality { margin-top: -8px; }
+.skins.quality button { font-size: 16px; width: 28px; height: 24px; }
+#qualName { min-width: 130px; letter-spacing: 3px; font-size: 11px; color: var(--dim); }
+#perf { position: fixed; left: 16px; bottom: 16px; z-index: 30; pointer-events: none; white-space: pre;
+  font-size: 11px; line-height: 1.5; color: #bff3ff; background: rgba(2,8,14,.72);
+  border: 1px solid rgba(120,220,255,.25); padding: 6px 9px; }
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 7px 18px; text-align: left; font-size: 12.5px;
   margin: 0 auto 22px; max-width: 470px; }
 .keys kbd { display: inline-block; background: rgba(120,220,255,.12); border: 1px solid rgba(120,220,255,.4);
