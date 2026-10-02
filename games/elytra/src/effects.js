@@ -87,7 +87,7 @@ class Particles {
 }
 
 /* ── Estela tipo cinta orientada a cámara ──────────────────── */
-class Ribbon {
+export class Ribbon {
   constructor(scene, color, n = 28) {
     this.n = n;
     this.pts = Array.from({ length: n }, () => new THREE.Vector3());

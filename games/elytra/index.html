@@ -29,6 +29,7 @@
   <div class="panel tc" id="racepanel">
     <div class="race-time" id="racetime">00:00.00</div>
     <div class="race-sub"><span id="gatecount">PUERTA 0/0</span> · MEJOR <span id="besttime">--:--.--</span></div>
+    <div class="race-target" id="target"></div>
     <div class="split" id="split"></div>
   </div>
 
@@ -56,6 +57,7 @@
   <div class="card">
     <h1>ELYTRA</h1>
     <div class="sub2">V U E L O &nbsp; L I B R E</div>
+    <div class="records" id="records"></div>
     <div class="skins">
       <button id="skinPrev" aria-label="Personaje anterior">‹</button>
       <span id="skinName">PILOTO A</span>
@@ -79,7 +81,7 @@
       <div><kbd>SHIFT</kbd></div><div class="txt">Impulso</div>
       <div><kbd>X</kbd></div><div class="txt">Soltarse (ragdoll voluntario)</div>
       <div><kbd>R</kbd> / <kbd>T</kbd></div><div class="txt">Reaparecer en puerta / reiniciar carrera</div>
-      <div><kbd>V</kbd> · <kbd>M</kbd> · <kbd>F3</kbd></div><div class="txt">Cámara · silenciar · rendimiento</div>
+      <div><kbd>V</kbd> · <kbd>M</kbd> · <kbd>G</kbd> · <kbd>F3</kbd></div><div class="txt">Cámara · silenciar · fantasma · rendimiento</div>
       <div><kbd>↑</kbd> / <kbd>↓</kbd></div><div class="txt">Sensibilidad del ratón (también en vuelo)</div>
     </div>
     <div class="cta">HAZ CLIC PARA VOLAR</div>
@@ -111,6 +113,7 @@
 <div id="finishpanel" class="hidden">
   <div class="big" id="finishtitle">¡META!</div>
   <div class="finish-time" id="finishtime">00:00.00</div>
+  <div class="finish-medal" id="finishmedal"></div>
   <div class="tip" id="finishsub"></div>
 </div>
 

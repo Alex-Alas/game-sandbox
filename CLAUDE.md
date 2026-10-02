@@ -18,7 +18,8 @@ Vite multi-página: cada juego vive en `games/<nombre>/` y sus assets en `public
 
 ### ELYTRA (`games/elytra/src/`)
 
-- `main.js`: bucle, estados (`loading|title|fly|crash`), entrada, HUD, resolución adaptativa y overlay F3. Expone `window.__elytra` para depurar (`advance(seg, keys, render)` simula sin rAF; `probePath()`).
+- `main.js`: bucle, estados (`loading|title|fly|crash`), entrada, HUD, resolución adaptativa y overlay F3. Expone `window.__elytra` para depurar (`advance(seg, keys, render)` simula sin rAF; `probePath()`; `autopilot(on, boost)` vuela solo hacia la siguiente puerta, útil para completar vueltas headless).
+- `ghost.js`: graba la vuelta a 20 Hz en una rejilla de tiempo de carrera y guarda la mejor por circuito (`elytra.ghost.<course.id>`); la reproduce como piloto translúcido. Las medallas (`MEDALS` en `course.js`) se calibraron con el piloto automático (~50,8 s).
 - **Dos simulaciones separadas.** El vuelo (`player.js`) usa paso fijo de 120 Hz con colisión por shape-cast de Rapier; el mundo Rapier (`physics.js`) corre a 60 Hz y solo se simula si hay cuerpos despiertos. El render interpola ambos (`player.rpos`, `phys.tracked`/`syncDynamic`): usá `rpos`, no `pos`, para posicionar cámara y mallas.
 - Cuerpos con malla se registran con `track()` y se quitan con `removeBodies()`; el ragdoll (`ragdoll.js`) y las columnas de ruinas pasan por ahí.
 - `ragdoll.js`: una caja por parte, articulaciones esféricas con motores/límites. Las partes no colisionan entre sí (grupos de colisión) y los golpes se detectan por Δv por paso, no por fuerza bruta.

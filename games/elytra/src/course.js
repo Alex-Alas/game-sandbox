@@ -36,7 +36,27 @@ const GATE_DEFS = [
 export const GATE_R = 17;
 let _segs = null;
 
+/* Medallas del circuito (tiempo máximo en s, de mejor a peor). Referencia: el piloto
+   automático de depuración (autopilot.js), con trazada perfecta e impulso sin
+   cristales, hace ~50,8 s; AUTOR exige batirlo. */
+export const MEDALS = [
+  { id: 'author', label: 'AUTOR',  t: 48, color: '#c86bff' },
+  { id: 'gold',   label: 'ORO',    t: 55, color: '#ffd23f' },
+  { id: 'silver', label: 'PLATA',  t: 64, color: '#dfe9f2' },
+  { id: 'bronze', label: 'BRONCE', t: 80, color: '#e39a5c' },
+];
+
+/** Mejor medalla conseguida con el tiempo t (o null). */
+export const medalFor = (t) => (t == null ? null : MEDALS.find((m) => t <= m.t) ?? null);
+
+/** La medalla más fácil que aún no se consigue con el tiempo t (null si ya tiene todas). */
+export function nextMedal(t) {
+  for (let i = MEDALS.length - 1; i >= 0; i--) if (t == null || t > MEDALS[i].t) return MEDALS[i];
+  return null;
+}
+
 export const course = {
+  id: 'main',         // clave de récords y fantasma en localStorage
   gates: [],          // { pos, normal, def, group, ring, mat }
   start: null,        // { pos, dir }
   next: 0,

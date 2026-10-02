@@ -12,12 +12,14 @@ import {
 import {
   cam, addTrauma, updateFlightCamera, updateRagdollCamera, startRagdollCamera, orbitInput, zoomInput, updateAttractCamera,
 } from './camera.js';
-import { course, checkGates, resetCourse, animateCourse, fmtTime } from './course.js';
+import { course, checkGates, resetCourse, animateCourse, fmtTime, MEDALS, medalFor, nextMedal } from './course.js';
 import { fx, initEffects, updateEffects, updateStreaks, burst, dustPuff, setParticleScale } from './effects.js';
 import { initAudio, updateWind, sfx, toggleMute } from './audio.js';
 import { surfaceHeight } from './terrain.js';
 import { setDetailDistance } from './materials.js';
 import { mouseToRadians, settleMouse, stepSens, sensLabel } from './mouse.js';
+import { ghost, initGhost, ghostStart, ghostRecord, ghostFinish, ghostCancel, updateGhost, toggleGhost } from './ghost.js';
+import { autopilot, steerAutopilot } from './autopilot.js';
 
 /* ── Render ──────────────────────────────────────────────── */
 const canvas = document.getElementById('game');
@@ -99,6 +101,7 @@ const el = {
   cDamage: $('cDamage'), cFract: $('cFract'), cBounce: $('cBounce'), cDist: $('cDist'), cImpact: $('cImpact'),
   crashcta: $('crashcta'), finishpanel: $('finishpanel'), finishtitle: $('finishtitle'), finishtime: $('finishtime'),
   finishsub: $('finishsub'), pause: $('pause'), perf: $('perf'), qualName: $('qualName'), sensName: $('sensName'),
+  target: $('target'), finishmedal: $('finishmedal'), records: $('records'),
 };
 
 /* ── Avisos temporales ───────────────────────────────────── */
@@ -150,8 +153,9 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'KeyM') callout(toggleMute() ? 'SONIDO OFF' : 'SONIDO ON', 'var(--cyan)');
+  if (e.code === 'KeyG') callout(toggleGhost() ? 'FANTASMA ON' : 'FANTASMA OFF', 'var(--cyan)');
   if (e.code === 'KeyR') respawn();
-  if (e.code === 'KeyT') { resetCourse(); respawn(true); }
+  if (e.code === 'KeyT') { resetCourse(); ghostCancel(); respawn(true); }
   if (state.mode === 'fly') {
     if (e.code === 'Space' && tryFlap()) sfx.flap();
     if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && tryBoost()) { sfx.boost(); addTrauma(0.25); cam.fovKick = 6; }
@@ -239,6 +243,7 @@ function flyUpdate(dt, rdt) {
     flare: keys.KeyS || keys.ArrowDown,
     bank: (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0),
   };
+  if (autopilot.on) Object.assign(input, steerAutopilot(dt));
   flyAcc += dt;
   let steps = 0;
   while (flyAcc >= FIXED && steps++ < 16) {
@@ -256,6 +261,7 @@ function flyUpdate(dt, rdt) {
   // Render interpolado entre el último paso fijo y el actual (sin tirones a cualquier Hz)
   player.rpos.lerpVectors(_prev, player.pos, flyAcc / FIXED);
   updateBank(rdt, input);
+  if (course.running) ghostRecord(state.time - course.t0, player);
 
   // Cristales
   for (const c of world.crystals) {
@@ -355,13 +361,23 @@ function onGate(g) {
     clearTimeout(timers.split);
     timers.split = setTimeout(() => el.split.classList.remove('on'), 1800);
   }
-  if (g.type === 'start') callout('¡CRONO EN MARCHA!', 'var(--gold)', 1200);
+  if (g.type === 'start') {
+    ghostStart(course.t0);
+    callout('¡CRONO EN MARCHA!', 'var(--gold)', 1200);
+  }
   if (g.type === 'finish') {
+    const savedGhost = ghostFinish(g.time, state.skin, course.id);
     sfx.finish(g.record);
     el.finishtitle.textContent = g.record ? '¡NUEVO RÉCORD!' : '¡META!';
     el.finishtime.textContent = fmtTime(g.time);
-    el.finishsub.textContent = `MEJOR ${fmtTime(course.best)} · LA SIGUIENTE VUELTA EMPIEZA EN LA PRIMERA PUERTA`;
+    const m = medalFor(g.time), nx = nextMedal(g.time);
+    el.finishmedal.textContent = m ? (m.id === 'author' ? 'MEDALLA DE AUTOR' : 'MEDALLA DE ' + m.label) : 'SIN MEDALLA';
+    el.finishmedal.style.color = m ? m.color : 'var(--dim)';
+    el.finishsub.innerHTML =
+      (nx ? `SIGUIENTE: ${nx.label} ${fmtTime(nx.t)} · TE FALTAN ${(g.time - nx.t).toFixed(2)} s<br>` : '') +
+      `MEJOR ${fmtTime(course.best)}${savedGhost ? ' · FANTASMA GUARDADO' : ''} · LA SIGUIENTE VUELTA EMPIEZA EN LA PRIMERA PUERTA`;
     el.finishpanel.classList.remove('hidden');
+    refreshRecords();
     clearTimeout(timers.finish);
     timers.finish = setTimeout(() => el.finishpanel.classList.add('hidden'), 4000);
   }
@@ -437,6 +453,7 @@ function respawn(fromStart = false) {
   pos.y = Math.max(pos.y, surfaceHeight(pos.x, pos.z) + 25);
   resetPlayer(pos, dir, 70);
   _prev.copy(player.pos);
+  if (course.running) ghostRecord(state.time - course.t0, player, true);
   state.mode = 'fly';
   state.slowmo = 0;
   flyAcc = 0;
@@ -493,10 +510,23 @@ function updateHUD(dt) {
   el.racetime.textContent = fmtTime(t);
   el.gatecount.textContent = `PUERTA ${course.next}/${course.gates.length}`;
   el.besttime.textContent = fmtTime(course.best);
+  const nx = nextMedal(course.best);
+  el.target.innerHTML = nx ? `OBJETIVO <b style="color:${nx.color}">${nx.label}</b> ${fmtTime(nx.t)}` : '<b style="color:#c86bff">TODAS LAS MEDALLAS</b>';
   el.crystals.textContent = state.crystals;
   el.nears.textContent = state.nears;
   el.hint.textContent = pointerLocked ? 'R REAPARECER · T REINICIAR · X SOLTARSE' : 'CLIC PARA CAPTURAR EL RATÓN';
   el.vignette.style.opacity = Math.min(0.9, Math.max(0, (spd - 90) / 160) + player.boostFlash * 0.4);
+}
+
+/* Récord y escalera de medallas de la pantalla de título. */
+function refreshRecords() {
+  const best = course.best;
+  el.records.innerHTML =
+    `<div class="best">MEJOR ${fmtTime(best)}${ghost.saved ? ' · FANTASMA LISTO' : ''}</div>` +
+    MEDALS.slice().reverse().map((m) => {
+      const got = best != null && best <= m.t;
+      return `<span class="medal${got ? ' got' : ''}" style="--mc:${m.color}">${m.label} ${fmtTime(m.t)}</span>`;
+    }).join('');
 }
 
 function updateGateMarker() {
@@ -602,6 +632,7 @@ function tick(now) {
   } else {
     _focus.copy(player.rpos);
   }
+  updateGhost(state.time, camera, state.mode === 'fly' || state.mode === 'crash', course.running);
 
   updateEffects(dt);
   updateWorld(dt, state.time, camera);
@@ -630,6 +661,8 @@ async function boot() {
     });
     initEffects(scene, world.glowTex);
     setParticleScale(renderer.domElement.height);
+    initGhost(scene, course.id, world.glowTex);
+    refreshRecords();
     setSkin(0);
     resetPlayer(course.start.pos, course.start.dir, 60);
     renderer.compile(scene, camera);
@@ -663,7 +696,11 @@ async function boot() {
       }
       return out;
     };
-    window.__elytra = { probePath, state, player, course, world, phys, ragdoll, scene, camera, renderer, advance, respawn, crash, keys, res, perf, QUALITY };
+    const setAutopilot = (on = true, boost = true) => { autopilot.on = on; autopilot.boost = boost; };
+    window.__elytra = {
+      probePath, state, player, course, world, phys, ragdoll, scene, camera, renderer, advance, respawn, crash, keys, res, perf,
+      QUALITY, ghost, autopilot: setAutopilot,
+    };
     requestAnimationFrame(frame);
   } catch (err) {
     console.error(err);
