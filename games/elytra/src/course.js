@@ -218,11 +218,12 @@ export function checkGates(p0, p1, now) {
   if (s0 === s1 || s0 * s1 > 0) return null;
   const t = s0 / (s0 - s1);
   _hit.copy(p0).lerp(p1, t);
-  if (_hit.distanceTo(g.pos) > GATE_R + 1.5) return null;
+  const off = _hit.distanceTo(g.pos);
+  if (off > GATE_R + 1.5) return null;
 
   const idx = course.next;
   const n = course.gates.length;
-  let ev = { type: 'gate', index: idx, pos: g.pos.clone(), zone: g.def.zone };
+  let ev = { type: 'gate', index: idx, pos: g.pos.clone(), zone: g.def.zone, off };
 
   if (idx === 0 && !course.running) {
     course.running = true;

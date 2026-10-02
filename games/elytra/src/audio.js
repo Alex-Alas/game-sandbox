@@ -195,6 +195,16 @@ export const sfx = {
     if (!A.ctx) return;
     noiseHit({ freq: 90, q: 0.5, gain: 0.8, dur: 1.6 });
   },
+  /* Combo cobrado: arpegio que crece con el multiplicador. */
+  comboBank(mult = 1) {
+    if (!A.ctx) return;
+    const seq = [0, 4, 7, 12, 16, 19].slice(0, Math.min(6, mult + 1));
+    seq.forEach((s, i) => tone({ type: 'sine', f0: 440 * 2 ** ((79 + s - 69) / 12), gain: 0.09, dur: 0.22, when: i * 0.045 }));
+  },
+  comboDrop() {
+    if (!A.ctx) return;
+    tone({ type: 'sawtooth', f0: 420, f1: 120, gain: 0.07, dur: 0.35 });
+  },
 };
 
 /* Música ambiental generativa (derivada del prototipo original). */

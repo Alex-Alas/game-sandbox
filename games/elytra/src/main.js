@@ -20,6 +20,9 @@ import { setDetailDistance } from './materials.js';
 import { mouseToRadians, settleMouse, stepSens, sensLabel } from './mouse.js';
 import { ghost, initGhost, ghostStart, ghostRecord, ghostFinish, ghostCancel, updateGhost, toggleGhost } from './ghost.js';
 import { autopilot, steerAutopilot } from './autopilot.js';
+import {
+  style, WINDOW, initStyle, styleStart, styleCancel, trick, comboValue, styleUpdate, styleBreak, styleFinish,
+} from './style.js';
 
 /* ── Render ──────────────────────────────────────────────── */
 const canvas = document.getElementById('game');
@@ -102,6 +105,8 @@ const el = {
   crashcta: $('crashcta'), finishpanel: $('finishpanel'), finishtitle: $('finishtitle'), finishtime: $('finishtime'),
   finishsub: $('finishsub'), pause: $('pause'), perf: $('perf'), qualName: $('qualName'), sensName: $('sensName'),
   target: $('target'), finishmedal: $('finishmedal'), records: $('records'),
+  combo: $('combo'), cnames: $('cnames'), cmult: $('cmult'), cpts: $('cpts'), cbar: $('cbar'),
+  comboresult: $('comboresult'), stylescore: $('stylescore'), finishstyle: $('finishstyle'),
 };
 
 /* ── Avisos temporales ───────────────────────────────────── */
@@ -123,6 +128,18 @@ function zoneBanner(text) {
 function flash() {
   el.flash.classList.add('on');
   setTimeout(() => el.flash.classList.remove('on'), 70);
+}
+
+/* ── Combos de estilo ────────────────────────────────────── */
+const fmtPts = (v) => Math.round(v).toLocaleString('es');
+const NEAR_ROLL = 12;   // m: tonel "al límite" (nearestObstacle mira hasta 14 m)
+
+function onStyle(ev) {
+  if (!ev) return;
+  if (ev.type === 'bank') { sfx.comboBank(ev.mult); el.comboresult.textContent = `+${fmtPts(ev.value)} ESTILO`; }
+  else { sfx.comboDrop(); el.comboresult.textContent = `COMBO PERDIDO −${fmtPts(ev.value)}`; }
+  el.comboresult.className = ev.type;
+  pulse(el.comboresult, 'on', 1400, 'comboresult');
 }
 
 /* ── Personaje ───────────────────────────────────────────── */
@@ -155,12 +172,14 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') callout(toggleMute() ? 'SONIDO OFF' : 'SONIDO ON', 'var(--cyan)');
   if (e.code === 'KeyG') callout(toggleGhost() ? 'FANTASMA ON' : 'FANTASMA OFF', 'var(--cyan)');
   if (e.code === 'KeyR') respawn();
-  if (e.code === 'KeyT') { resetCourse(); ghostCancel(); respawn(true); }
+  if (e.code === 'KeyT') { resetCourse(); ghostCancel(); styleCancel(); respawn(true); }
   if (state.mode === 'fly') {
     if (e.code === 'Space' && tryFlap()) sfx.flap();
     if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && tryBoost()) { sfx.boost(); addTrauma(0.25); cam.fovKick = 6; }
-    if (e.code === 'KeyA' && tryBarrelRoll(-1)) sfx.roll();
-    if (e.code === 'KeyD' && tryBarrelRoll(1)) sfx.roll();
+    if ((e.code === 'KeyA' || e.code === 'KeyD') && tryBarrelRoll(e.code === 'KeyA' ? -1 : 1)) {
+      sfx.roll();
+      if (player.nearDist < NEAR_ROLL) trick('TONEL AL LÍMITE', 150);
+    }
     if (e.code === 'KeyX') crash({ voluntary: true, pos: player.pos.clone(), vel: player.vel.clone(), normal: new THREE.Vector3(0, 1, 0), impact: 0 });
     if (e.code === 'KeyV') {
       cam.mode = cam.mode === 'third' ? 'first' : 'third';
@@ -262,6 +281,7 @@ function flyUpdate(dt, rdt) {
   player.rpos.lerpVectors(_prev, player.pos, flyAcc / FIXED);
   updateBank(rdt, input);
   if (course.running) ghostRecord(state.time - course.t0, player);
+  onStyle(styleUpdate(dt, player.nearDist < 9));
 
   // Cristales
   for (const c of world.crystals) {
@@ -272,6 +292,7 @@ function flyUpdate(dt, rdt) {
       c.userData.timer = 25;
       addCrystal();
       state.crystals++;
+      trick('CRISTAL', 80, true);
       sfx.crystal();
       burst(c.position, 0xc86bff, 40, 30, 2.5, 0.9);
       callout('+ENERGÍA', 'var(--violet)');
@@ -334,6 +355,7 @@ function flyUpdate(dt, rdt) {
 
 function onFlightEvent(ev) {
   if (ev.type === 'scrape') {
+    onStyle(styleBreak());
     burst(ev.pos, 0xffb05a, 6, 18, 0.9, 0.5, { base: player.vel.clone().multiplyScalar(0.4), grav: 20 });
     addTrauma(0.08 + ev.impact * 0.01);
     if (state.time - state.lastScrapeSfx > 0.2) { sfx.scrapeHit(); state.lastScrapeSfx = state.time; callout('¡ROCE!', 'var(--red)', 500); }
@@ -342,8 +364,10 @@ function onFlightEvent(ev) {
     sfx.thud(0.4);
     addTrauma(0.2);
     callout('¡REBOTE!', 'var(--cyan)');
+    trick('REBOTE', 120);
   } else if (ev.type === 'near') {
     state.nears++;
+    trick('RASANTE', Math.round(120 * ev.time));
     sfx.nearMiss();
     callout(`¡RASANTE! ${ev.time.toFixed(1)}s`, 'var(--cyan)');
   }
@@ -363,10 +387,22 @@ function onGate(g) {
   }
   if (g.type === 'start') {
     ghostStart(course.t0);
+    styleStart();
     callout('¡CRONO EN MARCHA!', 'var(--gold)', 1200);
+  }
+  // Enlace del combo: puerta rápida (y mejor si es por el centro)
+  const spd = player.vel.length();
+  if (spd > 150) {
+    const center = g.off < 5;
+    trick(center ? 'PUERTA VELOZ AL CENTRO' : 'PUERTA VELOZ', 100 + Math.round((spd - 150) * 2) + (center ? 100 : 0), true);
   }
   if (g.type === 'finish') {
     const savedGhost = ghostFinish(g.time, state.skin, course.id);
+    const st = styleFinish(course.id);
+    if (st) {
+      el.finishstyle.textContent = `ESTILO ${fmtPts(st.total)} · ` + (st.record ? '¡RÉCORD DE ESTILO!' : `RÉCORD ${fmtPts(style.best ?? 0)}`);
+      el.finishstyle.style.color = st.record ? 'var(--gold)' : '';
+    } else el.finishstyle.textContent = '';
     sfx.finish(g.record);
     el.finishtitle.textContent = g.record ? '¡NUEVO RÉCORD!' : '¡META!';
     el.finishtime.textContent = fmtTime(g.time);
@@ -387,6 +423,7 @@ function onGate(g) {
 function crash(ev) {
   if (state.mode !== 'fly') return;
   state.mode = 'crash';
+  onStyle(styleBreak());
   const speed = ev.vel.length();
   state.crashImpact = ev.voluntary ? 0 : ev.impact ?? speed;
 
@@ -447,6 +484,7 @@ function respawn(fromStart = false) {
     if (!fromStart) return;
   }
   clearRagdoll(scene);
+  onStyle(styleBreak());
   const cp = (!fromStart && course.lastCheckpoint) || course.start;
   const dir = cp.dir.clone().normalize();
   const pos = cp.pos.clone().addScaledVector(dir, 14);
@@ -514,15 +552,38 @@ function updateHUD(dt) {
   el.target.innerHTML = nx ? `OBJETIVO <b style="color:${nx.color}">${nx.label}</b> ${fmtTime(nx.t)}` : '<b style="color:#c86bff">TODAS LAS MEDALLAS</b>';
   el.crystals.textContent = state.crystals;
   el.nears.textContent = state.nears;
+  el.stylescore.textContent = fmtPts(style.total);
+  updateComboHUD();
   el.hint.textContent = pointerLocked ? 'R REAPARECER · T REINICIAR · X SOLTARSE' : 'CLIC PARA CAPTURAR EL RATÓN';
   el.vignette.style.opacity = Math.min(0.9, Math.max(0, (spd - 90) / 160) + player.boostFlash * 0.4);
+}
+
+/* Combo en curso: trucos, multiplicador, valor y plazo restante. Una rasante en
+   curso se muestra en vivo (todavía no suma: se cuenta al salir de ella). */
+function updateComboHUD() {
+  const live = style.active && state.mode === 'fly' && player.nearT > 0.25;
+  if (!style.mult && !live) { el.combo.classList.remove('on'); return; }
+  // Trucos repetidos seguidos se agrupan: "PUERTA VELOZ x3"
+  const groups = [];
+  for (const n of style.names) {
+    if (groups.length && groups.at(-1).n === n) groups.at(-1).c++;
+    else groups.push({ n, c: 1 });
+  }
+  const names = groups.slice(-3).map((g) => (g.c > 1 ? `${g.n} x${g.c}` : g.n));
+  if (live) names.push(`RASANTE ${player.nearT.toFixed(1)}s…`);
+  el.cnames.textContent = (groups.length > 3 ? '… + ' : '') + names.join(' + ');
+  el.cmult.textContent = '×' + Math.max(1, style.mult);
+  el.cpts.textContent = style.mult ? fmtPts(comboValue()) : '';
+  el.cbar.style.width = (live ? 100 : (style.window / WINDOW) * 100) + '%';
+  el.combo.classList.add('on');
 }
 
 /* Récord y escalera de medallas de la pantalla de título. */
 function refreshRecords() {
   const best = course.best;
   el.records.innerHTML =
-    `<div class="best">MEJOR ${fmtTime(best)}${ghost.saved ? ' · FANTASMA LISTO' : ''}</div>` +
+    `<div class="best">MEJOR ${fmtTime(best)}${style.best ? ' · ESTILO ' + fmtPts(style.best) : ''}` +
+    `${ghost.saved ? ' · FANTASMA LISTO' : ''}</div>` +
     MEDALS.slice().reverse().map((m) => {
       const got = best != null && best <= m.t;
       return `<span class="medal${got ? ' got' : ''}" style="--mc:${m.color}">${m.label} ${fmtTime(m.t)}</span>`;
@@ -662,6 +723,7 @@ async function boot() {
     initEffects(scene, world.glowTex);
     setParticleScale(renderer.domElement.height);
     initGhost(scene, course.id, world.glowTex);
+    initStyle(course.id);
     refreshRecords();
     setSkin(0);
     resetPlayer(course.start.pos, course.start.dir, 60);
@@ -699,7 +761,7 @@ async function boot() {
     const setAutopilot = (on = true, boost = true) => { autopilot.on = on; autopilot.boost = boost; };
     window.__elytra = {
       probePath, state, player, course, world, phys, ragdoll, scene, camera, renderer, advance, respawn, crash, keys, res, perf,
-      QUALITY, ghost, autopilot: setAutopilot,
+      QUALITY, ghost, style, autopilot: setAutopilot,
     };
     requestAnimationFrame(frame);
   } catch (err) {

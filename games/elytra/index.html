@@ -38,8 +38,14 @@
   <div id="reticle"></div>
   <div id="gatemark"><div class="arrow"></div><span id="gatedist"></span></div>
   <div id="stall">¡ PÉRDIDA !</div>
+  <div id="comboresult"></div>
+  <div id="combo">
+    <div class="cnames" id="cnames"></div>
+    <div class="cval"><b id="cmult">×1</b> <span id="cpts"></span></div>
+    <div class="cbar"><i id="cbar"></i></div>
+  </div>
   <div id="bottombar">
-    CRISTALES <b id="crystals">0</b> · RASANTES <b id="nears">0</b> · <span id="hint"></span>
+    ESTILO <b id="stylescore">0</b> · CRISTALES <b id="crystals">0</b> · RASANTES <b id="nears">0</b> · <span id="hint"></span>
   </div>
 </div>
 
@@ -87,7 +93,9 @@
     <div class="cta">HAZ CLIC PARA VOLAR</div>
     <div class="tip">
       Atraviesa las <b>puertas doradas</b> lo más rápido posible. Vuela <b>pegado</b> a la roca
-      para recargar energía. Las <b>corrientes térmicas</b> te elevan. Rozar está bien; chocar de frente, no.
+      para recargar energía. Las <b>corrientes térmicas</b> te elevan. Rozar está bien; chocar de frente, no.<br>
+      Encadena <b>rasantes</b>, <b>toneles al límite</b>, rebotes y puertas veloces para sumar <b>estilo</b>:
+      un roce pierde el combo sin cobrar.
     </div>
   </div>
 </div>
@@ -114,6 +122,7 @@
   <div class="big" id="finishtitle">¡META!</div>
   <div class="finish-time" id="finishtime">00:00.00</div>
   <div class="finish-medal" id="finishmedal"></div>
+  <div class="finish-style" id="finishstyle"></div>
   <div class="tip" id="finishsub"></div>
 </div>
 

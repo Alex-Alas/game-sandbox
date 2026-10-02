@@ -63,6 +63,8 @@ export function resetPlayer(pos, dir, speed = 60) {
   player.flap = 0;
   player.boostFlash = 0;
   player.tuck = player.flare = 0;
+  player.nearT = 0;      // sin esto, una rasante cortada por un choque "terminaba" al reaparecer
+  player.nearDist = 99;
 }
 
 /* ── Habilidades ──────────────────────────────────────────── */
