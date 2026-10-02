@@ -73,4 +73,4 @@ export function saveQuality(id) {
   try { localStorage.setItem(QKEY, id); } catch { /* sin storage */ }
 }
 export const QUALITY = pickQuality();
-export const ASSET_BASE = '/elytra/';
+export const ASSET_BASE = import.meta.env.BASE_URL + 'elytra/';
