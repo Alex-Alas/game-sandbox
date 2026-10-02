@@ -44,6 +44,9 @@ export const CFG = {
   // Corriente ascendente
   THERMAL_LIFT: 48,
 
+  // Viento del circuito: fracción del viento que arrastra al piloto (deriva)
+  WIND_DRIFT: 1,
+
   // Render: ver QUALITY más abajo (pixel ratio, sombras, distancias de dibujo)
 };
 

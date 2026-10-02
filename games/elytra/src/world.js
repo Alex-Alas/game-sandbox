@@ -14,7 +14,8 @@ import { makeTerrainMaterial, makeTriplanarMaterial, makeWaterNormalTexture, mak
 import {
   RAPIER, phys, addStaticHull, addStaticTrimesh, addStaticCuboid, addStaticCylinder, addDynamicBody,
 } from './physics.js';
-import { course, resolveGates, computeGateFrames, isPathClear, GATE_R, buildCourseVisuals, pathSegments } from './course.js';
+import { course, resolveGates, computeGateFrames, isPathClear, GATE_R, buildCourseVisuals, pathSegments, ACTIVE } from './course.js';
+import { initAtmosphere, installHeightFog, updateAtmosphere } from './atmosphere.js';
 
 export const world = {
   scene: null,
@@ -202,24 +203,13 @@ function buildSky(renderer) {
   scene.add(sky);
   world.sky = sky;
 
-  // Entorno IBL a partir del cielo
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const envScene = new THREE.Scene();
-  const sky2 = new Sky();
-  sky2.scale.setScalar(1000);
-  Object.keys(u).forEach((k) => {
-    const v = u[k].value;
-    sky2.material.uniforms[k].value = v?.clone ? v.clone() : v;
-  });
-  envScene.add(sky2);
-  scene.environment = pmrem.fromScene(envScene, 0.02).texture;
-  scene.environmentIntensity = 0.55;
-
+  // El entorno IBL, la hora del día y las estrellas los pone atmosphere.js
   const fogColor = new THREE.Color(0xb9d3e6);
   scene.fog = new THREE.FogExp2(fogColor, 0.00034);
 
   const hemi = new THREE.HemisphereLight(0xcfe6ff, 0x4f5a3a, 0.7);
   scene.add(hemi);
+  world.hemi = hemi;
 
   const sun = new THREE.DirectionalLight(0xfff1d6, 2.7);
   sun.position.copy(world.sunDir).multiplyScalar(600);
@@ -283,6 +273,7 @@ function buildClouds(r) {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({
       map: tex, transparent: true, opacity: 0.55 + r() * 0.3, depthWrite: false, color: 0xffffff,
     }));
+    s.userData.op = s.material.opacity;
     const sz = 260 + r() * 420;
     s.scale.set(sz * 1.8, sz, 1);
     s.position.set((r() * 2 - 1) * HALF * 1.1, 680 + r() * 380, (r() * 2 - 1) * HALF * 1.1);
@@ -808,12 +799,51 @@ function updateCrystals(dt, time) {
   }
 }
 
+/* Mar de nubes del circuito (weather.clouds): racimos de icosaedros facetados,
+   opacos y de doble cara, sin collider. Al atravesarlos se ve el interior del
+   cascarón (caras traseras algo más oscuras) y nada del exterior: es el efecto
+   buscado. Usa su propio rng para no alterar la secuencia del resto del mundo. */
+function buildCloudSea(cfg) {
+  if (!cfg) return;
+  const r = rng(4242);
+  const geo = new THREE.IcosahedronGeometry(1, 1);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, flatShading: true, side: THREE.DoubleSide });
+  mat.onBeforeCompile = (sh) => {
+    sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>',
+      '#include <color_fragment>\n\tif ( ! gl_FrontFacing ) diffuseColor.rgb *= 0.72;');
+  };
+  const gates = course.gates.map((g) => g.pos);
+  const ms = [];
+  for (let i = 0; i < cfg.count; i++) {
+    const a = r() * Math.PI * 2, d = Math.sqrt(r()) * cfg.r;
+    const cx = cfg.x + Math.cos(a) * d, cz = cfg.z + Math.sin(a) * d;
+    const cy = cfg.y + (r() - 0.5) * cfg.thickness * 0.5;
+    const puffs = 3 + Math.floor(r() * 4);
+    for (let k = 0; k < puffs; k++) {
+      const rad = 22 + r() * 34;
+      _p.set(cx + (r() - 0.5) * rad * 2.4, cy + (r() - 0.3) * rad * 0.5, cz + (r() - 0.5) * rad * 2.4);
+      // Ni dentro de las puertas ni hundidas en el terreno
+      if (gates.some((g) => g.distanceTo(_p) < rad * 1.3 + GATE_R + 6)) continue;
+      if (groundHeight(_p.x, _p.z) > _p.y - rad * 0.7) continue;
+      _q.setFromAxisAngle(UP, r() * Math.PI * 2);
+      ms.push(new THREE.Matrix4().compose(_p, _q, _s.set(rad * 1.25, rad * 0.62, rad * 1.1)));
+    }
+  }
+  const mesh = new THREE.InstancedMesh(geo, mat, ms.length);
+  ms.forEach((m, i) => mesh.setMatrixAt(i, m));
+  mesh.computeBoundingSphere();
+  world.scene.add(mesh);
+  world.cloudSea = mesh;
+  world.stats.cloudPuffs = ms.length;
+}
+
 /* ═════════════ API ═════════════ */
 export async function buildWorld(scene, renderer, onStep) {
   world.scene = scene;
   world.glowTex = makeGlowTexture();
   const r = rng(1337);
 
+  installHeightFog(ACTIVE.weather?.fog);   // antes de compilar cualquier material
   buildSky(renderer);
   await onStep?.('Esculpiendo terreno…');
   resolveGates();
@@ -839,6 +869,11 @@ export async function buildWorld(scene, renderer, onStep) {
   buildThermals(r);
   buildCrystals(r);
   buildCourseVisuals(scene, world.glowTex);
+  buildCloudSea(ACTIVE.weather?.clouds);
+  initAtmosphere({
+    scene, renderer, sky: world.sky, hemi: world.hemi, sun: world.sun, sunDir: world.sunDir,
+    water: world.water, clouds: world.clouds, cloudSea: world.cloudSea, glowTex: world.glowTex,
+  });
 
   phys.world.step(); // inicializa estructuras de consulta
   // Al crear sus colliders los cuerpos se despiertan y algunas columnas (con un tambor
@@ -856,4 +891,5 @@ export function updateWorld(dt, time, camera) {
   updateThermals(time);
   updateCrystals(dt, time);
   world.sky.position.copy(camera.position);
+  updateAtmosphere(camera);
 }

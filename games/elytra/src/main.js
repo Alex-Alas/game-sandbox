@@ -14,6 +14,8 @@ import {
 } from './camera.js';
 import { course, checkGates, resetCourse, animateCourse, fmtTime, MEDALS, medalFor, nextMedal, pathSegments } from './course.js';
 import { COURSES, COURSE_ORDER, saveCourse, urlWith } from './courses.js';
+import { atmo, applyTime, TIMES, TIME_ORDER } from './atmosphere.js';
+import { hasWind, windAt, gustAt } from './wind.js';
 import { fx, initEffects, updateEffects, updateStreaks, burst, dustPuff, setParticleScale } from './effects.js';
 import { initAudio, updateWind, sfx, toggleMute } from './audio.js';
 import { surfaceHeight } from './terrain.js';
@@ -88,6 +90,8 @@ const state = {
   lastScrapeSfx: 0,
   sprintDone: false, // sprint terminado: R/T vuelven a la salida
   restartAt: 0,      // instante (state.time) del reinicio automático tras la meta de un sprint
+  spawnT: 0,         // instante de la última aparición (reloj del viento fuera de carrera)
+  gustOn: false,
 };
 let rig = null;
 const keys = Object.create(null);
@@ -108,6 +112,7 @@ const el = {
   crashcta: $('crashcta'), finishpanel: $('finishpanel'), finishtitle: $('finishtitle'), finishtime: $('finishtime'),
   finishsub: $('finishsub'), pause: $('pause'), perf: $('perf'), qualName: $('qualName'), sensName: $('sensName'),
   target: $('target'), finishmedal: $('finishmedal'), records: $('records'), courseName: $('courseName'),
+  timeName: $('timeName'), windrow: $('windrow'), windarrow: $('windarrow'), windval: $('windval'),
   combo: $('combo'), cnames: $('cnames'), cmult: $('cmult'), cpts: $('cpts'), cbar: $('cbar'),
   comboresult: $('comboresult'), stylescore: $('stylescore'), finishstyle: $('finishstyle'),
 };
@@ -247,6 +252,16 @@ function cycleCourse(d) {
 el.courseName.textContent = course.name + (course.kind === 'sprint' ? ' · SPRINT' : ' · VUELTA');
 $('coursePrev').addEventListener('click', (e) => { e.stopPropagation(); cycleCourse(-1); });
 $('courseNext').addEventListener('click', (e) => { e.stopPropagation(); cycleCourse(1); });
+
+/* La hora del día cambia en vivo (solo visual: no separa récords). */
+function cycleTime(d) {
+  if (state.mode === 'loading') return;
+  const i = TIME_ORDER.indexOf(atmo.id);
+  applyTime(TIME_ORDER[(i + d + TIME_ORDER.length) % TIME_ORDER.length]);
+  el.timeName.textContent = 'HORA ' + TIMES[atmo.id].label;
+}
+$('timePrev').addEventListener('click', (e) => { e.stopPropagation(); cycleTime(-1); });
+$('timeNext').addEventListener('click', (e) => { e.stopPropagation(); cycleTime(1); });
 el.sensName.textContent = sensLabel();
 $('sensPrev').addEventListener('click', (e) => { e.stopPropagation(); stepSens(-1); el.sensName.textContent = sensLabel(); });
 $('sensNext').addEventListener('click', (e) => { e.stopPropagation(); stepSens(1); el.sensName.textContent = sensLabel(); });
@@ -278,6 +293,7 @@ function flyUpdate(dt, rdt) {
     bank: (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0),
   };
   if (autopilot.on) Object.assign(input, steerAutopilot(dt));
+  if (hasWind) input.wind = windStep(rdt);
   flyAcc += dt;
   let steps = 0;
   while (flyAcc >= FIXED && steps++ < 16) {
@@ -364,8 +380,28 @@ function flyUpdate(dt, rdt) {
   }
 
   updateStreaks(rdt, player.rpos, player.vel, player.speed, player.boostFlash);
-  updateWind(player.speed, rdt, player.scrape);
+  updateWind(player.speed + (hasWind ? _wind.length() * 1.5 : 0), rdt, player.scrape);
   updateFlightCamera(camera, rdt, state.time);
+}
+
+/* Viento del circuito: vector del frame (reloj de carrera, o desde la aparición antes
+   de la salida), aviso de ráfaga y motas que viajan con él cerca de la cámara. */
+const _wind = new THREE.Vector3();
+const _mote = new THREE.Vector3();
+function windStep(rdt) {
+  const t = course.running ? state.time - course.t0 : state.time - state.spawnT;
+  windAt(t, _wind);
+  const g = gustAt(t);
+  if (g > 0.6 && !state.gustOn) { state.gustOn = true; callout('¡RÁFAGA!', 'var(--cyan)', 700); addTrauma(0.1); }
+  else if (g < 0.4) state.gustOn = false;
+  if (Math.random() < (0.35 + g) * Math.min(1, rdt * 60)) {
+    forwardVector(player.yaw, player.pitch, _fwd);
+    _mote.copy(camera.position).addScaledVector(_fwd, 25 + Math.random() * 40)
+      .add(_tmp.set((Math.random() - 0.5) * 60, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 60));
+    _col.set(0xeef6ff);
+    fx.dust.emit(_mote, _tmp.copy(_wind).multiplyScalar(1.3), _col, 0.5 + Math.random() * 0.5, 1.6, { drag: 0, alpha: 0.35 + g * 0.3 });
+  }
+  return _wind;
 }
 
 function onFlightEvent(ev) {
@@ -518,6 +554,7 @@ function respawn(fromStart = false) {
   const pos = cp.pos.clone().addScaledVector(dir, 14);
   pos.y = Math.max(pos.y, surfaceHeight(pos.x, pos.z) + 25);
   resetPlayer(pos, dir, cp.speed ?? 70);
+  state.spawnT = state.time;
   _prev.copy(player.pos);
   if (course.running) ghostRecord(state.time - course.t0, player, true);
   state.mode = 'fly';
@@ -557,6 +594,14 @@ function updateHUD(dt) {
   el.vario.textContent = `${v > 0.5 ? '▲' : v < -0.5 ? '▼' : '■'} ${Math.abs(v).toFixed(1)}`;
   el.vario.style.color = v > 0.5 ? '#8ef2ff' : v < -0.5 ? '#ffb36b' : '#7fa8bd';
   el.gload.textContent = `${player.g.toFixed(1)} G`;
+  if (hasWind) {
+    // Flecha del viento relativa al rumbo (arriba = de cola, derecha = empuja a la derecha)
+    const f = Math.sin(player.yaw), c = Math.cos(player.yaw);
+    const rel = Math.atan2(_wind.x * c - _wind.z * f, -_wind.x * f - _wind.z * c);
+    el.windarrow.style.transform = `rotate(${rel}rad)`;
+    el.windval.textContent = `${Math.round(_wind.length())} m/s`;
+    el.windval.style.color = state.gustOn ? 'var(--cyan)' : '';
+  }
   el.gload.style.color = player.g > 3.5 ? '#ff6b6b' : player.g > 2.2 ? '#ffd23f' : '#cfefff';
 
   let mode = 'PLANEANDO', color = 'rgba(180,230,255,.6)';
@@ -751,6 +796,8 @@ async function boot() {
     });
     initEffects(scene, world.glowTex);
     setParticleScale(renderer.domElement.height);
+    el.timeName.textContent = 'HORA ' + TIMES[atmo.id].label;
+    el.windrow.classList.toggle('hidden', !hasWind);
     initGhost(scene, course.id, world.glowTex);
     initStyle(course.id);
     refreshRecords();
@@ -789,7 +836,7 @@ async function boot() {
     const setAutopilot = (on = true, boost = true) => { autopilot.on = on; autopilot.boost = boost; };
     window.__elytra = {
       probePath, state, player, course, world, phys, ragdoll, scene, camera, renderer, advance, respawn, crash, keys, res, perf,
-      QUALITY, ghost, style, autopilot: setAutopilot,
+      QUALITY, ghost, style, autopilot: setAutopilot, applyTime,
     };
     requestAnimationFrame(frame);
   } catch (err) {

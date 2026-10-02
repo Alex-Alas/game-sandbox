@@ -24,6 +24,7 @@
     <div class="val" id="alt">0<span class="unit">m</span></div>
     <div class="row"><span class="lbl">VARIO</span><span id="vario">0.0</span></div>
     <div class="row"><span class="lbl">CARGA</span><span id="gload">1.0 G</span></div>
+    <div class="row" id="windrow"><span class="lbl">VIENTO</span><span><b id="windarrow">↑</b> <span id="windval">0 m/s</span></span></div>
   </div>
 
   <div class="panel tc" id="racepanel">
@@ -69,6 +70,11 @@
       <button id="courseNext" aria-label="Circuito siguiente">›</button>
     </div>
     <div class="records" id="records"></div>
+    <div class="skins quality">
+      <button id="timePrev" aria-label="Hora anterior">‹</button>
+      <span id="timeName">HORA MEDIODÍA</span>
+      <button id="timeNext" aria-label="Hora siguiente">›</button>
+    </div>
     <div class="skins">
       <button id="skinPrev" aria-label="Personaje anterior">‹</button>
       <span id="skinName">PILOTO A</span>

@@ -28,6 +28,7 @@ export const player = {
   groundDist: 999,
   speed: 0,
   prevYaw: 0,
+  windRamp: 0,   // el viento entra suave tras reaparecer
 };
 
 const _fwd = new THREE.Vector3();
@@ -63,6 +64,7 @@ export function resetPlayer(pos, dir, speed = 60) {
   player.flap = 0;
   player.boostFlash = 0;
   player.tuck = player.flare = 0;
+  player.windRamp = 0;
   player.nearT = 0;      // sin esto, una rasante cortada por un choque "terminaba" al reaparecer
   player.nearDist = 99;
 }
@@ -129,6 +131,9 @@ export function stepFlight(dt, input) {
   p.vel.y -= CFG.GRAVITY * dt;
   p.thermal = thermalLift(p.pos);
   if (p.thermal > 0) p.vel.y += CFG.THERMAL_LIFT * p.thermal * dt;
+  // Viento del circuito: la masa de aire arrastra al piloto (deriva) sin importar el
+  // rumbo; un empuje sobre vel se perdía porque la sustentación lo realinea al morro
+  if (input.wind) p.windRamp = Math.min(1, p.windRamp + dt / 1.5);
 
   // Efecto suelo
   p.groundDist = p.pos.y - surfaceHeight(p.pos.x, p.pos.z);
@@ -186,6 +191,7 @@ export function stepFlight(dt, input) {
 
   // ── Colisión ──
   _d.copy(p.vel).multiplyScalar(dt);
+  if (input.wind) _d.addScaledVector(input.wind, CFG.WIND_DRIFT * p.windRamp * dt);
   const hit = castPlayer(p.pos, _d, CFG.PLAYER_RADIUS);
   let ev = null;
   if (hit && hit.time_of_impact <= 1) {

@@ -9,6 +9,9 @@
    'sprint' (punto a punto: en la meta se reinicia solo).
    start (opcional): { x, z, a | abs, speed }; apunta a la primera puerta. Sin él, la
    salida queda 380 m detrás de la primera puerta y en altura.
+   weather (opcional): fog { top, falloff, strength } niebla por altura;
+   clouds { x, z, r, y, thickness, count } mar de nubes que se atraviesa;
+   wind { dir (°, hacia donde sopla), speed, gust } viento con ráfagas (m/s).
    medals: segundos. Regla con T = tiempo del piloto automático (con impulso):
    autor ⌊0,95T⌋ · oro ⌈1,08T⌉ · plata ⌈1,25T⌉ · bronce ⌈1,55T⌉. */
 
@@ -47,6 +50,7 @@ export const COURSES = [
     id: 'canon', name: 'CAÑÓN', kind: 'sprint',
     medals: { author: 15, gold: 18, silver: 20, bronze: 25 },   // T ≈ 16,0 s
     start: { x: -1650, canyon: true, a: 160, speed: 80 },
+    weather: { fog: { top: 45, falloff: 24, strength: 0.014 } },   // niebla densa en el fondo
     gates: [
       { x: -1300, canyon: true, a: 32, zone: 'CAÑÓN' },
       { x: -1040, canyon: true, a: 26, feature: 'bridge' },
@@ -66,6 +70,7 @@ export const COURSES = [
     id: 'islas', name: 'ISLAS', kind: 'sprint',
     medals: { author: 20, gold: 24, silver: 27, bronze: 34 },   // T ≈ 21,5 s
     start: { x: -650, z: 480, abs: 560, speed: 70 },
+    weather: { clouds: { x: -250, z: 1000, r: 760, y: 135, thickness: 50, count: 115 } },   // mar de nubes
     gates: [
       { x: -450, z: 750,  abs: 470, zone: 'ISLAS FLOTANTES' },
       { x: -150, z: 850,  abs: 410 },
@@ -81,8 +86,9 @@ export const COURSES = [
   {
     // De la cumbre del macizo en espiral por sus laderas, cañón y lago
     id: 'descenso', name: 'DESCENSO', kind: 'sprint',
-    medals: { author: 17, gold: 21, silver: 24, bronze: 30 },   // T ≈ 18,9 s
+    medals: { author: 18, gold: 21, silver: 25, bronze: 30 },   // T ≈ 19,2 s (con viento)
     start: { x: 720, z: -800, a: 60, speed: 40 },
+    weather: { wind: { dir: 135, speed: 14, gust: 16 } },   // viento cruzado fuerte hacia el SE
     gates: [
       { x: 950,  z: -1000, a: 40, zone: 'CUMBRE' },
       { x: 1150, z: -700,  a: 35 },
@@ -100,7 +106,8 @@ export const COURSES = [
   {
     // Vuelta larga: lago → islas → ruinas → cañón de este a oeste → agujas → valle
     id: 'travesia', name: 'TRAVESÍA', kind: 'loop',
-    medals: { author: 45, gold: 53, silver: 61, bronze: 75 },   // T ≈ 48,3 s
+    weather: { wind: { dir: 60, speed: 8, gust: 8 } },
+    medals: { author: 46, gold: 54, silver: 62, bronze: 77 },   // T ≈ 49,4 s (con viento)
     gates: [
       { x: -900,  z: 700,  a: 30,  zone: 'LAGO' },
       { x: -650,  z: 950,  a: 25 },
@@ -110,7 +117,7 @@ export const COURSES = [
       { x: 250,   z: 1150, abs: 260 },
       { x: 650,   z: 1050, a: 35,  zone: 'RUINAS' },
       { x: 950,   z: 900,  a: 30,  feature: 'ring' },
-      { x: 1150,  z: 1100, a: 40 },
+      { x: 1100,  z: 1060, a: 60 },
       { x: 1250,  z: 700,  a: 70 },
       { x: 1300,  canyon: true, a: 30, zone: 'CAÑÓN' },
       { x: 1000,  canyon: true, a: 26 },
