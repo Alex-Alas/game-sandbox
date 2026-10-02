@@ -837,6 +837,134 @@ function buildCloudSea(cfg) {
   world.stats.cloudPuffs = ms.length;
 }
 
+/* ── Arena del DESPLOME (circuito con `arena`) ───────────────
+   Plataforma de piedra con la diana pintada y 5 torres de cajas dinámicas que
+   duermen hasta el golpe. Derribables = las cajas: se guardan sus poses para
+   puntuar (qué se movió) y para restaurarlas al reiniciar el intento. Las columnas
+   de las ruinas no cuentan: algunas son inestables y, restauradas y despertadas,
+   se derrumbaban solas (sumaban derribados gratis). Su propio rng: no altera la
+   secuencia del resto del mundo. */
+function makeTargetTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 512;
+  const g = c.getContext('2d');
+  const R = 256 / 36;   // px por metro (radio 36 m)
+  const band = (r, color) => { g.fillStyle = color; g.beginPath(); g.arc(256, 256, r * R, 0, Math.PI * 2); g.fill(); };
+  band(36, '#3a2f28'); band(35, '#f1ebdf'); band(28, '#d6343c'); band(20, '#f1ebdf'); band(14, '#d6343c'); band(8, '#f1ebdf'); band(4, '#d6343c');
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+function makeCrateTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#b4834f'; g.fillRect(0, 0, 128, 128);
+  g.strokeStyle = '#6e4a26'; g.lineWidth = 12; g.strokeRect(6, 6, 116, 116);
+  g.lineWidth = 9; g.beginPath(); g.moveTo(12, 116); g.lineTo(116, 12); g.stroke();
+  g.strokeStyle = 'rgba(80,50,20,.35)'; g.lineWidth = 2;
+  for (let y = 30; y < 128; y += 24) { g.beginPath(); g.moveTo(12, y); g.lineTo(116, y); g.stroke(); }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+function buildArena(cfg) {
+  if (!cfg) return;
+  const r = rng(777);
+  const stone = rockMat(0xd9cfbf, 0.05);
+  const levelTop = (x, z, rad) => {
+    let h = -Infinity;
+    for (let a = 0; a < 16; a++) for (const d of [0, rad * 0.5, rad]) {
+      h = Math.max(h, groundHeight(x + Math.cos(a * Math.PI / 8) * d, z + Math.sin(a * Math.PI / 8) * d));
+    }
+    return h;
+  };
+
+  // Plataforma con la diana (nivelada sobre el punto más alto bajo ella)
+  const R = 36, depth = 16;
+  const top = levelTop(cfg.x, cfg.z, R) + 1.5;
+  const face = new THREE.MeshStandardMaterial({ map: makeTargetTexture(), roughness: 0.8 });
+  const plat = new THREE.Mesh(new THREE.CylinderGeometry(R, R + 3, depth, 48), [stone, face, stone]);
+  plat.position.set(cfg.x, top - depth / 2, cfg.z);
+  plat.castShadow = plat.receiveShadow = true;
+  world.scene.add(plat);
+  addStaticCylinder(depth / 2, R, plat.position.clone(), { kind: 'stone' });
+
+  // Torres de cajas sobre plintos
+  const S = 4.5;
+  const crate = new THREE.MeshStandardMaterial({ map: makeCrateTexture(), roughness: 0.85 });
+  const box = new THREE.BoxGeometry(S, S, S);
+  const blocks = [];
+  for (let t = 0; t < 5; t++) {
+    const a = (t / 5) * Math.PI * 2 + 0.3 + (r() - 0.5) * 0.3;
+    const d = 50 + r() * 10;
+    const tx = cfg.x + Math.cos(a) * d, tz = cfg.z + Math.sin(a) * d;
+    const ptop = levelTop(tx, tz, S * 1.2) + 1;
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(S * 2.2, 8, S * 2.2), stone);
+    plinth.position.set(tx, ptop - 4, tz);
+    plinth.castShadow = plinth.receiveShadow = true;
+    world.scene.add(plinth);
+    addStaticCuboid(S * 1.1, 4, S * 1.1, plinth.position.clone(), null, { kind: 'stone' });
+    let y = ptop + S / 2 + 0.02;
+    const n = 5 + Math.floor(r() * 3);
+    for (let k = 0; k < n; k++) {
+      const mesh = new THREE.Mesh(box, crate);
+      mesh.position.set(tx + (r() - 0.5) * 0.4, y, tz + (r() - 0.5) * 0.4);
+      mesh.rotation.y = (r() - 0.5) * 0.3;
+      mesh.castShadow = mesh.receiveShadow = true;
+      world.scene.add(mesh);
+      const { body } = addDynamicBody(mesh, RAPIER.ColliderDesc.cuboid(S / 2, S / 2, S / 2).setFriction(0.8).setRestitution(0.05),
+        { density: 40, userData: { kind: 'block' } });
+      blocks.push(body);
+      y += S;
+    }
+  }
+
+  // Derribables (las cajas) con su pose inicial
+  const knockables = blocks.map((body) => {
+    const t = body.translation(), q = body.rotation();
+    return { body, p0: new THREE.Vector3(t.x, t.y, t.z), q0: new THREE.Quaternion(q.x, q.y, q.z, q.w) };
+  });
+  world.arena = { center: new THREE.Vector3(cfg.x, top, cfg.z), top, radius: R, blocks, knockables };
+  world.stats.arenaBlocks = blocks.length;
+}
+
+const _kq = new THREE.Quaternion();
+/** Cuántos derribables se movieron >1,5 m o rotaron >25° desde su pose inicial. */
+export function knockedCount() {
+  if (!world.arena) return 0;
+  let n = 0;
+  for (const k of world.arena.knockables) {
+    const t = k.body.translation(), q = k.body.rotation();
+    const moved = Math.hypot(t.x - k.p0.x, t.y - k.p0.y, t.z - k.p0.z) > 1.5;
+    const turned = k.q0.angleTo(_kq.set(q.x, q.y, q.z, q.w)) > THREE.MathUtils.degToRad(25);
+    if (moved || turned) n++;
+  }
+  return n;
+}
+
+/** Devuelve los derribables a su pose inicial, quietos y dormidos. */
+export function resetArena() {
+  if (!world.arena) return;
+  for (const k of world.arena.knockables) {
+    const b = k.body;
+    b.setTranslation(k.p0, false);
+    b.setRotation(k.q0, false);
+    b.setLinvel({ x: 0, y: 0, z: 0 }, false);
+    b.setAngvel({ x: 0, y: 0, z: 0 }, false);
+    b.sleep();
+    const e = phys.tracked.find((tr) => tr.body === b);
+    if (e) {
+      e.p0.copy(k.p0); e.p1.copy(k.p0); e.q0.copy(k.q0); e.q1.copy(k.q0);
+      e.mesh.position.copy(k.p0); e.mesh.quaternion.copy(k.q0);
+    }
+  }
+  phys.dirty = true;
+}
+
 /* ═════════════ API ═════════════ */
 export async function buildWorld(scene, renderer, onStep) {
   world.scene = scene;
@@ -862,6 +990,7 @@ export async function buildWorld(scene, renderer, onStep) {
   buildFeatureArches(r);
   buildBridges();
   buildRuins(r);
+  buildArena(ACTIVE.arena);
   await onStep?.('Plantando bosques…');
   buildPillars(r);
   buildIslands(r);

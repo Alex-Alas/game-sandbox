@@ -5,8 +5,10 @@
    Puerta: x, z (o canyon:true → z sobre el eje del cañón); altura a (sobre la
    superficie) o abs (absoluta); zone (cartel al cruzarla); feature: arch | bridge |
    ring (obstáculo que el mundo construye alrededor).
-   kind: 'loop' (la vuelta siguiente empieza al cruzar otra vez la primera puerta) o
-   'sprint' (punto a punto: en la meta se reinicia solo).
+   kind: 'loop' (la vuelta siguiente empieza al cruzar otra vez la primera puerta),
+   'sprint' (punto a punto: en la meta se reinicia solo) o 'desplome' (arena: una
+   puerta de ENTRADA y te estrellas; arena { x, z, r } se despeja de obstáculos y
+   medals son puntos mínimos).
    start (opcional): { x, z, a | abs, speed }; apunta a la primera puerta. Sin él, la
    salida queda 380 m detrás de la primera puerta y en altura.
    weather (opcional): fog { top, falloff, strength } niebla por altura;
@@ -133,6 +135,18 @@ export const COURSES = [
       { x: -950,  z: 0,    a: 50,  zone: 'VALLE' },
       { x: -1150, z: 250,  a: 40,  feature: 'arch' },
       { x: -1100, z: 500,  a: 30,  zone: 'META' },
+    ],
+  },
+  {
+    // Arena de DESPLOME en el valle de las ruinas: cruza la ENTRADA y estréllate
+    id: 'desplome', name: 'DESPLOME', kind: 'desplome',
+    // Puntos mínimos. Piloto automático: 9–18k (×1); caída vertical en el centro ~20k (×3);
+    // torre derribada (+28 cajas) y acabar en la diana pide oro o autor
+    medals: { author: 40000, gold: 25000, silver: 15000, bronze: 8000 },
+    arena: { x: 850, z: 1000, r: 90 },
+    start: { x: 250, z: 700, abs: 520, speed: 70 },
+    gates: [
+      { x: 600, z: 880, a: 110, zone: 'ARENA DE DESPLOME' },
     ],
   },
 ];

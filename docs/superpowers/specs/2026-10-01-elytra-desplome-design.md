@@ -21,7 +21,7 @@ Fuera de alcance: lanzamiento con rampa, varias arenas, objetos rompibles en tro
   - `medals` por puntos (mínimos).
 - El mundo construye la arena (`buildArena` en `world.js`): diana y 5 torres de
   bloques dinámicos (Rapier, dormidos hasta el golpe). Las columnas de las ruinas
-  siguen ahí y cuentan.
+  siguen ahí como obstáculo, pero no puntúan (ver sección 2).
 - `desplome.js` (nuevo) tiene la lógica pura del intento:
   - **`armed`:** el intento arranca al cruzar la ENTRADA (aviso «¡ESTRÉLLATE!»). Desde
     ahí el marcador apunta a la diana.
@@ -36,14 +36,18 @@ Fuera de alcance: lanzamiento con rampa, varias arenas, objetos rompibles en tro
 
 ## 2. Puntuación
 
-- **Derribados.** Al armar el intento se guarda la pose de cada objeto derribable (los
-  bloques de la arena y las columnas de las ruinas a menos de `arena.r`). Al puntuar,
-  cuenta como derribado el que se desplazó más de 1,5 m o rotó más de 25°.
+- **Derribados.** Se guarda la pose inicial de cada caja de la arena. Al puntuar,
+  cuenta como derribada la que se desplazó más de 1,5 m o rotó más de 25°.
+  *Cambio durante la implementación:* las columnas de las ruinas no cuentan. Algunas
+  son inestables y, restauradas y despertadas, se derrumbaban solas (unos 8
+  derribados gratis por intento).
 - **Diana.** Según la distancia horizontal del torso al centro al puntuar: menos de
   8 m → ×3, menos de 20 m → ×2, menos de 35 m → ×1,5, y si no ×1.
 - **Fórmula:**
-  `puntos = round((daño + fracturas·400 + golpes·40 + derribados·150 + impacto·15) × diana)`,
-  con el daño, las fracturas y los golpes de `ragdoll.stats` y el impacto en m/s.
+  `puntos = round((daño·0,05 + fracturas·400 + golpes·40 + derribados·150 + impacto·15) × diana)`,
+  con el daño, las fracturas y los golpes de `ragdoll.stats` y el impacto en m/s. El peso
+  0,05 del daño se añadió al calibrar: el daño bruto es del orden de 10⁵ y tapaba todo lo
+  demás. Medallas: bronce 8.000, plata 15.000, oro 25.000, autor 40.000.
 - **Récord** en `localStorage['elytra.desplome.<id>']`.
 - **Medallas por puntos:** bronce, plata, oro y autor como mínimos, calibradas con
   impactos del piloto automático contra la diana.

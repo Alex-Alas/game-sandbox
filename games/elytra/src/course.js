@@ -31,7 +31,7 @@ export function nextMedal(t) {
 export const course = {
   id: ACTIVE.id,      // clave de récords, fantasma y estilo en localStorage
   name: ACTIVE.name,
-  kind: ACTIVE.kind,  // 'loop' | 'sprint'
+  kind: ACTIVE.kind,  // 'loop' | 'sprint' | 'desplome'
   gates: [],          // { pos, normal, def, group, ring, mat }
   start: null,        // { pos, dir, speed }
   next: 0,
@@ -69,7 +69,7 @@ export function resolveGates() {
 export function computeGateFrames() {
   const pts = course.gates;
   const n = pts.length;
-  const loop = course.kind !== 'sprint';
+  const loop = course.kind === 'loop';
   const fixedStart = ACTIVE.start ? defPos(ACTIVE.start) : null;
   _segs = null;
   // Normal = dirección media entre el tramo de llegada y el de salida (en un sprint
@@ -103,13 +103,15 @@ export function computeGateFrames() {
 export function pathSegments() {
   const G = course.gates.map((g) => g.pos);
   const segs = [[course.start.pos, G[0]]];
-  const last = course.kind === 'sprint' ? G.length - 1 : G.length;   // un sprint no vuelve a la salida
+  const last = course.kind === 'loop' ? G.length : G.length - 1;   // solo una vuelta vuelve a la salida
   for (let i = 0; i < last; i++) segs.push([G[i], G[(i + 1) % G.length]]);
   return segs;
 }
 
 /* ¿Un obstáculo cilíndrico (centro x,z, radio r, alturas yb..yt) deja libre el recorrido? */
 export function isPathClear(x, z, r, yb, yt, margin = 26) {
+  const A = ACTIVE.arena;   // la arena del DESPLOME queda despejada de obstáculos
+  if (A && Math.hypot(x - A.x, z - A.z) < A.r + r) return false;
   if (!_segs) _segs = pathSegments();
   for (const [a, b] of _segs) {
     const { d, t } = segDist2D(x, z, a.x, a.z, b.x, b.z);
@@ -213,6 +215,11 @@ export function checkGates(p0, p1, now) {
 
   const idx = course.next;
   const n = course.gates.length;
+  // DESPLOME: la única puerta es la ENTRADA a la arena; sin cronómetro de carrera
+  if (course.kind === 'desplome') {
+    course.lastCheckpoint = { pos: g.pos.clone(), dir: g.normal.clone() };
+    return { type: 'arena', index: idx, pos: g.pos.clone(), zone: g.def.zone, off };
+  }
   let ev = { type: 'gate', index: idx, pos: g.pos.clone(), zone: g.def.zone, off };
 
   if (idx === 0 && !course.running) {

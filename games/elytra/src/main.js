@@ -3,9 +3,9 @@ import * as THREE from 'three';
 import { CFG, QUALITY, PRESETS, PRESET_ORDER } from './config.js';
 import { loadAssets, CHARACTERS } from './assets.js';
 import { initPhysics, stepPhysics, syncDynamic, phys, castPlayer } from './physics.js';
-import { buildWorld, updateWorld, updateSunShadow, updateCulling, world } from './world.js';
+import { buildWorld, updateWorld, updateSunShadow, updateCulling, world, knockedCount, resetArena } from './world.js';
 import { buildCharacter, poseFlight, wingTips } from './character.js';
-import { spawnRagdoll, updateRagdoll, clearRagdoll, ragdoll, handleContactForces } from './ragdoll.js';
+import { spawnRagdoll, updateRagdoll, clearRagdoll, ragdoll, handleContactForces, ragdollCenter } from './ragdoll.js';
 import {
   player, resetPlayer, stepFlight, updateBank, tryBoost, tryFlap, tryBarrelRoll, addCrystal, forwardVector,
 } from './player.js';
@@ -16,6 +16,10 @@ import { course, checkGates, resetCourse, animateCourse, fmtTime, MEDALS, medalF
 import { COURSES, COURSE_ORDER, saveCourse, urlWith } from './courses.js';
 import { atmo, applyTime, TIMES, TIME_ORDER } from './atmosphere.js';
 import { hasWind, windAt, gustAt } from './wind.js';
+import {
+  isDesplome, dsp, armAttempt, crashAttempt, resetAttempt, scoreAttempt, medalForPoints, nextMedalPoints,
+  ARMED_TIMEOUT, SETTLE_TIMEOUT,
+} from './desplome.js';
 import { fx, initEffects, updateEffects, updateStreaks, burst, dustPuff, setParticleScale } from './effects.js';
 import { initAudio, updateWind, sfx, toggleMute } from './audio.js';
 import { surfaceHeight } from './terrain.js';
@@ -112,7 +116,7 @@ const el = {
   crashcta: $('crashcta'), finishpanel: $('finishpanel'), finishtitle: $('finishtitle'), finishtime: $('finishtime'),
   finishsub: $('finishsub'), pause: $('pause'), perf: $('perf'), qualName: $('qualName'), sensName: $('sensName'),
   target: $('target'), finishmedal: $('finishmedal'), records: $('records'), courseName: $('courseName'),
-  timeName: $('timeName'), windrow: $('windrow'), windarrow: $('windarrow'), windval: $('windval'),
+  timeName: $('timeName'), cScore: $('cScore'), windrow: $('windrow'), windarrow: $('windarrow'), windval: $('windval'),
   combo: $('combo'), cnames: $('cnames'), cmult: $('cmult'), cpts: $('cpts'), cbar: $('cbar'),
   comboresult: $('comboresult'), stylescore: $('stylescore'), finishstyle: $('finishstyle'),
 };
@@ -179,7 +183,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.code === 'KeyM') callout(toggleMute() ? 'SONIDO OFF' : 'SONIDO ON', 'var(--cyan)');
   if (e.code === 'KeyG') callout(toggleGhost() ? 'FANTASMA ON' : 'FANTASMA OFF', 'var(--cyan)');
-  if (e.code === 'KeyR') { if (state.sprintDone) restartRun(); else respawn(); }
+  if (e.code === 'KeyR') { if (dsp.phase === 'crashed') finishDesplome(); else if (state.sprintDone || isDesplome) restartRun(); else respawn(); }
   if (e.code === 'KeyT') restartRun();
   if (state.mode === 'fly') {
     if (e.code === 'Space' && tryFlap()) sfx.flap();
@@ -224,7 +228,10 @@ function lockPointer() {
 }
 
 canvas.addEventListener('click', () => {
-  if (state.mode === 'crash' && ragdoll.t > 0.8) { if (state.sprintDone) restartRun(); else respawn(); return; }
+  if (state.mode === 'crash' && ragdoll.t > 0.8) {
+    if (dsp.phase === 'crashed') finishDesplome(); else if (state.sprintDone || isDesplome) restartRun(); else respawn();
+    return;
+  }
   if (!pointerLocked && state.mode !== 'title') lockPointer();
 });
 $('skinPrev').addEventListener('click', (e) => { e.stopPropagation(); setSkin(state.skin - 1); });
@@ -249,7 +256,7 @@ function cycleCourse(d) {
   el.courseName.textContent = COURSES.find((c) => c.id === id).name + ' · CARGANDO…';
   location.replace(urlWith('c', id));
 }
-el.courseName.textContent = course.name + (course.kind === 'sprint' ? ' · SPRINT' : ' · VUELTA');
+el.courseName.textContent = course.name + ({ sprint: ' · SPRINT', loop: ' · VUELTA', desplome: ' · ARENA' }[course.kind] ?? '');
 $('coursePrev').addEventListener('click', (e) => { e.stopPropagation(); cycleCourse(-1); });
 $('courseNext').addEventListener('click', (e) => { e.stopPropagation(); cycleCourse(1); });
 
@@ -292,7 +299,10 @@ function flyUpdate(dt, rdt) {
     flare: keys.KeyS || keys.ArrowDown,
     bank: (keys.KeyE ? 1 : 0) - (keys.KeyQ ? 1 : 0),
   };
-  if (autopilot.on) Object.assign(input, steerAutopilot(dt));
+  if (autopilot.on) {
+    autopilot.target = isDesplome && dsp.phase === 'armed' ? world.arena.center : null;
+    Object.assign(input, steerAutopilot(dt));
+  }
   if (hasWind) input.wind = windStep(rdt);
   flyAcc += dt;
   let steps = 0;
@@ -430,6 +440,16 @@ function onGate(g) {
   addTrauma(0.12);
   sfx.gate(g.index % 12);
   if (g.zone) zoneBanner(g.zone);
+  if (g.type === 'arena') {
+    if (dsp.phase === 'idle') {
+      armAttempt(state.time);
+      callout('¡ESTRÉLLATE!', 'var(--red)', 1600);
+      const c = world.arena.center;
+      course.beam.position.set(c.x, c.y - 5, c.z);
+      course.beam.material.color.set(0xff6b6b);
+    }
+    return;
+  }
   if (g.delta != null) {
     el.split.textContent = (g.delta > 0 ? '+' : '−') + Math.abs(g.delta).toFixed(2);
     el.split.className = 'split on ' + (g.delta > 0 ? 'bad' : 'good');
@@ -480,6 +500,7 @@ function crash(ev) {
   onStyle(styleBreak());
   const speed = ev.vel.length();
   state.crashImpact = ev.voluntary ? 0 : ev.impact ?? speed;
+  if (isDesplome) crashAttempt(state.time, ev.voluntary ? speed * 0.5 : state.crashImpact);
 
   // Momento angular: vuelco en la dirección del impacto + algo de caos
   const ang = new THREE.Vector3().crossVectors(ev.normal, ev.vel).multiplyScalar(0.035 + Math.random() * 0.02);
@@ -540,7 +561,35 @@ function restartRun() {
   resetCourse();
   ghostCancel();
   styleCancel();
+  if (isDesplome) { resetAttempt(); resetArena(); el.cScore.classList.add('hidden'); }
   respawn(true);
+}
+
+/* DESPLOME: intento nulo por tiempo, o puntuación cuando el ragdoll se detiene. */
+function updateDesplome() {
+  if (dsp.phase === 'armed' && state.mode === 'fly' && state.time - dsp.armT > ARMED_TIMEOUT) {
+    resetAttempt();
+    callout('SIN DESPLOME', 'var(--red)', 1500);
+    state.sprintDone = true;
+    state.restartAt = state.time + 1.5;
+  }
+  if (dsp.phase === 'crashed' && ragdoll.stats && (ragdoll.settled || state.time - dsp.crashT > SETTLE_TIMEOUT)) finishDesplome();
+}
+
+function finishDesplome() {
+  const c = ragdollCenter(_tmp), a = world.arena.center;
+  const r = scoreAttempt(ragdoll.stats, knockedCount(), Math.hypot(c.x - a.x, c.z - a.z));
+  const m = medalForPoints(r.points);
+  el.crashtitle.textContent = fmtPts(r.points) + ' PTS';
+  el.cScore.innerHTML =
+    `DIANA <b>×${r.mult}</b> · DERRIBADOS <b>${r.knocked}</b> · ` +
+    (r.record ? '<b class="rec">¡NUEVO RÉCORD!</b>' : `RÉCORD <b>${fmtPts(dsp.best)}</b>`) +
+    (m ? ` · <b style="color:${m.color}">${m.id === 'author' ? 'MEDALLA DE AUTOR' : 'MEDALLA DE ' + m.label}</b>` : '');
+  el.cScore.classList.remove('hidden');
+  sfx.finish(r.record);
+  refreshRecords();
+  state.sprintDone = true;
+  state.restartAt = state.time + 4;
 }
 
 function respawn(fromStart = false) {
@@ -617,12 +666,20 @@ function updateHUD(dt) {
   el.mode.style.color = color;
   el.stall.classList.toggle('on', state.mode === 'fly' && spd < CFG.STALL_SPEED * 0.85);
 
-  const t = course.running ? state.time - course.t0 : 0;
-  el.racetime.textContent = fmtTime(t);
-  el.gatecount.textContent = `PUERTA ${course.next}/${course.gates.length}`;
-  el.besttime.textContent = fmtTime(course.best);
-  const nx = nextMedal(course.best);
-  el.target.innerHTML = nx ? `OBJETIVO <b style="color:${nx.color}">${nx.label}</b> ${fmtTime(nx.t)}` : '<b style="color:#c86bff">TODAS LAS MEDALLAS</b>';
+  if (isDesplome) {
+    el.racetime.textContent = dsp.phase === 'armed' ? fmtTime(state.time - dsp.armT) : dsp.result ? fmtPts(dsp.result.points) : 'DESPLOME';
+    el.gatecount.textContent = dsp.phase === 'idle' ? 'CRUZA LA ENTRADA' : '¡A LA DIANA!';
+    el.besttime.textContent = dsp.best ? fmtPts(dsp.best) + ' PTS' : '—';
+    const nx = nextMedalPoints(dsp.best);
+    el.target.innerHTML = nx ? `OBJETIVO <b style="color:${nx.color}">${nx.label}</b> ${fmtPts(nx.t)} PTS` : '<b style="color:#c86bff">TODAS LAS MEDALLAS</b>';
+  } else {
+    const t = course.running ? state.time - course.t0 : 0;
+    el.racetime.textContent = fmtTime(t);
+    el.gatecount.textContent = `PUERTA ${course.next}/${course.gates.length}`;
+    el.besttime.textContent = fmtTime(course.best);
+    const nx = nextMedal(course.best);
+    el.target.innerHTML = nx ? `OBJETIVO <b style="color:${nx.color}">${nx.label}</b> ${fmtTime(nx.t)}` : '<b style="color:#c86bff">TODAS LAS MEDALLAS</b>';
+  }
   el.crystals.textContent = state.crystals;
   el.nears.textContent = state.nears;
   el.stylescore.textContent = fmtPts(style.total);
@@ -653,6 +710,14 @@ function updateComboHUD() {
 
 /* Récord y escalera de medallas de la pantalla de título. */
 function refreshRecords() {
+  if (isDesplome) {
+    el.records.innerHTML = `<div class="best">RÉCORD ${dsp.best ? fmtPts(dsp.best) + ' PTS' : '—'}</div>` +
+      MEDALS.slice().reverse().map((m) => {
+        const got = dsp.best != null && dsp.best >= m.t;
+        return `<span class="medal${got ? ' got' : ''}" style="--mc:${m.color}">${m.label} ${fmtPts(m.t)}</span>`;
+      }).join('');
+    return;
+  }
   const best = course.best;
   el.records.innerHTML =
     `<div class="best">MEJOR ${fmtTime(best)}${style.best ? ' · ESTILO ' + fmtPts(style.best) : ''}` +
@@ -664,8 +729,9 @@ function refreshRecords() {
 }
 
 function updateGateMarker() {
-  const g = course.gates[course.next];
-  _proj.copy(g.pos).project(camera);
+  // En el DESPLOME, tras la ENTRADA el marcador apunta a la diana
+  const target = isDesplome && dsp.phase !== 'idle' ? world.arena.center : course.gates[course.next].pos;
+  _proj.copy(target).project(camera);
   const behind = _proj.z > 1;
   let x = _proj.x, y = _proj.y;
   if (behind) { x = -x; y = -y; }
@@ -683,7 +749,7 @@ function updateGateMarker() {
     el.gatemark.style.transform = `translate(${(ex * 0.5 + 0.5) * W}px, ${(-ey * 0.5 + 0.5) * H}px)`;
     el.gatemark.firstElementChild.style.transform = `rotate(${-a + Math.PI / 2}rad)`;
   }
-  el.gatedist.textContent = Math.round(g.pos.distanceTo(player.pos)) + ' m';
+  el.gatedist.textContent = Math.round(target.distanceTo(player.pos)) + ' m';
 }
 
 function updateCrashPanel(dt) {
@@ -719,6 +785,21 @@ function updatePerf(frameMs, steps) {
   perf.frames = perf.ms = perf.worst = perf.steps = 0;
 }
 
+/* Puntos de la cámara de presentación: las puertas, o una órbita sobre la arena
+   (el DESPLOME tiene una sola puerta y la curva necesita varias). */
+let _attract = null;
+function attractPoints() {
+  if (_attract) return _attract;
+  if (isDesplome) {
+    const c = world.arena.center;
+    _attract = Array.from({ length: 8 }, (_, i) => {
+      const a = (i / 8) * Math.PI * 2;
+      return new THREE.Vector3(c.x + Math.cos(a) * 170, c.y + 60, c.z + Math.sin(a) * 170);
+    });
+  } else _attract = course.gates.map((g) => g.pos);
+  return _attract;
+}
+
 /* ── Bucle ───────────────────────────────────────────────── */
 let last = performance.now();
 let debugNoRender = false;
@@ -748,6 +829,7 @@ function tick(now) {
   state.time += dt;
 
   if (state.mode === 'fly' && !paused) flyUpdate(dt, rdt);
+  if (isDesplome) updateDesplome();
   if (state.restartAt && state.time >= state.restartAt) restartRun();
 
   const steps = stepPhysics(dt, (events) => {
@@ -762,7 +844,7 @@ function tick(now) {
     updateWind(0, rdt, 0);
     _focus.copy(camera.position);
   } else if (state.mode === 'title') {
-    updateAttractCamera(camera, rdt, course.gates);
+    updateAttractCamera(camera, rdt, attractPoints());
     _focus.copy(camera.position);
   } else {
     _focus.copy(player.rpos);
@@ -798,6 +880,10 @@ async function boot() {
     setParticleScale(renderer.domElement.height);
     el.timeName.textContent = 'HORA ' + TIMES[atmo.id].label;
     el.windrow.classList.toggle('hidden', !hasWind);
+    if (isDesplome) {
+      $('titletip').innerHTML = 'Cruza la <b>ENTRADA</b> y estréllate en la arena. La <b>diana</b> multiplica ' +
+        '(×3 en el centro), cada <b>caja derribada</b> suma, y también el daño, las fracturas y la velocidad del impacto.';
+    }
     initGhost(scene, course.id, world.glowTex);
     initStyle(course.id);
     refreshRecords();
@@ -836,7 +922,7 @@ async function boot() {
     const setAutopilot = (on = true, boost = true) => { autopilot.on = on; autopilot.boost = boost; };
     window.__elytra = {
       probePath, state, player, course, world, phys, ragdoll, scene, camera, renderer, advance, respawn, crash, keys, res, perf,
-      QUALITY, ghost, style, autopilot: setAutopilot, applyTime,
+      QUALITY, ghost, style, autopilot: setAutopilot, applyTime, dsp, knockedCount,
     };
     requestAnimationFrame(frame);
   } catch (err) {

@@ -116,10 +116,11 @@ export function updateRagdollCamera(camera, dt, time) {
   cam.trauma = Math.max(0, cam.trauma - dt * 1.2);
 }
 
-/* Cámara de presentación: recorre el circuito. */
-export function updateAttractCamera(camera, dt, gates) {
+/* Cámara de presentación: recorre una curva cerrada por los puntos dados (las puertas
+   del circuito, o una órbita alrededor de la arena). Necesita al menos 3 puntos. */
+export function updateAttractCamera(camera, dt, points) {
   if (!cam.attract) {
-    const pts = gates.map((g) => g.pos.clone().add(new THREE.Vector3(0, 6, 0)));
+    const pts = points.map((p) => p.clone().add(new THREE.Vector3(0, 6, 0)));
     cam.attract = new THREE.CatmullRomCurve3(pts, true, 'centripetal');
     cam.attractLen = cam.attract.getLength();
   }
