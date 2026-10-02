@@ -12,7 +12,8 @@ import {
 import {
   cam, addTrauma, updateFlightCamera, updateRagdollCamera, startRagdollCamera, orbitInput, zoomInput, updateAttractCamera,
 } from './camera.js';
-import { course, checkGates, resetCourse, animateCourse, fmtTime, MEDALS, medalFor, nextMedal } from './course.js';
+import { course, checkGates, resetCourse, animateCourse, fmtTime, MEDALS, medalFor, nextMedal, pathSegments } from './course.js';
+import { COURSES, COURSE_ORDER, saveCourse, urlWith } from './courses.js';
 import { fx, initEffects, updateEffects, updateStreaks, burst, dustPuff, setParticleScale } from './effects.js';
 import { initAudio, updateWind, sfx, toggleMute } from './audio.js';
 import { surfaceHeight } from './terrain.js';
@@ -85,6 +86,8 @@ const state = {
   shownDamage: 0,
   skin: 0,
   lastScrapeSfx: 0,
+  sprintDone: false, // sprint terminado: R/T vuelven a la salida
+  restartAt: 0,      // instante (state.time) del reinicio automático tras la meta de un sprint
 };
 let rig = null;
 const keys = Object.create(null);
@@ -104,7 +107,7 @@ const el = {
   cDamage: $('cDamage'), cFract: $('cFract'), cBounce: $('cBounce'), cDist: $('cDist'), cImpact: $('cImpact'),
   crashcta: $('crashcta'), finishpanel: $('finishpanel'), finishtitle: $('finishtitle'), finishtime: $('finishtime'),
   finishsub: $('finishsub'), pause: $('pause'), perf: $('perf'), qualName: $('qualName'), sensName: $('sensName'),
-  target: $('target'), finishmedal: $('finishmedal'), records: $('records'),
+  target: $('target'), finishmedal: $('finishmedal'), records: $('records'), courseName: $('courseName'),
   combo: $('combo'), cnames: $('cnames'), cmult: $('cmult'), cpts: $('cpts'), cbar: $('cbar'),
   comboresult: $('comboresult'), stylescore: $('stylescore'), finishstyle: $('finishstyle'),
 };
@@ -171,8 +174,8 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.code === 'KeyM') callout(toggleMute() ? 'SONIDO OFF' : 'SONIDO ON', 'var(--cyan)');
   if (e.code === 'KeyG') callout(toggleGhost() ? 'FANTASMA ON' : 'FANTASMA OFF', 'var(--cyan)');
-  if (e.code === 'KeyR') respawn();
-  if (e.code === 'KeyT') { resetCourse(); ghostCancel(); styleCancel(); respawn(true); }
+  if (e.code === 'KeyR') { if (state.sprintDone) restartRun(); else respawn(); }
+  if (e.code === 'KeyT') restartRun();
   if (state.mode === 'fly') {
     if (e.code === 'Space' && tryFlap()) sfx.flap();
     if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && tryBoost()) { sfx.boost(); addTrauma(0.25); cam.fovKick = 6; }
@@ -216,7 +219,7 @@ function lockPointer() {
 }
 
 canvas.addEventListener('click', () => {
-  if (state.mode === 'crash' && ragdoll.t > 0.8) { respawn(); return; }
+  if (state.mode === 'crash' && ragdoll.t > 0.8) { if (state.sprintDone) restartRun(); else respawn(); return; }
   if (!pointerLocked && state.mode !== 'title') lockPointer();
 });
 $('skinPrev').addEventListener('click', (e) => { e.stopPropagation(); setSkin(state.skin - 1); });
@@ -227,11 +230,23 @@ function cycleQuality(d) {
   const i = PRESET_ORDER.indexOf(QUALITY.id);
   const id = PRESET_ORDER[(i + d + PRESET_ORDER.length) % PRESET_ORDER.length];
   el.qualName.textContent = 'CALIDAD ' + PRESETS[id].label + ' · RECARGANDO…';
-  location.replace(location.pathname + '?q=' + id);
+  location.replace(urlWith('q', id));
 }
 el.qualName.textContent = 'CALIDAD ' + QUALITY.label;
 $('qualPrev').addEventListener('click', (e) => { e.stopPropagation(); cycleQuality(-1); });
 $('qualNext').addEventListener('click', (e) => { e.stopPropagation(); cycleQuality(1); });
+
+/* Cambiar de circuito también recarga: el mundo se construye para su trazado. */
+function cycleCourse(d) {
+  const i = COURSE_ORDER.indexOf(course.id);
+  const id = COURSE_ORDER[(i + d + COURSE_ORDER.length) % COURSE_ORDER.length];
+  saveCourse(id);
+  el.courseName.textContent = COURSES.find((c) => c.id === id).name + ' · CARGANDO…';
+  location.replace(urlWith('c', id));
+}
+el.courseName.textContent = course.name + (course.kind === 'sprint' ? ' · SPRINT' : ' · VUELTA');
+$('coursePrev').addEventListener('click', (e) => { e.stopPropagation(); cycleCourse(-1); });
+$('courseNext').addEventListener('click', (e) => { e.stopPropagation(); cycleCourse(1); });
 el.sensName.textContent = sensLabel();
 $('sensPrev').addEventListener('click', (e) => { e.stopPropagation(); stepSens(-1); el.sensName.textContent = sensLabel(); });
 $('sensNext').addEventListener('click', (e) => { e.stopPropagation(); stepSens(1); el.sensName.textContent = sensLabel(); });
@@ -386,6 +401,7 @@ function onGate(g) {
     timers.split = setTimeout(() => el.split.classList.remove('on'), 1800);
   }
   if (g.type === 'start') {
+    state.sprintDone = false;
     ghostStart(course.t0);
     styleStart();
     callout('¡CRONO EN MARCHA!', 'var(--gold)', 1200);
@@ -416,6 +432,8 @@ function onGate(g) {
     refreshRecords();
     clearTimeout(timers.finish);
     timers.finish = setTimeout(() => el.finishpanel.classList.add('hidden'), 4000);
+    // Sprint: vuelta automática a la salida (R/T lo adelantan; chocar tras la meta no lo impide)
+    if (course.kind === 'sprint') { state.sprintDone = true; state.restartAt = state.time + 3; }
   }
 }
 
@@ -479,6 +497,16 @@ function onImpact(part, dv, fracture, pos) {
   addTrauma(s * 0.25);
 }
 
+/* Carrera desde cero: puertas, fantasma y estilo a la salida. */
+function restartRun() {
+  state.sprintDone = false;
+  state.restartAt = 0;
+  resetCourse();
+  ghostCancel();
+  styleCancel();
+  respawn(true);
+}
+
 function respawn(fromStart = false) {
   if (state.mode === 'title' || state.mode === 'loading') {
     if (!fromStart) return;
@@ -489,7 +517,7 @@ function respawn(fromStart = false) {
   const dir = cp.dir.clone().normalize();
   const pos = cp.pos.clone().addScaledVector(dir, 14);
   pos.y = Math.max(pos.y, surfaceHeight(pos.x, pos.z) + 25);
-  resetPlayer(pos, dir, 70);
+  resetPlayer(pos, dir, cp.speed ?? 70);
   _prev.copy(player.pos);
   if (course.running) ghostRecord(state.time - course.t0, player, true);
   state.mode = 'fly';
@@ -675,6 +703,7 @@ function tick(now) {
   state.time += dt;
 
   if (state.mode === 'fly' && !paused) flyUpdate(dt, rdt);
+  if (state.restartAt && state.time >= state.restartAt) restartRun();
 
   const steps = stepPhysics(dt, (events) => {
     if (ragdoll.active) handleContactForces(events, onImpact);
@@ -744,18 +773,17 @@ async function boot() {
       last = performance.now();
       for (const k in keysDown) keys[k] = false;
     };
-    // Depuración: comprueba que el tramo recto entre puertas consecutivas esté libre
+    // Depuración: comprueba que cada tramo recto del recorrido (salida incluida) esté libre
     const probePath = (radius = 4) => {
-      const G = course.gates, out = [];
-      for (let i = 0; i < G.length; i++) {
-        const a = G[i].pos, b = G[(i + 1) % G.length].pos;
+      const out = [];
+      pathSegments().forEach(([a, b], i) => {
         const d = b.clone().sub(a);
         const h = castPlayer(a, d, radius);
         if (h) {
           const at = a.clone().addScaledVector(d, h.time_of_impact);
-          out.push({ seg: `${i}->${(i + 1) % G.length}`, kind: h.collider.userData?.kind, t: +h.time_of_impact.toFixed(2), at: [at.x | 0, at.y | 0, at.z | 0] });
+          out.push({ seg: i ? `${i - 1}->${i % course.gates.length}` : 'salida->0', kind: h.collider.userData?.kind, t: +h.time_of_impact.toFixed(2), at: [at.x | 0, at.y | 0, at.z | 0] });
         }
-      }
+      });
       return out;
     };
     const setAutopilot = (on = true, boost = true) => { autopilot.on = on; autopilot.boost = boost; };

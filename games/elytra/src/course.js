@@ -3,48 +3,21 @@ import * as THREE from 'three';
 import { CFG } from './config.js';
 import { canyonZ, canyonTangent, CANYON_FLOOR, surfaceHeight, baseSurface } from './terrain.js';
 import { segDist2D } from './noise.js';
-
-/* Puertas en orden. y = altura absoluta (abs) o sobre la superficie (a).
-   canyon:true → z se calcula sobre el eje del cañón.
-   feature: obstáculo que el mundo construye alrededor de la puerta. */
-const GATE_DEFS = [
-  { x: -1050, z: -1000, a: 90,  zone: 'AGUJAS' },
-  { x: -820,  z: -1180, a: 70 },
-  { x: -600,  z: -980,  a: 60 },
-  { x: -380,  z: -1150, a: 80 },
-  { x: 150,   z: -1050, a: 70,  feature: 'arch', zone: 'MESETA' },
-  { x: 420,   z: -480,  a: 70,  zone: 'LADERA DEL MACIZO' },
-  { x: 450,   canyon: true, a: 30, zone: 'CAÑÓN' },
-  { x: 750,   canyon: true, a: 22, feature: 'bridge' },
-  { x: 1050,  canyon: true, a: 32, feature: 'arch' },
-  { x: 1350,  canyon: true, a: 28 },
-  { x: 1250,  z: 650,  a: 90 },
-  { x: 1000,  z: 900,  a: 32,  feature: 'ring', zone: 'RUINAS' },
-  { x: 760,   z: 1080, a: 30 },
-  { x: 560,   z: 950,  a: 40 },
-  { x: 250,   z: 1050, a: 150, zone: 'ISLAS FLOTANTES' },
-  { x: -50,   z: 1150, abs: 330 },
-  { x: -330,  z: 980,  abs: 380 },
-  { x: -560,  z: 1100, abs: 260 },
-  { x: -960,  z: 820,  a: 22,  zone: 'LAGO' },
-  { x: -1180, z: 1060, a: 20 },
-  { x: -1250, z: 450,  a: 40,  feature: 'arch', zone: 'VALLE' },
-  { x: -1150, canyon: true, a: 25, feature: 'bridge' },
-  { x: -1150, z: -780, a: 70,  zone: 'META' },
-];
+import { pickCourse } from './courses.js';
 
 export const GATE_R = 17;
 let _segs = null;
 
-/* Medallas del circuito (tiempo máximo en s, de mejor a peor). Referencia: el piloto
-   automático de depuración (autopilot.js), con trazada perfecta e impulso sin
-   cristales, hace ~50,8 s; AUTOR exige batirlo. */
-export const MEDALS = [
-  { id: 'author', label: 'AUTOR',  t: 48, color: '#c86bff' },
-  { id: 'gold',   label: 'ORO',    t: 55, color: '#ffd23f' },
-  { id: 'silver', label: 'PLATA',  t: 64, color: '#dfe9f2' },
-  { id: 'bronze', label: 'BRONCE', t: 80, color: '#e39a5c' },
+/* Circuito activo (?c=<id>) y sus medallas (tiempo máximo en s, de mejor a peor). */
+export const ACTIVE = pickCourse();
+const BEST_KEY = 'elytra.best.' + ACTIVE.id;
+const MEDAL_META = [
+  { id: 'author', label: 'AUTOR',  color: '#c86bff' },
+  { id: 'gold',   label: 'ORO',    color: '#ffd23f' },
+  { id: 'silver', label: 'PLATA',  color: '#dfe9f2' },
+  { id: 'bronze', label: 'BRONCE', color: '#e39a5c' },
 ];
+export const MEDALS = MEDAL_META.map((m) => ({ ...m, t: ACTIVE.medals[m.id] }));
 
 /** Mejor medalla conseguida con el tiempo t (o null). */
 export const medalFor = (t) => (t == null ? null : MEDALS.find((m) => t <= m.t) ?? null);
@@ -56,9 +29,11 @@ export function nextMedal(t) {
 }
 
 export const course = {
-  id: 'main',         // clave de récords y fantasma en localStorage
+  id: ACTIVE.id,      // clave de récords, fantasma y estilo en localStorage
+  name: ACTIVE.name,
+  kind: ACTIVE.kind,  // 'loop' | 'sprint'
   gates: [],          // { pos, normal, def, group, ring, mat }
-  start: null,        // { pos, dir }
+  start: null,        // { pos, dir, speed }
   next: 0,
   running: false,
   t0: 0,
@@ -72,15 +47,18 @@ export const course = {
   lastCheckpoint: null,
 };
 
+/* Posición de una definición { x, z | canyon, a | abs } (antes de tallar el terreno). */
+function defPos(d) {
+  const z = d.canyon ? canyonZ(d.x) : d.z;
+  let y;
+  if (d.abs !== undefined) y = d.abs;
+  else if (d.canyon) y = Math.max(CANYON_FLOOR, CFG.WATER) + d.a;
+  else y = baseSurface(d.x, z) + d.a;
+  return new THREE.Vector3(d.x, y, z);
+}
+
 export function resolveGates() {
-  const pts = GATE_DEFS.map((d) => {
-    const z = d.canyon ? canyonZ(d.x) : d.z;
-    let y;
-    if (d.abs !== undefined) y = d.abs;
-    else if (d.canyon) y = Math.max(CANYON_FLOOR, CFG.WATER) + d.a;
-    else y = baseSurface(d.x, z) + d.a;
-    return { pos: new THREE.Vector3(d.x, y, z), def: d };
-  });
+  const pts = ACTIVE.gates.map((d) => ({ pos: defPos(d), def: d }));
   course.gates = pts;
   computeGateFrames();
   return pts;
@@ -90,34 +68,43 @@ export function resolveGates() {
    alguna puerta (p. ej. centrarla en el anillo de piedra). */
 export function computeGateFrames() {
   const pts = course.gates;
+  const n = pts.length;
+  const loop = course.kind !== 'sprint';
+  const fixedStart = ACTIVE.start ? defPos(ACTIVE.start) : null;
   _segs = null;
-  // Normal = dirección media entre el tramo de llegada y el de salida
-  for (let i = 0; i < pts.length; i++) {
-    const prev = pts[(i - 1 + pts.length) % pts.length].pos;
-    const next = pts[(i + 1) % pts.length].pos;
-    const a = pts[i].pos.clone().sub(prev).normalize();
-    const b = next.clone().sub(pts[i].pos).normalize();
-    let n = a.add(b);
+  // Normal = dirección media entre el tramo de llegada y el de salida (en un sprint
+  // los extremos no se cierran: la primera mira desde la salida, la última solo llega)
+  for (let i = 0; i < n; i++) {
+    const p = pts[i].pos;
+    const prev = loop || i > 0 ? pts[(i - 1 + n) % n].pos : fixedStart;
+    const next = loop || i < n - 1 ? pts[(i + 1) % n].pos : null;
+    const nrm = new THREE.Vector3();
+    if (prev) nrm.add(p.clone().sub(prev).normalize());
+    if (next) nrm.add(next.clone().sub(p).normalize());
     if (pts[i].def.canyon) {
       const t = canyonTangent(pts[i].def.x);
-      const sgn = Math.sign(n.x * t.x + n.z * t.z) || 1;
-      n.set(t.x * sgn, n.y * 0.3, t.z * sgn);
+      const sgn = Math.sign(nrm.x * t.x + nrm.z * t.z) || 1;
+      nrm.set(t.x * sgn, nrm.y * 0.3, t.z * sgn);
     }
-    n.y *= 0.5;
-    pts[i].normal = n.normalize();
+    nrm.y *= 0.5;
+    pts[i].normal = nrm.normalize();
   }
-  // Inicio: detrás de la primera puerta, en altura, apuntando hacia ella
+  // Inicio: el del circuito, o detrás de la primera puerta y en altura, apuntando a ella
   const g0 = pts[0];
-  const startPos = g0.pos.clone().addScaledVector(g0.normal, -380);
-  startPos.y = Math.max(startPos.y + 120, baseSurface(startPos.x, startPos.z) + 160);
-  course.start = { pos: startPos, dir: g0.pos.clone().sub(startPos).normalize() };
+  let startPos = fixedStart;
+  if (!startPos) {
+    startPos = g0.pos.clone().addScaledVector(g0.normal, -380);
+    startPos.y = Math.max(startPos.y + 120, baseSurface(startPos.x, startPos.z) + 160);
+  }
+  course.start = { pos: startPos, dir: g0.pos.clone().sub(startPos).normalize(), speed: ACTIVE.start?.speed ?? 70 };
 }
 
 /* Segmentos 3D del recorrido (para mantener libre el camino al colocar obstáculos). */
 export function pathSegments() {
   const G = course.gates.map((g) => g.pos);
   const segs = [[course.start.pos, G[0]]];
-  for (let i = 0; i < G.length; i++) segs.push([G[i], G[(i + 1) % G.length]]);
+  const last = course.kind === 'sprint' ? G.length - 1 : G.length;   // un sprint no vuelve a la salida
+  for (let i = 0; i < last; i++) segs.push([G[i], G[(i + 1) % G.length]]);
   return segs;
 }
 
@@ -174,7 +161,10 @@ export function buildCourseVisuals(scene, glowTex) {
   scene.add(course.beam);
 
   try {
-    const s = JSON.parse(localStorage.getItem('elytra.best') || 'null');
+    // Récord por circuito; la GRAN VUELTA hereda la clave antigua 'elytra.best'
+    let raw = localStorage.getItem(BEST_KEY);
+    if (raw == null && course.id === 'main') raw = localStorage.getItem('elytra.best');
+    const s = JSON.parse(raw || 'null');
     if (s) { course.best = s.time; course.bestSplits = s.splits; }
   } catch { /* sin almacenamiento */ }
   refreshGateColors();
@@ -247,7 +237,7 @@ export function checkGates(p0, p1, now) {
     if (ev.record) {
       course.best = total;
       course.bestSplits = course.splits.slice();
-      try { localStorage.setItem('elytra.best', JSON.stringify({ time: total, splits: course.bestSplits })); } catch { /* */ }
+      try { localStorage.setItem(BEST_KEY, JSON.stringify({ time: total, splits: course.bestSplits })); } catch { /* */ }
     }
     course.running = false;
     course.lap++;
