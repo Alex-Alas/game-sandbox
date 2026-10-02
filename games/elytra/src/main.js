@@ -17,6 +17,7 @@ import { fx, initEffects, updateEffects, updateStreaks, burst, dustPuff, setPart
 import { initAudio, updateWind, sfx, toggleMute } from './audio.js';
 import { surfaceHeight } from './terrain.js';
 import { setDetailDistance } from './materials.js';
+import { mouseToRadians, settleMouse, stepSens, sensLabel } from './mouse.js';
 
 /* ── Render ──────────────────────────────────────────────── */
 const canvas = document.getElementById('game');
@@ -97,7 +98,7 @@ const el = {
   overlay: $('overlay'), skinName: $('skinName'), crashpanel: $('crashpanel'), crashtitle: $('crashtitle'),
   cDamage: $('cDamage'), cFract: $('cFract'), cBounce: $('cBounce'), cDist: $('cDist'), cImpact: $('cImpact'),
   crashcta: $('crashcta'), finishpanel: $('finishpanel'), finishtitle: $('finishtitle'), finishtime: $('finishtime'),
-  finishsub: $('finishsub'), pause: $('pause'), perf: $('perf'), qualName: $('qualName'),
+  finishsub: $('finishsub'), pause: $('pause'), perf: $('perf'), qualName: $('qualName'), sensName: $('sensName'),
 };
 
 /* ── Avisos temporales ───────────────────────────────────── */
@@ -134,6 +135,12 @@ function setSkin(i) {
 /* ── Entrada ─────────────────────────────────────────────── */
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space' || e.code.startsWith('Arrow') || e.code === 'F3') e.preventDefault();
+  if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
+    stepSens(e.code === 'ArrowUp' ? 1 : -1);
+    el.sensName.textContent = sensLabel();
+    if (state.mode !== 'title') callout(sensLabel(), 'var(--cyan)', 700);
+    return;
+  }
   if (e.repeat) return;
   if (e.code === 'F3') { perf.on = !perf.on; el.perf.classList.toggle('hidden', !perf.on); return; }
   keys[e.code] = true;
@@ -158,12 +165,16 @@ window.addEventListener('keydown', (e) => {
   }
 });
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
-window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; settleMouse(); });
+window.addEventListener('focus', () => settleMouse());
+document.addEventListener('visibilitychange', () => settleMouse());
 
 document.addEventListener('mousemove', (e) => {
   if (state.mode === 'fly' && pointerLocked) {
-    player.yaw -= e.movementX * CFG.MOUSE_SENS;
-    player.pitch = THREE.MathUtils.clamp(player.pitch - e.movementY * CFG.MOUSE_SENS, -1.5, 1.5);
+    const d = mouseToRadians(e.movementX, e.movementY);
+    if (!d) return;
+    player.yaw -= d[0];
+    player.pitch = THREE.MathUtils.clamp(player.pitch - d[1], -1.5, 1.5);
   } else if (state.mode === 'crash' && (pointerLocked || mouseDown)) {
     orbitInput(e.movementX, e.movementY);
   }
@@ -174,6 +185,7 @@ canvas.addEventListener('wheel', (e) => { if (state.mode === 'crash') zoomInput(
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === canvas;
   if (pointerLocked) hadLock = true;
+  settleMouse();
 });
 
 function lockPointer() {
@@ -197,6 +209,9 @@ function cycleQuality(d) {
 el.qualName.textContent = 'CALIDAD ' + QUALITY.label;
 $('qualPrev').addEventListener('click', (e) => { e.stopPropagation(); cycleQuality(-1); });
 $('qualNext').addEventListener('click', (e) => { e.stopPropagation(); cycleQuality(1); });
+el.sensName.textContent = sensLabel();
+$('sensPrev').addEventListener('click', (e) => { e.stopPropagation(); stepSens(-1); el.sensName.textContent = sensLabel(); });
+$('sensNext').addEventListener('click', (e) => { e.stopPropagation(); stepSens(1); el.sensName.textContent = sensLabel(); });
 el.overlay.addEventListener('click', startGame);
 
 function startGame() {
