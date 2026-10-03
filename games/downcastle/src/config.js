@@ -104,7 +104,7 @@ const params = new URLSearchParams(typeof location !== 'undefined' ? location.se
 /* Servidor de salas. En desarrollo, el plugin de Vite atiende /downcastle-ws en el mismo
    servidor. En producción hay que poner aquí la URL del Worker tras `npx wrangler deploy`
    (o pasarla con ?ws=wss://…). */
-const WS_PROD = '';
+const WS_PROD = 'wss://downcastle.libre-flow.workers.dev/ws';
 function wsUrl() {
   const fromUrl = params.get('ws');
   if (fromUrl) return fromUrl;
