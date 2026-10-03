@@ -24,7 +24,8 @@ import { fx, initEffects, updateEffects, updateStreaks, burst, dustPuff, setPart
 import { initAudio, updateWind, sfx, toggleMute } from './audio.js';
 import { surfaceHeight } from './terrain.js';
 import { setDetailDistance } from './materials.js';
-import { mouseToRadians, settleMouse, stepSens, sensLabel } from './mouse.js';
+import { mouseToRadians, touchToRadians, settleMouse, stepSens, sensLabel } from './mouse.js';
+import { touch, initTouch } from './touch.js';
 import { ghost, initGhost, ghostStart, ghostRecord, ghostFinish, ghostCancel, updateGhost, toggleGhost } from './ghost.js';
 import { autopilot, steerAutopilot } from './autopilot.js';
 import {
@@ -103,6 +104,7 @@ let pointerLocked = false;
 let hadLock = false;
 let debugAdvancing = false;
 let mouseDown = false;
+let touchPaused = false; // pausa manual (táctil: no hay ratón cuyo bloqueo pausar)
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -114,7 +116,7 @@ const el = {
   overlay: $('overlay'), skinName: $('skinName'), crashpanel: $('crashpanel'), crashtitle: $('crashtitle'),
   cDamage: $('cDamage'), cFract: $('cFract'), cBounce: $('cBounce'), cDist: $('cDist'), cImpact: $('cImpact'),
   crashcta: $('crashcta'), finishpanel: $('finishpanel'), finishtitle: $('finishtitle'), finishtime: $('finishtime'),
-  finishsub: $('finishsub'), pause: $('pause'), perf: $('perf'), qualName: $('qualName'), sensName: $('sensName'),
+  finishsub: $('finishsub'), pause: $('pause'), touch: $('touch'), perf: $('perf'), qualName: $('qualName'), sensName: $('sensName'),
   target: $('target'), finishmedal: $('finishmedal'), records: $('records'), courseName: $('courseName'),
   timeName: $('timeName'), cScore: $('cScore'), windrow: $('windrow'), windarrow: $('windarrow'), windval: $('windval'),
   combo: $('combo'), cnames: $('cnames'), cmult: $('cmult'), cpts: $('cpts'), cbar: $('cbar'),
@@ -175,31 +177,37 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.repeat) return;
   if (e.code === 'F3') { perf.on = !perf.on; el.perf.classList.toggle('hidden', !perf.on); return; }
-  keys[e.code] = true;
+  press(e.code);
+});
+
+/* Acción de una tecla. El teclado y los botones táctiles (touch.js) pasan por aquí. */
+function press(code) {
+  keys[code] = true;
   if (state.mode === 'title') {
-    if (e.code === 'ArrowLeft') setSkin(state.skin - 1);
-    if (e.code === 'ArrowRight') setSkin(state.skin + 1);
+    if (code === 'ArrowLeft') setSkin(state.skin - 1);
+    if (code === 'ArrowRight') setSkin(state.skin + 1);
     return;
   }
-  if (e.code === 'KeyM') callout(toggleMute() ? 'SONIDO OFF' : 'SONIDO ON', 'var(--cyan)');
-  if (e.code === 'KeyG') callout(toggleGhost() ? 'FANTASMA ON' : 'FANTASMA OFF', 'var(--cyan)');
-  if (e.code === 'KeyR') { if (dsp.phase === 'crashed') finishDesplome(); else if (state.sprintDone || isDesplome) restartRun(); else respawn(); }
-  if (e.code === 'KeyT') restartRun();
+  if (code === 'KeyM') callout(toggleMute() ? 'SONIDO OFF' : 'SONIDO ON', 'var(--cyan)');
+  if (code === 'KeyG') callout(toggleGhost() ? 'FANTASMA ON' : 'FANTASMA OFF', 'var(--cyan)');
+  if (code === 'KeyR') { if (dsp.phase === 'crashed') finishDesplome(); else if (state.sprintDone || isDesplome) restartRun(); else respawn(); }
+  if (code === 'KeyT') restartRun();
   if (state.mode === 'fly') {
-    if (e.code === 'Space' && tryFlap()) sfx.flap();
-    if ((e.code === 'ShiftLeft' || e.code === 'ShiftRight') && tryBoost()) { sfx.boost(); addTrauma(0.25); cam.fovKick = 6; }
-    if ((e.code === 'KeyA' || e.code === 'KeyD') && tryBarrelRoll(e.code === 'KeyA' ? -1 : 1)) {
+    if (code === 'Space' && tryFlap()) sfx.flap();
+    if ((code === 'ShiftLeft' || code === 'ShiftRight') && tryBoost()) { sfx.boost(); addTrauma(0.25); cam.fovKick = 6; }
+    if ((code === 'KeyA' || code === 'KeyD') && tryBarrelRoll(code === 'KeyA' ? -1 : 1)) {
       sfx.roll();
       if (player.nearDist < NEAR_ROLL) trick('TONEL AL LÍMITE', 150);
     }
-    if (e.code === 'KeyX') crash({ voluntary: true, pos: player.pos.clone(), vel: player.vel.clone(), normal: new THREE.Vector3(0, 1, 0), impact: 0 });
-    if (e.code === 'KeyV') {
+    if (code === 'KeyX') crash({ voluntary: true, pos: player.pos.clone(), vel: player.vel.clone(), normal: new THREE.Vector3(0, 1, 0), impact: 0 });
+    if (code === 'KeyV') {
       cam.mode = cam.mode === 'third' ? 'first' : 'third';
       callout(cam.mode === 'third' ? '3ª PERSONA' : '1ª PERSONA', 'var(--cyan)');
     }
   }
-});
-window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+}
+function release(code) { keys[code] = false; }
+window.addEventListener('keyup', (e) => release(e.code));
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; settleMouse(); });
 window.addEventListener('focus', () => settleMouse());
 document.addEventListener('visibilitychange', () => settleMouse());
@@ -227,13 +235,48 @@ function lockPointer() {
   try { const r = canvas.requestPointerLock(); if (r?.catch) r.catch(() => {}); } catch { /* */ }
 }
 
-canvas.addEventListener('click', () => {
-  if (state.mode === 'crash' && ragdoll.t > 0.8) {
-    if (dsp.phase === 'crashed') finishDesplome(); else if (state.sprintDone || isDesplome) restartRun(); else respawn();
-    return;
-  }
+/* Tras el choque, un toque/clic reaparece (o cierra el intento en DESPLOME). */
+function crashContinue() {
+  if (state.mode !== 'crash' || ragdoll.t <= 0.8) return false;
+  if (dsp.phase === 'crashed') finishDesplome(); else if (state.sprintDone || isDesplome) restartRun(); else respawn();
+  return true;
+}
+canvas.addEventListener('click', (e) => {
+  if (e.pointerType === 'touch' || touch.on) return; // los toques llegan por touch.js
+  if (crashContinue()) return;
   if (!pointerLocked && state.mode !== 'title') lockPointer();
 });
+
+/* Táctil: arrastrar dirige en vuelo y orbita tras el choque; pellizcar acerca/aleja. */
+initTouch(canvas, {
+  press, release,
+  look(dx, dy) {
+    if (state.mode === 'fly') {
+      if (touchPaused) return;
+      const d = touchToRadians(dx, dy);
+      player.yaw -= d[0];
+      player.pitch = THREE.MathUtils.clamp(player.pitch - d[1], -1.5, 1.5);
+    } else if (state.mode === 'crash') orbitInput(dx, dy);
+  },
+  pinch(delta) { if (state.mode === 'crash') zoomInput(delta); },
+  tap() { crashContinue(); },
+  act(name) {
+    if (name === 'pause') { if (state.mode === 'fly') touchPaused = true; }
+    else if (name === 'resume') touchPaused = false;
+    else if (name === 'title') location.reload();
+  },
+});
+// Reanudar tras una acción del menú de pausa que reinicia el vuelo (R/T)
+for (const b of document.querySelectorAll('#pausemenu [data-resume]')) b.addEventListener('pointerdown', () => { touchPaused = false; });
+// Al volver a la pestaña/app (llamada, cambio de app) no seguir volando a ciegas
+document.addEventListener('visibilitychange', () => { if (document.hidden && touch.on && state.mode === 'fly') touchPaused = true; });
+$('rotateSkip').addEventListener('click', () => document.body.classList.add('rot-skip'));
+// Fuera de vuelo no hay nada que reanudar
+function syncTouchUI() {
+  if (state.mode !== 'fly') touchPaused = false;
+  const show = touch.on && state.mode === 'fly';
+  if (show !== syncTouchUI.shown) { syncTouchUI.shown = show; el.touch.classList.toggle('hidden', !show); }
+}
 $('skinPrev').addEventListener('click', (e) => { e.stopPropagation(); setSkin(state.skin - 1); });
 $('skinNext').addEventListener('click', (e) => { e.stopPropagation(); setSkin(state.skin + 1); });
 
@@ -279,8 +322,17 @@ function startGame() {
   initAudio();
   el.overlay.classList.add('hidden');
   el.hud.classList.remove('hidden');
-  lockPointer();
+  if (touch.on) enterFullscreen(); else lockPointer();
   respawn(true);
+}
+
+/* Móvil: pantalla completa y horizontal si el navegador lo permite (iOS iPhone no). */
+function enterFullscreen() {
+  try {
+    const de = document.documentElement;
+    const r = (de.requestFullscreen ?? de.webkitRequestFullscreen)?.call(de);
+    Promise.resolve(r).then(() => screen.orientation?.lock?.('landscape')).catch(() => {});
+  } catch { /* */ }
 }
 
 /* ── Vuelo ───────────────────────────────────────────────── */
@@ -526,6 +578,7 @@ function crash(ev) {
     state.slowmo = CFG.SLOWMO_TIME * (0.4 + 0.6 * s);
     addTrauma(0.5 + s * 0.5);
     flash();
+    if (touch.on) navigator.vibrate?.(Math.round(40 + s * 120));
     sfx.crash(0.5 + s * 0.5);
     if (ev.water) burst(ev.pos, 0xdff4ff, 80, 30, 3.5, 1.4, { dust: true, grav: 20, base: new THREE.Vector3(0, 20, 0) });
     else {
@@ -619,7 +672,7 @@ function respawn(fromStart = false) {
   fx.trailR.reset(_tipR);
   forwardVector(player.yaw, player.pitch, _fwd);
   cam.offset.copy(_fwd).multiplyScalar(-7).add(new THREE.Vector3(0, 2, 0));
-  if (!pointerLocked) lockPointer();
+  if (!pointerLocked && !touch.on) lockPointer();
 }
 
 /* ── HUD ─────────────────────────────────────────────────── */
@@ -654,7 +707,7 @@ function updateHUD(dt) {
   el.gload.style.color = player.g > 3.5 ? '#ff6b6b' : player.g > 2.2 ? '#ffd23f' : '#cfefff';
 
   let mode = 'PLANEANDO', color = 'rgba(180,230,255,.6)';
-  if (spd < CFG.STALL_SPEED) { mode = 'PÉRDIDA · ¡ALETEA! [ESPACIO]'; color = '#ff6b6b'; }
+  if (spd < CFG.STALL_SPEED) { mode = touch.on ? 'PÉRDIDA · ¡ALETEA!' : 'PÉRDIDA · ¡ALETEA! [ESPACIO]'; color = '#ff6b6b'; }
   else if (player.boostFlash > 0.4) { mode = '¡IMPULSO!'; color = '#c86bff'; }
   else if (player.nearDist < 9) { mode = 'RASANTE · RECARGANDO'; color = '#8ef2ff'; }
   else if (player.thermal > 0.1) { mode = 'CORRIENTE TÉRMICA'; color = '#ffe9a8'; }
@@ -822,8 +875,9 @@ function tick(now) {
     const k = Math.max(0, state.slowmo / CFG.SLOWMO_TIME);
     scale = CFG.SLOWMO_SCALE + (1 - CFG.SLOWMO_SCALE) * (1 - Math.min(1, k * 1.6));
   }
-  // Pausa al liberar el ratón en pleno vuelo (solo si el bloqueo llegó a funcionar)
-  const paused = state.mode === 'fly' && hadLock && !pointerLocked && !debugAdvancing;
+  // Pausa al liberar el ratón en pleno vuelo (solo si el bloqueo llegó a funcionar) o con el botón táctil
+  syncTouchUI();
+  const paused = state.mode === 'fly' && !debugAdvancing && ((hadLock && !pointerLocked) || touchPaused);
   el.pause.classList.toggle('hidden', !paused);
   const dt = paused ? 0 : rdt * scale;
   state.time += dt;

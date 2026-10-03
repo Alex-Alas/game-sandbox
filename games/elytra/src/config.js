@@ -16,6 +16,7 @@ export const CFG = {
   FLARE_TURN: 1.45,        // S gira más cerrado
   TURN_BLEED: 0.055,       // energía que se pierde al girar fuerte
   MOUSE_SENS: 0.0022,
+  TOUCH_SENS: 0.0045,      // rad por píxel de arrastre con el dedo
 
   // Habilidades
   BOOST_COST: 34,
@@ -67,6 +68,8 @@ function pickQuality() {
   const fromUrl = new URLSearchParams(location.search).get('q');
   if (PRESETS[fromUrl]) { saveQuality(fromUrl); return PRESETS[fromUrl]; }
   try { const v = localStorage.getItem(QKEY); if (PRESETS[v]) return PRESETS[v]; } catch { /* sin storage */ }
+  // Móvil/tablet sin preferencia guardada: calidad baja (la resolución adaptativa sube sola)
+  if (matchMedia('(pointer: coarse)').matches) return PRESETS.low;
   return PRESETS.med;
 }
 export function saveQuality(id) {
