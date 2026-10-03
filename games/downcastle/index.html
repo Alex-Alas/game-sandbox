@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="DOWNCASTLE" />
+<meta name="theme-color" content="#0b0709" />
+<link rel="manifest" href="%BASE_URL%downcastle/manifest.webmanifest" />
+<link rel="apple-touch-icon" href="%BASE_URL%downcastle/icon-192.png" />
+<title>DOWNCASTLE</title>
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- En el pozo: solo las gemas arriba; la vida va pegada al personaje -->
+<div id="hud" class="hidden">
+  <div id="gems"><i class="gemico"></i><b id="gemcount">0</b></div>
+  <div id="tramolabel"></div>
+  <button id="pausebtn" aria-label="Menú">☰</button>
+  <div id="toast"></div>
+  <div id="hint" class="hidden">
+    <p><b>Inclinar</b> moverse · <b>Toque</b> saltar / disparar</p>
+    <p><b>Mantener</b> ancla (pared o suelo) / ráfaga</p>
+    <p><b>Deslizar ↑</b> tirón · <b>Deslizar ↓</b> picada</p>
+  </div>
+</div>
+
+<section id="title" class="screen hidden">
+  <h1>DOWN<span>CASTLE</span></h1>
+  <p class="tag">Atados por una cuerda, a las entrañas del castillo</p>
+  <div class="menu">
+    <button id="btn-create" class="big">Crear sala</button>
+    <div class="joinrow">
+      <input id="join-code" maxlength="4" placeholder="CÓDIGO" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+      <button id="btn-join">Unirse</button>
+    </div>
+    <button id="btn-solo">Jugar solo con bots</button>
+    <button id="btn-full">Pantalla completa</button>
+    <button id="btn-settings">Ajustes</button>
+  </div>
+  <p id="title-msg" class="msg"></p>
+  <p id="ios-tip" class="tip hidden">En iPhone: <b>Compartir → Agregar a inicio</b> y abrilo desde ahí para jugar en pantalla completa.</p>
+</section>
+
+<section id="lobby" class="screen hidden">
+  <div class="lobbyhead">
+    <div>
+      <div class="lbl">SALA</div>
+      <div id="room-code" class="code">----</div>
+      <button id="btn-share" class="small">Compartir link</button>
+    </div>
+    <div id="qr"></div>
+  </div>
+  <div id="lobby-players"></div>
+  <div class="me">
+    <input id="me-name" maxlength="12" placeholder="Tu nombre" autocomplete="off" />
+    <div id="me-colors" class="swatches"></div>
+    <div id="me-heroes" class="heroes"></div>
+  </div>
+  <p id="lobby-msg" class="msg"></p>
+  <div class="row">
+    <button id="btn-leave" class="small">Salir</button>
+    <button id="btn-ready" class="big">Listo</button>
+    <button id="btn-start" class="big hidden">¡A la mazmorra!</button>
+  </div>
+  <p id="ready-tip" class="tip">Al tocar <b>Listo</b>, sostené el teléfono como vas a jugar: esa inclinación es la neutra.</p>
+</section>
+
+<section id="awards" class="screen hidden">
+  <h2 id="aw-title">Tramo superado</h2>
+  <div id="aw-stats" class="stats"></div>
+  <div id="aw-list"></div>
+  <div class="rate">
+    <div class="lbl">¿Qué tan divertido fue este tramo?</div>
+    <div id="aw-rate" class="stars"></div>
+  </div>
+  <div class="row">
+    <button id="btn-endrun" class="small hidden">Terminar run</button>
+    <button id="btn-next" class="big hidden">Siguiente tramo</button>
+  </div>
+  <p id="aw-wait" class="msg">Esperando al anfitrión…</p>
+</section>
+
+<section id="runend" class="screen hidden">
+  <h2>Fin de la run</h2>
+  <div id="re-stats" class="stats"></div>
+  <div id="re-list"></div>
+  <div class="row">
+    <button id="btn-tolobby" class="big hidden">Volver a la sala</button>
+  </div>
+  <p id="re-wait" class="msg">Esperando al anfitrión…</p>
+</section>
+
+<section id="settings" class="screen hidden">
+  <h2>Ajustes</h2>
+  <div class="opt"><span>Control</span><div class="seg" id="opt-control"><button data-v="tilt">Inclinar</button><button data-v="drag">Arrastrar</button></div></div>
+  <div class="opt"><span>Música</span><div class="seg" id="opt-music"><button data-v="1">Sí</button><button data-v="0">No</button></div></div>
+  <div class="opt"><span>Efectos</span><div class="seg" id="opt-sfx"><button data-v="1">Sí</button><button data-v="0">No</button></div></div>
+  <div class="opt"><span>Vibración</span><div class="seg" id="opt-vibration"><button data-v="1">Sí</button><button data-v="0">No</button></div></div>
+  <button id="btn-calibrate" class="small">Calibrar inclinación ahora</button>
+  <p class="tip">Arrastrar: el desplazamiento del dedo desde donde tocaste equivale a inclinar.</p>
+  <div class="row"><button id="btn-settings-close" class="big">Listo</button></div>
+</section>
+
+<section id="pause" class="screen dim hidden">
+  <h2>Pausa</h2>
+  <p id="pause-tip" class="tip">La partida sigue para los demás.</p>
+  <div class="menu">
+    <button id="btn-resume" class="big">Volver</button>
+    <button id="btn-pause-settings">Ajustes</button>
+    <button id="btn-quit">Salir al título</button>
+  </div>
+</section>
+
+<div id="loading">Cargando…</div>
+<div id="rotate">Girá el teléfono ⟲</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

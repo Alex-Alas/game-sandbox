@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm install
-npm run dev      # Vite en :5173 (hub en / ; ELYTRA en /games/elytra/)
+npm run dev      # Vite en :5173 (hub en / ; ELYTRA en /games/elytra/ ; DOWNCASTLE en /games/downcastle/)
 npm run build    # salida en dist/
 ```
 
@@ -14,7 +14,7 @@ No hay linter ni tests. Se verifica en el navegador con el dev server (`.claude/
 
 ## Arquitectura
 
-Vite multi-página: cada juego vive en `games/<nombre>/` y sus assets en `public/<nombre>/`. Un juego nuevo se registra en `build.rollupOptions.input` de [vite.config.js](vite.config.js) y en el hub `index.html`. Stack: Three.js + Rapier (`@dimforge/rapier3d-compat`, WASM incrustado). Los comentarios y textos de UI están en español.
+Vite multi-página: cada juego vive en `games/<nombre>/` y sus assets en `public/<nombre>/`. Un juego nuevo se registra en `build.rollupOptions.input` de [vite.config.js](vite.config.js) y en el hub `index.html`. ELYTRA usa Three.js + Rapier (`@dimforge/rapier3d-compat`, WASM incrustado); DOWNCASTLE, Canvas 2D sin dependencias de motor. Los comentarios y textos de UI están en español.
 
 ### ELYTRA (`games/elytra/src/`)
 
@@ -36,3 +36,19 @@ Vite multi-página: cada juego vive en `games/<nombre>/` y sus assets en `public
 - Los modelos Kenney vienen con metalness=1: `assets.js` los sanea.
 
 Créditos de assets (CC0) en `games/elytra/CREDITS.md`.
+
+### DOWNCASTLE (`games/downcastle/`)
+
+Friendslop vertical para teléfono, de 2 a 4 jugadores por internet, atados por una cuerda elástica. Especificación y plan en `docs/superpowers/{specs,plans}/2026-10-03-downcastle*.md`. Canvas de 192 px de ancho escalado a factor entero (`render.js` → `resize`). Créditos en `games/downcastle/CREDITS.md`.
+
+- `src/main.js`: flujo (título → sala → tramo → premios + nota → … → fin de run), bucle, anfitrión e invitados. `window.__downcastle`: `bots(n)`, `advance(seg)` (anfitrión, sin rAF), `state()`, `seed(s)`, `auto(on)` (piloto automático del jugador local; sirve en los invitados), `start()` (sin esperar «Listo»), `next()`. `?solo=1[&bots=n]` arranca sin red con bots (también el botón «Jugar solo con bots»).
+- `sim.js` es pura (sin DOM) y la corre solo el anfitrión a 60 Hz. Se prueba en Node importándola directo junto con `level.js` y `bots.js` (`config.js` tolera no tener `import.meta.env` ni `location`). Con 2–4 bots completan los tramos; un paso cuesta ~0,03 ms. Modificadores de tramo: tabla `MODS` (vacía) con `onTramoStart/onStep/onEvent`; `EJEMPLO_DERRUMBE` está apagado.
+- **La cuerda en la física no son las partículas.** `ropePath` da la recta si hay línea de vista y, si no, el camino más corto por la grilla (BFS 8-conexo, sin cortar esquinas) tensado: así se enrosca en las esquinas y nunca atraviesa un piso. Entre L y 2L tira como elástico hacia el primer punto del camino; desde 2L, límite rígido por velocidad (anclado o atrapado = masa infinita). Las partículas Verlet de `rope.js` son solo dibujo y se sueltan hacia ese camino si se enganchan. (Una cadena de partículas como física atravesaba pisos de 1 tile y trababa la cadena.)
+- Parado en el suelo, el tirón de la cuerda hacia abajo se vuelve arrastre hacia el borde (`edgeSide`): así el que cuelga se lleva al que no está anclado (y al peso muerto, que frena menos). El ancla funciona junto a una pared **o parado en el suelo**.
+- Pozo (`level.js`): bloques ASCII 12×12 en `BLOCKS`, `genTramo(seed, n)` → `{ seed, n, chunks, mods }` (`~` = espejado), `buildLevel` (asserts al cargar, incluida la alcanzabilidad del FIN). La fila 0 de cada bloque va abierta entera (si no, el hueco de abajo del bloque anterior puede no calzar). En los bloques bungee, los pinchos del fondo tienen que quedar a más de 96 px (2L) + media caja por debajo del que se ancla en la saliente.
+- Red: `server/room.js` es la lógica pura de sala, compartida por el Durable Object (`server/src/index.js`) y el plugin `server/vite-plugin.js`, que atiende `/downcastle-ws` en `dev` y `preview` (`npx vite --host` para teléfonos en la misma Wi-Fi). Protocolo en la cabecera de `net.js`. El pid del invitado va en `sessionStorage` por sala: recargar reconecta al mismo lugar. El anfitrión manda `encodeState` a 20 Hz con los fx; los invitados interpolan a los demás 100 ms atrás, extrapolan al propio, y sus fx (disparo, salto, tirón) suenan al instante y se descuentan del eco (`app.skip`).
+- Producción: el Worker **no está desplegado**. `npx wrangler deploy` dentro de `games/downcastle/server/` (requiere `wrangler login`; `--dry-run` empaqueta sin desplegar) y poner la URL `wss://…/ws` en `WS_PROD` de `config.js` (o probar con `?ws=`). Sin servidor se puede jugar solo con bots.
+- Render (`render.js`): todo lo del mundo pasa por `project(x, y)` (identidad; la torre exterior futura enrollará la x, y `tileAt` ya admite ancho envolvente con `lv.wrap`). Tiles pre-dibujados por tramo; oscuridad con `destination-out` y luces pre-dibujadas. Sprites (`sprites.js`): atlas 0x72 por `tile_list.txt` con contorno por color en caché, castillo en `CASTLE` como (columna, fila) de 16×16, y cubo/hada/pinchos/gemas/antorcha dibujados en código (`CODE`).
+- Entrada (`input.js`): escucha en `body` e ignora lo que cae sobre `button, input, .screen`. Toque < 180 ms y < 12 px; mantener ≥ 180 ms; deslizar ≥ 30 px en < 350 ms. En PC: ←/→ o A/D, espacio = toque/mantener, ↑/W tirón, ↓/S picada; el ratón dirige hacia el cursor.
+- localStorage: `downcastle.settings`, `downcastle.profile`, `downcastle.cal` (inclinación neutra), `downcastle.tel` (últimos 200 tramos con contadores y nota).
+- Verificado con Playwright global (`/opt/node22/lib/node_modules/playwright`, Chromium en `/opt/pw-browsers`) contra `npm run dev`: 2–4 contextos 390×844 con `hasTouch` (crear/unirse, tramo con `auto(true)`, premios, recarga = reconexión, unirse a mitad, salida del anfitrión) y gestos con CDP `Input.dispatchTouchEvent`.

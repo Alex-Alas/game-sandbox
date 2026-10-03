@@ -1,0 +1,12 @@
+// Worker de salas de DOWNCASTLE. Desplegar a mano: `npx wrangler deploy` (requiere
+// `npx wrangler login` una vez). Después, poner la URL wss://…/ws en WS_PROD de
+// src/config.js (o probar con ?ws=wss://…/ws).
+{
+  "name": "downcastle",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "DowncastleRoom" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DowncastleRoom"] }]
+}

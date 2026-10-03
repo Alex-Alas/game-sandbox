@@ -32,3 +32,24 @@ Créditos de assets en [games/elytra/CREDITS.md](games/elytra/CREDITS.md).
 
 Depuración desde la consola: `__elytra.advance(seg)` simula sin rAF,
 `__elytra.probePath()` comprueba que los tramos entre puertas estén libres.
+
+### DOWNCASTLE — `games/downcastle/`
+*Friendslop* para el teléfono, en vertical y con una mano: de 2 a 4 aventureros atados con una
+cuerda elástica bajan por las entrañas de un castillo mágico, al estilo Downwell. Canvas 2D pixelado.
+
+- **Controles**: inclinar para moverse; toque = saltar (en el suelo) o disparar las botas-cañón
+  (en el aire); mantener = ancla (junto a una pared o en el suelo) o ráfaga; deslizar ↑ = tirón a
+  tus vecinos de cuerda; deslizar ↓ = picada. Alternativa por arrastre en Ajustes.
+- **Cuerda**: elástica hasta 2× su largo y rígida desde ahí; el rebote bungee devuelve la energía.
+  Anclarse frena a los que cuelgan; el tirón salva (o sabotea).
+- **Criaturas**: malvadas (goblin, diablillo; contorno rojo), neutrales (cubo gelatinoso que atrapa;
+  violeta punteado) y buenas (hada que cura o recarga, y se enoja si le disparan; turquesa).
+- **Run**: tramos procedurales cada vez más largos, gemas del equipo, premios sociales al final de
+  cada tramo (Ancla de Hierro, Bungee de Oro, Fuego Amigo…) y nota de 1 a 5.
+- **Red**: salas de 4 letras con link `?sala=ABCD` y QR. El anfitrión simula; en desarrollo el
+  relay vive en el mismo servidor de Vite (`npx vite --host` para jugar con teléfonos en la Wi-Fi).
+  En producción usa un Worker de Cloudflare con Durable Objects (`games/downcastle/server/`,
+  se despliega a mano con `npx wrangler deploy`).
+
+Sin red: «Jugar solo con bots» o `?solo=1`. Depuración: `__downcastle.bots(n)`, `advance(seg)`,
+`state()`, `seed(s)`, `auto(on)`. Créditos en [games/downcastle/CREDITS.md](games/downcastle/CREDITS.md).
