@@ -1,0 +1,12 @@
+{
+  "name": "DOWNCASTLE",
+  "short_name": "DOWNCASTLE",
+  "description": "Atados por una cuerda, a las entrañas del castillo.",
+  "start_url": "../games/downcastle/",
+  "scope": "../games/downcastle/",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#0b0709",
+  "theme_color": "#0b0709",
+  "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }]
+}
