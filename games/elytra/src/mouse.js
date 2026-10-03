@@ -44,3 +44,9 @@ export function mouseToRadians(dx, dy, now = performance.now()) {
   const k = CFG.MOUSE_SENS * sens;
   return [dx * k, dy * k];
 }
+
+/** Arrastre táctil (px) → radianes de giro. Comparte el escalón de sensibilidad del ratón. */
+export function touchToRadians(dx, dy) {
+  const k = CFG.TOUCH_SENS * sens;
+  return [dx * k, dy * k];
+}

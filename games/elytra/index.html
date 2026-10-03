@@ -2,7 +2,10 @@
 <html lang="es">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#05080f" />
 <title>ELYTRA — Vuelo Libre</title>
 <link rel="stylesheet" href="./style.css" />
 </head>
@@ -50,6 +53,19 @@
   </div>
 </div>
 
+<div id="touch" class="hidden">
+  <div class="tsys">
+    <button class="tbtn tsm" data-act="pause" aria-label="Pausa">⏸</button>
+    <button class="tbtn tsm" data-key="KeyR" aria-label="Reaparecer">↺</button>
+  </div>
+  <button class="tbtn tl-roll" data-key="KeyA">◀<small>TONEL</small></button>
+  <button class="tbtn tr-roll" data-key="KeyD">▶<small>TONEL</small></button>
+  <button class="tbtn t-tuck" data-key="KeyW">▼<small>PLEGAR</small></button>
+  <button class="tbtn t-flare" data-key="KeyS">⌒<small>FRENAR</small></button>
+  <button class="tbtn t-boost" data-key="ShiftLeft">⚡<small>IMPULSO</small></button>
+  <button class="tbtn t-flap" data-key="Space">▲<small>ALETEO</small></button>
+</div>
+
 <div id="perf" class="hidden"></div>
 <div id="vignette"></div>
 <div id="flash"></div>
@@ -90,7 +106,7 @@
       <span id="sensName">SENSIBILIDAD 1×</span>
       <button id="sensNext" aria-label="Más sensibilidad">›</button>
     </div>
-    <div class="keys">
+    <div class="keys only-kb">
       <div><kbd>RATÓN</kbd></div><div class="txt">Dirigir (cabeceo / guiñada)</div>
       <div><kbd>W</kbd> / <kbd>S</kbd></div><div class="txt">Plegar alas (picado) / frenar y girar cerrado</div>
       <div><kbd>ESPACIO</kbd></div><div class="txt">Aletazo — gana altura, rescata pérdidas</div>
@@ -101,7 +117,13 @@
       <div><kbd>V</kbd> · <kbd>M</kbd> · <kbd>G</kbd> · <kbd>F3</kbd></div><div class="txt">Cámara · silenciar · fantasma · rendimiento</div>
       <div><kbd>↑</kbd> / <kbd>↓</kbd></div><div class="txt">Sensibilidad del ratón (también en vuelo)</div>
     </div>
-    <div class="cta">HAZ CLIC PARA VOLAR</div>
+    <div class="keys only-touch">
+      <div><kbd>ARRASTRAR</kbd></div><div class="txt">Dirigir (cabeceo / guiñada)</div>
+      <div><kbd>PLEGAR</kbd> / <kbd>FRENAR</kbd></div><div class="txt">Picado / frenar y girar cerrado (mantener)</div>
+      <div><kbd>ALETEO</kbd></div><div class="txt">Gana altura, rescata pérdidas</div>
+      <div><kbd>◀</kbd> / <kbd>▶</kbd> · <kbd>⚡</kbd></div><div class="txt">Tonel lateral · impulso</div>
+    </div>
+    <div class="cta"><span class="only-kb">HAZ CLIC PARA VOLAR</span><span class="only-touch">TOCA PARA VOLAR</span></div>
     <div class="tip" id="titletip">
       Atraviesa las <b>puertas doradas</b> lo más rápido posible. Vuela <b>pegado</b> a la roca
       para recargar energía. Las <b>corrientes térmicas</b> te elevan. Rozar está bien; chocar de frente, no.<br>
@@ -121,13 +143,30 @@
     <div><span class="lbl">IMPACTO</span><b id="cImpact">0 m/s</b></div>
   </div>
   <div class="score hidden" id="cScore"></div>
-  <div class="cta" id="crashcta">R · CLIC PARA REAPARECER</div>
-  <div class="tip">ARRASTRA EL RATÓN PARA ORBITAR · RUEDA PARA ACERCAR</div>
+  <div class="cta" id="crashcta"><span class="only-kb">R · CLIC PARA REAPARECER</span><span class="only-touch">TOCA PARA REAPARECER</span></div>
+  <div class="tip"><span class="only-kb">ARRASTRA EL RATÓN PARA ORBITAR · RUEDA PARA ACERCAR</span><span class="only-touch">ARRASTRA PARA ORBITAR · PELLIZCA PARA ACERCAR</span></div>
 </div>
 
 <div id="pause" class="hidden">
   <div class="big">PAUSA</div>
-  <div class="cta">CLIC PARA SEGUIR VOLANDO</div>
+  <div class="cta only-kb">CLIC PARA SEGUIR VOLANDO</div>
+  <div id="pausemenu">
+    <button class="mbtn main" data-act="resume">SEGUIR</button>
+    <button class="mbtn" data-key="KeyR" data-resume>REAPARECER</button>
+    <button class="mbtn" data-key="KeyT" data-resume>REINICIAR</button>
+    <button class="mbtn" data-key="KeyX" data-resume>SOLTARSE</button>
+    <button class="mbtn" data-key="KeyV">CÁMARA</button>
+    <button class="mbtn" data-key="KeyM">SONIDO</button>
+    <button class="mbtn" data-key="KeyG">FANTASMA</button>
+    <button class="mbtn" data-act="title">SALIR</button>
+  </div>
+</div>
+
+<div id="rotate">
+  <div class="rot-icon">⟳</div>
+  <div class="big">GIRA EL TELÉFONO</div>
+  <div class="tip">ELYTRA se vuela en horizontal</div>
+  <button class="mbtn" id="rotateSkip">JUGAR EN VERTICAL</button>
 </div>
 
 <div id="finishpanel" class="hidden">
