@@ -172,13 +172,29 @@ function controls(sim, p, dt) {
   }
   p.holding = !!p.input.hold;
   const wasAnchored = p.anchored;
-  // Ancla: mantener junto a una pared (o parado en el suelo) mientras se mantiene apretado
+  // Ancla: mantener junto a una pared (o parado en el suelo) mientras se mantiene apretado.
+  // Anclado, move() no recalcula suelo ni paredes: si el apoyo desaparece (plataforma que se
+  // derrumba), el ancla se suelta.
+  if (p.anchored && !hasSupport(sim.lv, p)) { p.anchored = false; p.grounded = false; p.groundT = 0; }
   p.anchored = p.holding && (p.anchored || p.grounded || p.wallL || p.wallR);
   if (p.anchored && !wasAnchored) { p.diving = false; emit(sim, { k: 'anchor', id: p.id }); }
   if (p.holding && !p.anchored) { // ráfaga en el aire
     p.burstT -= dt;
     if (p.burstT <= 0) { shoot(sim, p, true); p.burstT = CFG.BURST_EVERY; }
   } else p.burstT = 0;
+}
+
+/* Piso bajo los pies o pared al costado, consultados ahora (no los flags del último move). */
+function hasSupport(lv, p) {
+  const l = Math.floor((p.x - HW + 0.01) / T), r = Math.floor((p.x + HW - 0.01) / T);
+  const fy = Math.floor((p.y + HH + 1) / T);
+  for (let tx = l; tx <= r; tx++) { const t = tileAt(lv, tx, fy); if (blocks(t) || isWoodLike(t)) return true; }
+  const top = Math.floor((p.y - HH + 0.5) / T), bot = Math.floor((p.y + HH - 0.5) / T);
+  for (let ty = top; ty <= bot; ty++) {
+    if (blocks(tileAt(lv, Math.floor((p.x - HW - 1) / T), ty))) return true;
+    if (blocks(tileAt(lv, Math.floor((p.x + HW + 1) / T), ty))) return true;
+  }
+  return false;
 }
 
 function jump(sim, p) {
