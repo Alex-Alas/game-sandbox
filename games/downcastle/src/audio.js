@@ -43,6 +43,9 @@ export function unlockAudio() {
   syncMusic();
 }
 
+/* El chat de voz (voice.js) cuelga del mismo contexto. */
+export const audioCtx = () => ac;
+
 export function applySettings() {
   if (!ac) return;
   sfxGain.gain.value = SETTINGS.sfx ? 0.55 : 0;

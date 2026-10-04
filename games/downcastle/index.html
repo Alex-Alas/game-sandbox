@@ -21,6 +21,7 @@
   <div id="gems"><i class="gemico"></i><b id="gemcount">0</b></div>
   <div id="tramolabel"></div>
   <button id="pausebtn" aria-label="Menú">☰</button>
+  <button id="micbtn" class="mic hidden" aria-label="Micrófono">🎤</button>
   <div id="toast"></div>
   <div id="hint" class="hidden">
     <p><b>Inclinar</b> moverse · <b>Toque</b> saltar / disparar</p>
@@ -62,6 +63,8 @@
     <div id="me-heroes" class="heroes"></div>
   </div>
   <p id="lobby-msg" class="msg"></p>
+  <div class="row"><button id="btn-mic" class="small mic hidden">🎤 Micrófono apagado</button></div>
+  <p id="voice-tip" class="tip hidden">Vivos: se oyen entre sí con eco de cueva. Caídos: solo entre caídos.</p>
   <div class="row">
     <button id="btn-leave" class="small">Salir</button>
     <button id="btn-ready" class="big">Listo</button>
@@ -101,7 +104,10 @@
   <div class="opt"><span>Música</span><div class="seg" id="opt-music"><button data-v="1">Sí</button><button data-v="0">No</button></div></div>
   <div class="opt"><span>Efectos</span><div class="seg" id="opt-sfx"><button data-v="1">Sí</button><button data-v="0">No</button></div></div>
   <div class="opt"><span>Vibración</span><div class="seg" id="opt-vibration"><button data-v="1">Sí</button><button data-v="0">No</button></div></div>
+  <div class="opt"><span>Oír chat de voz</span><div class="seg" id="opt-voice"><button data-v="1">Sí</button><button data-v="0">No</button></div></div>
+  <div class="opt"><span>Comprimir micrófono</span><div class="seg" id="opt-micComp"><button data-v="1">Sí</button><button data-v="0">No</button></div></div>
   <button id="btn-calibrate" class="small">Calibrar inclinación ahora</button>
+  <p class="tip">Comprimir: empareja el volumen de tu voz (susurros más fuertes, gritos más suaves).</p>
   <p class="tip">Arrastrar: el desplazamiento del dedo desde donde tocaste equivale a inclinar.</p>
   <div class="row"><button id="btn-settings-close" class="big">Listo</button></div>
 </section>

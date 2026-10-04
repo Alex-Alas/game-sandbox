@@ -159,6 +159,12 @@ h2 { font-family: Georgia, serif; text-align: center; font-size: 26px; color: va
   position: absolute; top: max(6px, env(safe-area-inset-top)); right: 8px;
   pointer-events: auto; padding: 4px 10px; font-size: 18px; background: rgba(30, 18, 12, 0.6);
 }
+#micbtn {
+  position: absolute; top: max(6px, env(safe-area-inset-top)); right: 58px;
+  pointer-events: auto; padding: 4px 8px; font-size: 16px; background: rgba(30, 18, 12, 0.6);
+}
+button.mic { opacity: 0.55; filter: grayscale(1); }
+button.mic.on { opacity: 1; filter: none; box-shadow: 0 0 8px rgba(255, 210, 63, 0.55); }
 #toast {
   position: absolute; top: 22%; left: 0; right: 0; text-align: center;
   font-family: Georgia, serif; font-size: 22px; font-weight: 700; color: var(--gold);
