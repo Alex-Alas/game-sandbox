@@ -78,14 +78,14 @@ Los ciclos se numeran desde 0 (`c`), como en F1; en pantalla se muestran como `c
 - `buildLevel` arma el exterior con `w = 32`, `wrap = true`. Las posiciones **no se envuelven**:
   la x de jugadores, criaturas y balas crece sin límite y solo `tileAt` da la vuelta. La cuerda
   enrolla de forma natural y la interpolación de red no salta en la costura.
-- `dxw(lv, a, b)`: el delta más corto con wrap (identidad en el interior). Se usa en todas las
-  comparaciones entre entidades (colisiones jugador–criatura, balas, gemas, pisotones, despertar,
-  apuntado) y en las comparaciones con cosas fijas del mapa (gemas, criaturas que vuelven a su
-  percha).
+- **Re-envoltura** (`rewrap` en `sim.js`, en vez de un `dxw` en cada comparación): en cada paso,
+  criaturas (con su percha), gemas, balas, flechas y plataformas se llevan a la vuelta más cercana
+  al centro del equipo. Así todas las comparaciones directas de x siguen valiendo sin tocarlas.
+  El invitado no interpola una criatura cuyo salto entre estados supera media vuelta.
 - `ropePath`: la recta y el BFS usan tiles envueltos y devuelven puntos sin envolver (contiguos a
   los extremos). `los` funciona igual porque usa `tileAt`.
 - `move`/`moveX`/`moveBody`: sin cambios (usan `tileAt`). El `hasSupport` del ancla también.
-- Las flechas a los compañeros fuera de pantalla usan `dxw` para el lado.
+- Las flechas a los compañeros fuera de pantalla usan la x proyectada.
 
 ## F2.4 Mecánicas nuevas
 
@@ -139,9 +139,9 @@ invitados lo calculan con el `T` del estado.
   `R·(sin θ₁ − sin θ₀)` y oscurecida hacia los bordes según `cos θ`. Las columnas con `cos ≤ 0`
   no se dibujan. Los tiles dinámicos (quebradizas) y las plataformas móviles pasan por la misma
   proyección.
-- **Siluetas:** jugadores, criaturas y la cuerda con profundidad ≤ 0 se dibujan como **silueta
-  plana** (color del jugador al 40 %) sobre la piedra, en su x proyectada. La cuerda: los tramos
-  de adelante normales; los de atrás, tenues y punteados.
+- **Siluetas:** los jugadores con profundidad ≤ 0 se dibujan como **silueta plana** (color del
+  jugador al 45 %) sobre la piedra, en su x proyectada; las criaturas de atrás no se dibujan. La
+  cuerda: los tramos de adelante normales; los de atrás, tenues y punteados.
 - **Cielo:** degradé de anochecer, estrellas y una franja de montañas en parallax que se corre con
   `φ` (y un poco con la y). Afuera **no hay capa de oscuridad**; las antorchas no aplican.
 - Ventana rota del inicio (con fx de vidrios al empezar) y ventana abierta del FIN, dibujadas en
@@ -152,8 +152,8 @@ invitados lo calculan con el `T` del estado.
 ## F2.6 Red, audio y voz
 
 - El mensaje `start`/`tramo` lleva el tramo exterior (`rings` con `shift` y `mirror`); el
-  invitado lo reconstruye con `buildLevel`. Murciélagos y gárgolas viajan como criaturas (la
-  gárgola sin estado propio: su fase sale de `T`).
+  invitado lo reconstruye con `buildLevel`. Murciélagos y gárgolas viajan como criaturas, con su
+  estado en los flags (gárgola: aviso = `aim`, soplido = `angry`; murciélago dormido = 16).
 - **Audio** (procedural, `audio.js`): ambiente de viento de fondo afuera (ruido filtrado), silbido
   de aviso y ráfaga, soplido de la gárgola, chillido del murciélago al despertar.
 - **Voz:** afuera los vivos se oyen **en seco** (aire libre), sin el bus de cueva. Las demás
@@ -162,7 +162,8 @@ invitados lo calculan con el `T` del estado.
 ## F2.7 Herramientas y bots
 
 - URL: `?ext=mini|bajada` (con `?ciclo=`) arranca en ese exterior; `__downcastle.goto(c, k,
-  { ext })` en caliente. `?ver=bloques` también muestra los anillos desenrollados con sus metadatos
+  { ext })` en caliente. `__downcastle.tick(n)` corre n cuadros completos sin rAF (pestaña
+  oculta). `?ver=bloques` también muestra los anillos desenrollados con sus metadatos
   y asserts.
 - **Bots:** `flowField`/`botFields` con wrap (vecinos envueltos) y los rieles como celdas
   pisables; ignoran el viento y la gárgola; les disparan a los murciélagos como a los diablillos.

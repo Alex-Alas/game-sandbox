@@ -1,19 +1,90 @@
 /* Render: canvas de 192 px de ancho escalado a un factor entero (image-rendering: pixelated).
    Los tiles de cada tramo se pre-dibujan una vez; cada cuadro se dibujan sprites, cuerda,
    capa de oscuridad con círculos de luz, puntitos de vida y balas, y flechas a los compañeros.
-   Todo lo que va en coordenadas del mundo pasa por project(x, y) (identidad en el interior;
-   la torre exterior del futuro dará la vuelta en x). Dibuja una "vista" (ver main.js). */
+   Todo lo que va en coordenadas del mundo pasa por project(x, y) → [x, y, profundidad]:
+   identidad en el interior; en el exterior, la proyección de la torre (tipo Nebulus: el
+   jugador queda al centro y la torre gira bajo él). Dibuja una "vista" (ver main.js). */
 import { CFG, ALIGN } from './config.js';
 import { STONE, WOOD, SPIKE, CRUMBLE, EMPTY, baseTileAt, tileAt, mulberry32 } from './level.js';
 import { canvas, heroFrames, creatureFrames, CODE, CASTLE, drawCastle, drawCastleRaw, DOOR } from './sprites.js';
 import { makeLink, stepLink } from './rope.js';
-import { ropePath, BOSS_W } from './sim.js';
+import { ropePath, BOSS_W, moverPos, windAt } from './sim.js';
 
 const T = CFG.TILE, W = CFG.VIEW_W, HH = CFG.PH / 2;
+const TAU = Math.PI * 2;
 
-/* Del mundo a la pantalla. En el interior es la identidad; el exterior (torre cilíndrica a
-   la que se da vuelta) enrollará la x acá. Los tiles del interior van pre-dibujados. */
-export const project = (x, y) => [x, y];
+/* Del mundo a la pantalla: [x, y, profundidad]. En el interior es la identidad; en el
+   exterior la cambia R.draw según el ángulo de la cámara (ver towerProjection). */
+const flat = (x, y) => [x, y, 1];
+let project = flat;
+
+/* Torre: el punto x queda a un ángulo (x − camX)/C·2π del frente; en pantalla, x = centro +
+   R·sin, y la profundidad es el coseno (≤ 0: la cara de atrás). */
+function towerProjection(C, camX) {
+  const R = CFG.EXT_R, cx = W / 2;
+  return (x, y) => { const a = ((x - camX) / C) * TAU; return [cx + R * Math.sin(a), y, Math.cos(a)]; };
+}
+
+/* Exterior: la torre desenrollada (C px de ancho), con su muro de fondo, cornisas, madera,
+   pinchos y las ventanas del inicio y del FIN. R.draw la dibuja columna por columna. */
+export function paintTower(lv, windows = true) {
+  const C = lv.w * T;
+  const [c, g] = canvas(C, lv.pxH);
+  const rnd = mulberry32(lv.decoSeed);
+  const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+  const solid = (x, y) => { const t = baseTileAt(lv, ((x % lv.w) + lv.w) % lv.w, y); return t === STONE || t === SPIKE; };
+  for (let y = 0; y < lv.h; y++) for (let x = 0; x < lv.w; x++) drawCastle(g, pick(CASTLE.brick), x * T, y * T);
+  g.fillStyle = 'rgba(18,22,52,0.6)'; // luz de luna sobre el muro: frío y oscuro, las cornisas resaltan
+  g.fillRect(0, 0, C, lv.pxH);
+  for (let k = 0; k < lv.h * 2; k++) { // ventanitas oscuras
+    const x = Math.floor(rnd() * lv.w) * T + 6, y = Math.floor(rnd() * lv.h) * T + 3;
+    if (baseTileAt(lv, Math.floor(x / T), Math.floor(y / T)) !== EMPTY) continue;
+    g.fillStyle = '#0b0a12'; g.fillRect(x, y, 3, 8);
+    g.fillStyle = '#5a5866'; g.fillRect(x - 1, y - 1, 5, 1);
+  }
+  for (let y = 0; y < lv.h; y++) for (let x = 0; x < lv.w; x++) {
+    const t = baseTileAt(lv, x, y), px = x * T, py = y * T;
+    if (t === STONE) {
+      const open = !solid(x, y + 1) && y < lv.h - 1;
+      drawCastle(g, pick(open ? CASTLE.stoneBottom : CASTLE.stone), px, py);
+    } else if (t === WOOD) {
+      const l = baseTileAt(lv, (x + lv.w - 1) % lv.w, y) === WOOD, r = baseTileAt(lv, (x + 1) % lv.w, y) === WOOD;
+      drawCastle(g, !l ? CASTLE.woodL : !r ? CASTLE.woodR : CASTLE.woodM, px, py);
+    } else if (t === SPIKE) {
+      const down = solid(x, y - 1) && !solid(x, y + 1) && baseTileAt(lv, x, y - 1) !== SPIKE;
+      g.drawImage(down ? CODE.spikeDown : CODE.spikeUp, px, py);
+    }
+  }
+  // Ventana rota del inicio (sobre el piso de aparición) y abiertas en el anillo del FIN
+  if (!windows) return c;
+  g.drawImage(CODE.window[0], 102, 6 * T - 28);
+  for (let k = 0; k < 4; k++) g.drawImage(CODE.window[1], k * (C / 4) + 54, lv.finY - 28);
+  return c;
+}
+
+/* Cielo del exterior: degradé de anochecer, estrellas, luna y dos franjas de montañas que se
+   corren con el giro de la torre. */
+function makeSky() {
+  const [stars, sg] = canvas(W, 400);
+  const rnd = mulberry32(7);
+  for (let i = 0; i < 70; i++) {
+    sg.fillStyle = rnd() < 0.2 ? '#fff6d0' : '#9aa6d8';
+    sg.fillRect(Math.floor(rnd() * W), Math.floor(rnd() * 400), 1, 1);
+  }
+  const mount = (h, col, seed) => {
+    const [c, g] = canvas(512, h);
+    const r = mulberry32(seed);
+    let y = h * 0.5;
+    g.fillStyle = col;
+    for (let x = 0; x < 512; x++) {
+      y += (r() - 0.5) * 3 + (h * 0.5 - y) * 0.02;
+      if (x > 480) y += (h * 0.5 - y) * 0.1; // cierra en la costura
+      g.fillRect(x, Math.round(y), 1, h);
+    }
+    return c;
+  };
+  return { stars, far: mount(70, '#1d1838', 3), near: mount(50, '#120f22', 5) };
+}
 
 /* Fuente de 3×5 para números flotantes */
 const GLYPH = {
@@ -89,8 +160,25 @@ export function createRenderer(cv) {
     return [c];
   })();
 
+  const sky = makeSky();
+  const sil = new Map(); // siluetas (detrás de la torre) por imagen y color
+  function silhouette(im, color) {
+    let m = sil.get(im);
+    if (!m) sil.set(im, (m = new Map()));
+    let c = m.get(color);
+    if (!c) {
+      let g;
+      [c, g] = canvas(im.width, im.height);
+      g.drawImage(im, 0, 0);
+      g.globalCompositeOperation = 'source-in';
+      g.fillStyle = color; g.fillRect(0, 0, im.width, im.height);
+      m.set(color, c);
+    }
+    return c;
+  }
+
   const R = {
-    cam: 0, shakeT: 0, lv: null, levelCv: null, ropes: [], ropeKey: '',
+    cam: 0, camX: 0, shakeT: 0, lv: null, levelCv: null, ropes: [], ropeKey: '',
     parts: [], pops: [], bullets: [], hpSeen: new Map(), hpShowT: new Map(),
     get H() { return H; }, get scale() { return scale; },
   };
@@ -99,7 +187,7 @@ export function createRenderer(cv) {
     const dpr = window.devicePixelRatio || 1;
     const devW = innerWidth * dpr, devH = innerHeight * dpr;
     scale = Math.max(1, Math.min(Math.floor(devW / W), Math.floor(devH / CFG.MIN_VIEW_H)));
-    H = Math.floor(devH / scale);
+    H = Math.max(1, Math.floor(devH / scale)); // ventana oculta: innerHeight = 0
     cv.width = W; cv.height = H;
     cv.style.width = (W * scale) / dpr + 'px';
     cv.style.height = (H * scale) / dpr + 'px';
@@ -112,12 +200,15 @@ export function createRenderer(cv) {
     R.lv = lv;
     R.ropes = []; R.ropeKey = '';
     R.parts = []; R.pops = []; R.bullets = [];
-    R.levelCv = paintLevel(lv);
+    R.levelCv = lv.wrap ? paintTower(lv) : paintLevel(lv);
     // Tiles que cambian (plataformas que se derrumban, entrada y piso de la sala del jefe): cada cuadro
     R.dynTiles = [];
     for (let i = 0; i < lv.tiles.length; i++) if (lv.tiles[i] === CRUMBLE) R.dynTiles.push(i);
     R.dynTiles.push(...lv.gate, ...lv.exit);
     R.cam = 0;
+    R.camX = lv.spawns[0].x;
+    project = flat;
+    if (lv.wrap) burst(112, 6 * T - 14, 16, '#bfe4ff', 70, 0.8, 250); // vidrios de la ventana rota
   };
 
   R.shake = (t = 0.25) => { R.shakeT = Math.max(R.shakeT, t); };
@@ -231,18 +322,84 @@ export function createRenderer(cv) {
     ctx.fillRect(x, y + 2, 1, 1);
   }
   function line(x0, y0, x1, y1, color) {
-    [x0, y0] = project(x0, y0);
-    [x1, y1] = project(x1, y1);
+    let d0, d1;
+    [x0, y0, d0] = project(x0, y0);
+    [x1, y1, d1] = project(x1, y1);
+    const back = d0 <= 0 && d1 <= 0; // detrás de la torre: tenue y punteada
     ctx.fillStyle = color;
+    if (back) ctx.globalAlpha = 0.35;
     x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
     const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
     let err = dx + dy;
     for (let n = 0; n < 400; n++) {
-      ctx.fillRect(x0, y0, 1, 1);
+      if (!back || n % 2 === 0) ctx.fillRect(x0, y0, 1, 1);
       if (x0 === x1 && y0 === y1) break;
       const e2 = 2 * err;
       if (e2 >= dy) { err += dy; x0 += sx; }
       if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+    if (back) ctx.globalAlpha = 1;
+  }
+
+  /* Tile (o tablón) de ancho w en x: en la torre se achata según el ángulo de sus bordes. */
+  function tileQuad(im, wx, wy, w = T) {
+    if (!R.lv.wrap) { ctx.drawImage(im, wx, wy); return; }
+    const [x0, , d0] = project(wx, wy), [x1, , d1] = project(wx + w, wy);
+    if (d0 <= 0 || d1 <= 0) return;
+    const a = Math.round(x0), b = Math.round(x1);
+    if (b > a) ctx.drawImage(im, a, wy, b - a, im.height);
+  }
+
+  /* La torre: cada columna de la torre desenrollada como una tira con el ancho que le da la
+     proyección, más oscura hacia los bordes; las de atrás no se dibujan. */
+  function drawTower(lv, cam) {
+    const cols = lv.w, C = cols * T, step = TAU / cols, Rr = CFG.EXT_R, cx = W / 2;
+    const base = (R.camX / C) * TAU;
+    for (let j = 0; j < cols; j++) {
+      let a0 = j * step - base;
+      a0 -= Math.floor((a0 + Math.PI) / TAU) * TAU; // a [−π, π)
+      let a1 = a0 + step;
+      if (a1 <= -Math.PI / 2 || a0 >= Math.PI / 2) continue;
+      let s0 = 0, s1 = T;
+      if (a0 < -Math.PI / 2) { s0 = (T * (-Math.PI / 2 - a0)) / step; a0 = -Math.PI / 2; }
+      if (a1 > Math.PI / 2) { s1 = T - (T * (a1 - Math.PI / 2)) / step; a1 = Math.PI / 2; }
+      const x0 = Math.round(cx + Rr * Math.sin(a0)), x1 = Math.round(cx + Rr * Math.sin(a1));
+      if (x1 <= x0 || s1 <= s0) continue;
+      ctx.drawImage(R.levelCv, j * T + s0, cam, s1 - s0, H, x0, cam, x1 - x0, H);
+      const shade = 1 - Math.cos((a0 + a1) / 2);
+      if (shade > 0.04) { ctx.fillStyle = `rgba(8,6,18,${Math.min(0.85, shade * 0.9)})`; ctx.fillRect(x0, cam, x1 - x0, H); }
+    }
+  }
+
+  function drawSky(lv, cam) {
+    const gr = ctx.createLinearGradient(0, 0, 0, H);
+    gr.addColorStop(0, '#070a1e'); gr.addColorStop(0.6, '#1c1838'); gr.addColorStop(1, '#3a2348');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+    const sy = Math.round(-(cam * 0.05) % 400);
+    ctx.drawImage(sky.stars, 0, sy); ctx.drawImage(sky.stars, 0, sy + 400);
+    ctx.fillStyle = '#efe6c8'; ctx.beginPath(); ctx.arc(W - 34, 46 - cam * 0.02, 9, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#1c1838'; ctx.beginPath(); ctx.arc(W - 30, 43 - cam * 0.02, 8, 0, TAU); ctx.fill();
+    const band = (im, k, y) => {
+      const off = -Math.round(((R.camX * k) % 512 + 512) % 512);
+      for (let x = off; x < W; x += 512) ctx.drawImage(im, x, y);
+    };
+    const prog = cam / Math.max(1, lv.pxH);
+    band(sky.far, 0.25, Math.round(H * 0.55 - prog * 60));
+    band(sky.near, 0.5, Math.round(H * 0.7 - prog * 90));
+  }
+
+  /* Ráfagas: líneas de viento en pantalla (tenues durante el aviso). */
+  function drawWind(lv, view, cam, focus) {
+    if (!lv.winds.length || !focus) return;
+    const w = windAt(lv, view.t, focus.y);
+    const dir = w.v || w.warn;
+    if (!dir) return;
+    const n = w.v ? 22 : 7, sp = w.v ? 260 : 140, len = w.v ? 14 : 8;
+    ctx.fillStyle = w.v ? 'rgba(220,235,255,0.55)' : 'rgba(220,235,255,0.25)';
+    for (let k = 0; k < n; k++) {
+      const x = ((((k * 53.7 + view.t * sp * dir) % (W + 40)) + W + 40) % (W + 40)) - 20;
+      const y = cam + ((k * 97.3 + Math.sin(k) * 40) % H + H) % H;
+      ctx.fillRect(Math.round(x), Math.round(y), len, 1);
     }
   }
 
@@ -268,17 +425,32 @@ export function createRenderer(cv) {
     const cam = Math.round(R.cam) + shk;
     const vis = (y, m = 32) => y > cam - m && y < cam + H + m;
     const t = view.t;
+    const ext = lv.wrap;
+    if (ext) { // la torre gira siguiendo al jugador (con suavizado)
+      if (focus) { R.camX += (focus.x - R.camX) * Math.min(1, dt * 8); if (Math.abs(focus.x - R.camX) > 200) R.camX = focus.x; }
+      project = towerProjection(lv.w * T, R.camX);
+    } else project = flat;
+    const front = (x, y) => project(x, y)[2] > 0.05;
 
-    ctx.setTransform(1, 0, 0, 1, 0, -cam);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
-    ctx.drawImage(R.levelCv, 0, cam, W, H, 0, cam, W, H);
+    if (ext) drawSky(lv, cam);
+    ctx.setTransform(1, 0, 0, 1, 0, -cam);
+    if (ext) drawTower(lv, cam);
+    else ctx.drawImage(R.levelCv, 0, cam, W, H, 0, cam, W, H);
     for (const i of R.dynTiles) {
       const x = i % lv.w, y = (i / lv.w) | 0;
       if (!vis(y * T + 8)) continue;
       const tt = tileAt(lv, x, y);
-      if (tt === CRUMBLE) ctx.drawImage(CODE.crumble, x * T + (lv.shaking.has(i) ? Math.round(Math.random() * 2 - 1) : 0), y * T);
+      if (tt === CRUMBLE) tileQuad(CODE.crumble, x * T + (lv.shaking.has(i) ? Math.round(Math.random() * 2 - 1) : 0), y * T);
       else if (tt === STONE) drawCastle(ctx, CASTLE.stone[(x * 7 + y) % CASTLE.stone.length], x * T, y * T);
+    }
+    // Plataformas móviles
+    for (const m of lv.movers) {
+      const [mx, my] = moverPos(m, t);
+      if (!vis(my)) continue;
+      for (let k = 0; k < m.w; k += T) tileQuad(CODE.plank, mx + k, my);
     }
 
     // Antorchas (con un brillo cálido)
@@ -298,17 +470,25 @@ export function createRenderer(cv) {
       const f = Math.floor(t * 5 + i * 1.3) % 4;
       const bob = Math.round(Math.sin(t * 3 + i) * (gm.big ? 1.5 : 1));
       const im = gm.big ? CODE.bigGem[f] : CODE.gem[f];
-      const [x, y] = project(gm.x, gm.y);
+      const [x, y, d] = project(gm.x, gm.y);
+      if (d <= 0.05) return;
       ctx.drawImage(im, Math.round(x - im.width / 2), Math.round(y - im.height / 2) + bob);
     });
 
     // Criaturas
     view.creatures.forEach((c, i) => {
       if (!c || !c.alive || !vis(c.y)) return;
-      const [cx, cy] = project(c.x, c.y);
+      const [cx, cy, depth] = project(c.x, c.y);
       const x = Math.round(cx), y = Math.round(cy);
       if (c.flash && Math.floor(t * 30) % 2) return;
-      if (c.kind === 'goblin' || c.kind === 'imp') {
+      if (depth <= 0.05) return; // detrás de la torre
+      if (c.kind === 'bat') {
+        const im = CODE.bat[c.sleep ? 0 : 1 + (Math.floor(t * 12 + i) % 2)];
+        drawFlip(im, x, y - 4, c.dir < 0);
+      } else if (c.kind === 'gargoyle') {
+        drawFlip(CODE.gargoyle[c.aim ? Math.floor(t * 10) % 2 : 0], x, y - 8, c.dir < 0);
+        if (c.angry) drawBlow(c, t);
+      } else if (c.kind === 'goblin' || c.kind === 'imp') {
         const fr = creatureFrames(c.kind);
         const im = fr.run[Math.floor(t * 8 + i) % 4];
         drawFlip(im, x, c.kind === 'goblin' ? y + 6 - im.height + 1 : y - 9, c.dir < 0);
@@ -346,6 +526,8 @@ export function createRenderer(cv) {
     const B = view.boss;
     if (B && !B.dead) drawBoss(B, view, t);
 
+    drawWind(lv, view, cam, focus);
+
     // Cuerda (partículas de dibujo que siguen el camino de la física)
     const P = view.players;
     const key = P.map((p) => p.id).join(',');
@@ -368,8 +550,15 @@ export function createRenderer(cv) {
     for (const p of P) {
       if (!vis(p.y)) continue;
       const fr = heroFrames(p.hero, p.color);
-      const [px, py] = project(p.x, p.y);
+      const [px, py, depth] = project(p.x, p.y);
       const x = Math.round(px), feet = Math.round(py + HH);
+      if (depth <= 0.05) { // detrás de la torre: silueta del color del jugador a través de la piedra
+        const im = fr.idle[0];
+        ctx.globalAlpha = 0.45;
+        drawFlip(silhouette(im, p.color), x, feet - im.height + 1, p.left);
+        ctx.globalAlpha = 1;
+        continue;
+      }
       if (p.inv && !p.ko && Math.floor(t * 16) % 2) continue; // parpadeo de invulnerable
       ctx.globalAlpha = p.off ? 0.45 : 1;
       if (p.ko) { // tirado de costado
@@ -398,7 +587,8 @@ export function createRenderer(cv) {
         const tt = tileAt(lv, Math.floor(b.x / T), Math.floor(b.y / T));
         if (tt === STONE || tt === SPIKE || b.d > CFG.SHOT_RANGE) { b.dead = true; break; }
       }
-      const [bx, by] = project(b.x, b.y);
+      const [bx, by, bd] = project(b.x, b.y);
+      if (bd <= 0.05) continue;
       ctx.fillStyle = '#fff6c8';
       ctx.fillRect(Math.round(bx) - 1, Math.round(by) - 2, 2, 4);
     }
@@ -408,14 +598,16 @@ export function createRenderer(cv) {
     for (const q of R.parts) {
       q.t -= dt;
       q.vy += q.grav * dt; q.x += q.vx * dt; q.y += q.vy * dt;
-      const [qx, qy] = project(q.x, q.y);
+      const [qx, qy, qd] = project(q.x, q.y);
+      if (qd <= 0.05) continue;
       if (q.color === 'flash') { ctx.fillStyle = '#fff8d0'; ctx.fillRect(Math.round(qx) - 3, Math.round(qy) - 1, 7, 3); continue; }
       ctx.fillStyle = q.color;
       ctx.fillRect(Math.round(qx), Math.round(qy), 1, 1);
     }
     R.parts = R.parts.filter((q) => q.t > 0);
 
-    // Oscuridad con círculos de luz
+    // Oscuridad con círculos de luz (afuera no hay)
+    if (!ext) {
     dg.globalCompositeOperation = 'source-over';
     dg.fillStyle = 'rgba(6,3,10,0.76)';
     dg.fillRect(0, 0, W, H);
@@ -438,6 +630,7 @@ export function createRenderer(cv) {
     }
     for (const q of R.parts) if (q.color === 'flash') lightAt(q.x, q.y, 30);
     ctx.drawImage(dark, 0, cam);
+    }
 
     // Escombros del derrumbe en el borde de arriba
     if (view.chase) drawDebris(cam, t);
@@ -446,7 +639,7 @@ export function createRenderer(cv) {
 
     // Encima de la oscuridad: ojos malvados, chevrones, vida propia, números, flechas
     for (const c of view.creatures) {
-      if (!c || !c.alive || !vis(c.y) || (c.kind !== 'goblin' && c.kind !== 'imp')) continue;
+      if (!c || !c.alive || !vis(c.y) || (c.kind !== 'goblin' && c.kind !== 'imp') || !front(c.x, c.y)) continue;
       if (Math.floor(t * 2 + c.x) % 7 === 0) continue; // parpadeo
       ctx.fillStyle = '#ff3030';
       const [cx, cy] = project(c.x, c.y);
@@ -454,7 +647,7 @@ export function createRenderer(cv) {
       ctx.fillRect(ex - 2, ey, 1, 1); ctx.fillRect(ex + 2, ey, 1, 1);
     }
     for (const p of P) {
-      if (!vis(p.y)) continue;
+      if (!vis(p.y) || !front(p.x, p.y)) continue;
       const [px, py] = project(p.x, p.y);
       const x = Math.round(px), top = Math.round(py - HH) - 18;
       if (!p.ko) chevron(x, top, p.color);
@@ -469,8 +662,8 @@ export function createRenderer(cv) {
     }
     for (const q of R.pops) {
       q.t -= dt; q.y -= 14 * dt;
-      const [qx, qy] = project(q.x, q.y);
-      if (Math.floor(q.t * 20) % 2 || q.t > 0.3) pixText(ctx, q.text, qx, qy, q.color);
+      const [qx, qy, qd] = project(q.x, q.y);
+      if (qd > 0.05 && (Math.floor(q.t * 20) % 2 || q.t > 0.3)) pixText(ctx, q.text, qx, qy, q.color);
     }
     R.pops = R.pops.filter((q) => q.t > 0);
 
@@ -495,6 +688,19 @@ export function createRenderer(cv) {
       }
     }
   };
+
+  /* Soplido de la gárgola: banda translúcida con rayas que avanzan hacia su lado libre. */
+  function drawBlow(c, t) {
+    const len = CFG.GARG_LEN * T;
+    for (let k = 0; k < 10; k++) {
+      const f = ((t * 2.2 + k / 10) % 1);
+      const wx = c.x + c.dir * (8 + f * len), wy = c.y - 10 + ((k * 7) % 20);
+      const [x, y, d] = project(wx, wy);
+      if (d <= 0.05) continue;
+      ctx.fillStyle = `rgba(200,220,255,${0.6 * (1 - f)})`;
+      ctx.fillRect(Math.round(x) - 3, Math.round(y), 6, 1);
+    }
+  }
 
   /* El Ojo: tallos, globo, iris que mira al jugador más cercano y párpado según el estado. */
   function drawBoss(B, view, t) {
@@ -564,7 +770,7 @@ export function createRenderer(cv) {
   /* Posición en pantalla (px CSS) de una x del mundo: el ratón dirige hacia ahí. */
   R.screenX = (x) => {
     const rect = cv.getBoundingClientRect();
-    return rect.left + (x / W) * rect.width;
+    return rect.left + (project(x, 0)[0] / W) * rect.width;
   };
 
   R.resize();

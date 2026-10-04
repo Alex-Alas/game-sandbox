@@ -72,7 +72,37 @@ export const CREATURE = {
   fairy: { w: 9, h: 9, hp: Infinity, gems: 0, evil: false },
   skeleton: { w: 12, h: 14, hp: 2, gems: 3, evil: true },
   eyelet: { w: 8, h: 8, hp: 1, gems: 1, evil: true },
+  bat: { w: 10, h: 8, hp: 1, gems: 1, evil: true },
+  gargoyle: { w: 14, h: 14, hp: Infinity, gems: 0, evil: false },
 };
+
+/* ── Exterior (F2): plataformas móviles y viento. Puras, dependen solo del tiempo: el render y
+   los invitados las calculan igual que el anfitrión. ── */
+
+/* Posición de una plataforma móvil: ping-pong suavizado por su riel. Devuelve [x, y] de su
+   esquina de arriba a la izquierda. */
+export function moverPos(m, t) {
+  const s = ((t / m.period) * 2 + m.u0) % 2;
+  const u = s < 1 ? s : 2 - s;
+  const e = u * u * (3 - 2 * u);
+  return m.axis === 'h' ? [m.x0 + e * m.len, m.y0] : [m.x0, m.y0 + e * m.len];
+}
+
+/* Viento a la altura y: { v: −1..1 durante la ráfaga, warn: dirección durante el aviso }. Ciclo
+   por anillo: calma (calm s) → aviso (WIND_WARN) → ráfaga (WIND_GUST), dirección al azar. */
+export function windAt(lv, t, y) {
+  for (const w of lv.winds) {
+    if (y < w.y0 || y >= w.y1) continue;
+    const L = w.calm + CFG.WIND_WARN + CFG.WIND_GUST, tt = t + w.ph;
+    const k = Math.floor(tt / L), local = tt - k * L;
+    const hsh = Math.sin(k * 12.9898 + w.ph * 78.233) * 43758.5453;
+    const dir = hsh - Math.floor(hsh) < 0.5 ? -1 : 1;
+    if (local < w.calm) return { v: 0, warn: 0 };
+    if (local < w.calm + CFG.WIND_WARN) return { v: 0, warn: dir };
+    return { v: dir, warn: 0 };
+  }
+  return { v: 0, warn: 0 };
+}
 export const BOSS_W = 32, BOSS_H = 32;
 
 /* roster: [{ id, name, color, hero, hp?, conn?, bot? }] ya en el orden de la cadena. */
@@ -82,10 +112,11 @@ export function createSim(lv, roster) {
     players: [], creatures: [], bullets: [], links: [], pending: [], arrows: [],
     gemsTaken: new Uint8Array(lv.gems.length),
     mods: (lv.tramo.mods || []).map((id) => MODS[id]).filter(Boolean),
-    cam: null, boss: null, crumble: new Map(),
+    cam: null, boss: null, crumble: new Map(), mv: (lv.movers || []).map(() => ({ x: 0, y: 0, px: 0, py: 0 })),
     metrics: { chaseHits: 0, chaseInT: 0, rubberLead: 0, rubberEase: 0, bossDmg: 0 },
   };
   resetDyn(lv);
+  stepMovers(sim);
   roster.forEach((r, i) => sim.players.push(newPlayer(r, i, lv.spawns[i] || lv.spawns[0])));
   for (let i = 0; i + 1 < sim.players.length; i++) {
     const a = sim.players[i], b = sim.players[i + 1];
@@ -105,7 +136,7 @@ function newPlayer(r, idx, sp) {
     hp: r.hp > 0 ? Math.min(r.hp, CFG.HEARTS) : (r.hp === 0 ? 1 : CFG.HEARTS), // fuera de combate vuelve con 1
     ammo: CFG.AMMO, facing: 1,
     grounded: false, groundT: 0, onWood: false, wallL: false, wallR: false,
-    anchored: false, holding: false, burstT: 0, diving: false, dropT: 0,
+    anchored: false, holding: false, burstT: 0, diving: false, dropT: 0, onMover: -1,
     ko: false, conn: r.conn !== false, trapped: -1, trapT: 0, cubeCd: 0,
     invT: 0, stunT: 0, tugCd: 0, bungeeT: 0, hurtT: -9, beamT: -9, arrived: false,
     input: { tilt: 0, hold: false }, events: [], stats: newStats(),
@@ -116,11 +147,12 @@ function newCreature(lv, c, i) {
   const k = CREATURE[c.kind];
   const cr = {
     i, kind: c.kind, x: c.x, y: c.y, px: c.x, py: c.y, hx: c.x, hy: c.y, vx: 0, vy: 0,
-    w: k.w, h: k.h, hp: k.hp, alive: true, dir: i % 2 ? 1 : -1, grounded: false, hitWall: false,
+    w: k.w, h: k.h, hp: k.hp, alive: true, dir: c.dir || (i % 2 ? 1 : -1), grounded: false, hitWall: false,
     t: i * 1.7, flashT: 0, angryT: 0, target: null, pushCd: 0, biteCd: 0, mode: 'floor', side: 0,
     cd: 1 + (i % 3) * 0.4, aimT: 0, aimX: 0, aimY: 0,
   };
   if (c.dormant) cr.alive = false; // ojitos: los suelta El Ojo
+  if (c.kind === 'bat') cr.mode = 'sleep';
   if (c.kind === 'cube') {
     const tx = Math.floor(c.x / T), ty = Math.floor(c.y / T);
     if (solidAt(lv, tx - 1, ty)) { cr.mode = 'wall'; cr.side = -1; }
@@ -139,6 +171,8 @@ export function step(sim, dt) {
   sim.t += dt;
   for (const m of sim.mods) m.onStep?.(sim, dt);
   const P = sim.players;
+  if (sim.lv.wrap) rewrap(sim);
+  if (sim.mv.length) { stepMovers(sim); carryRiders(sim); }
   for (const p of P) { p.px = p.x; p.py = p.y; controls(sim, p, dt); }
   ropeForces(sim);
   for (const p of P) integrate(p, dt);
@@ -155,6 +189,46 @@ export function step(sim, dt) {
 }
 
 const canAct = (p) => !p.ko && p.conn && p.trapped < 0 && p.stunT <= 0;
+
+/* Exterior: las x de los jugadores no se envuelven (la cuerda enrolla y la red interpola sin
+   saltos). Todo lo demás (criaturas, gemas, balas, flechas, plataformas) se lleva a la vuelta
+   más cercana al centro del equipo, así las comparaciones directas de x siguen valiendo. */
+function rewrap(sim) {
+  const P = sim.players, C = sim.lv.w * T;
+  let ref = 0;
+  for (const p of P) ref += p.x;
+  ref /= P.length || 1;
+  const fix = (o, ...keys) => {
+    const k = Math.round((o[keys[0]] - ref) / C);
+    if (k) for (const key of keys) o[key] -= k * C;
+  };
+  for (const c of sim.creatures) fix(c, 'x', 'px', 'hx', 'aimX');
+  for (const g of sim.lv.gems) fix(g, 'x');
+  for (const b of sim.bullets) fix(b, 'x');
+  for (const a of sim.arrows) fix(a, 'x');
+  for (const m of sim.lv.movers) {
+    const k = Math.round((m.x0 + m.w / 2 - ref) / C);
+    if (k) { const o = sim.mv[sim.lv.movers.indexOf(m)]; m.x0 -= k * C; o.x -= k * C; o.px -= k * C; }
+  }
+}
+
+function stepMovers(sim) {
+  sim.lv.movers.forEach((m, i) => {
+    const o = sim.mv[i], [x, y] = moverPos(m, sim.t);
+    o.px = o.x; o.py = o.y;
+    if (!o.init) { o.px = x; o.py = y; o.init = true; }
+    o.x = x; o.y = y; o.w = m.w;
+  });
+}
+/* Lleva a los que están parados (o anclados) sobre una plataforma. */
+function carryRiders(sim) {
+  for (const p of sim.players) {
+    if (p.onMover < 0 || p.trapped >= 0 || !(p.grounded || p.anchored)) continue;
+    const o = sim.mv[p.onMover];
+    moveX(sim.lv, p, o.x - o.px);
+    p.y += o.y - o.py;
+  }
+}
 
 function controls(sim, p, dt) {
   p.invT = Math.max(0, p.invT - dt);
@@ -175,7 +249,7 @@ function controls(sim, p, dt) {
   // Ancla: mantener junto a una pared (o parado en el suelo) mientras se mantiene apretado.
   // Anclado, move() no recalcula suelo ni paredes: si el apoyo desaparece (plataforma que se
   // derrumba), el ancla se suelta.
-  if (p.anchored && !hasSupport(sim.lv, p)) { p.anchored = false; p.grounded = false; p.groundT = 0; }
+  if (p.anchored && !hasSupport(sim, p)) { p.anchored = false; p.grounded = false; p.groundT = 0; p.onMover = -1; }
   p.anchored = p.holding && (p.anchored || p.grounded || p.wallL || p.wallR);
   if (p.anchored && !wasAnchored) { p.diving = false; emit(sim, { k: 'anchor', id: p.id }); }
   if (p.holding && !p.anchored) { // ráfaga en el aire
@@ -184,8 +258,11 @@ function controls(sim, p, dt) {
   } else p.burstT = 0;
 }
 
-/* Piso bajo los pies o pared al costado, consultados ahora (no los flags del último move). */
-function hasSupport(lv, p) {
+/* Piso bajo los pies, plataforma móvil o pared al costado, consultados ahora (no los flags
+   del último move). */
+function hasSupport(sim, p) {
+  const lv = sim.lv;
+  if (p.onMover >= 0) return true; // la plataforma lo lleva
   const l = Math.floor((p.x - HW + 0.01) / T), r = Math.floor((p.x + HW - 0.01) / T);
   const fy = Math.floor((p.y + HH + 1) / T);
   for (let tx = l; tx <= r; tx++) { const t = tileAt(lv, tx, fy); if (blocks(t) || isWoodLike(t)) return true; }
@@ -286,22 +363,23 @@ const NB8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1
 export function ropePath(lv, ax, ay, bx, by) {
   const straight = { pts: [ax, ay, bx, by], len: Math.hypot(bx - ax, by - ay) };
   if (los(lv, ax, ay, bx, by)) return straight;
-  const W = lv.w;
   const cax = Math.floor(ax / T), cay = Math.floor(ay / T), cbx = Math.floor(bx / T), cby = Math.floor(by / T);
   const y0 = Math.max(0, Math.min(cay, cby) - 4), y1 = Math.min(lv.h - 1, Math.max(cay, cby) + 4);
   const H = y1 - y0 + 1;
-  const free = (x, y) => x >= 0 && x < W && y >= y0 && y <= y1 && !blocks(tileAt(lv, x, y));
+  // Ventana de columnas: el pozo entero, o en la torre (x sin envolver) un tramo alrededor de los dos
+  const X0 = lv.wrap ? Math.min(cax, cbx) - 6 : 0, W = lv.wrap ? Math.abs(cax - cbx) + 13 : lv.w;
+  const free = (x, y) => x >= X0 && x < X0 + W && y >= y0 && y <= y1 && !blocks(tileAt(lv, x, y));
   if (!free(cax, cay) || !free(cbx, cby)) return straight;
-  const prev = new Int16Array(W * H).fill(-1);
-  const start = (cay - y0) * W + cax, goal = (cby - y0) * W + cbx;
+  const prev = new Int32Array(W * H).fill(-1);
+  const start = (cay - y0) * W + cax - X0, goal = (cby - y0) * W + cbx - X0;
   prev[start] = start;
   const q = [start];
   for (let qi = 0; qi < q.length && prev[goal] < 0; qi++) {
-    const c = q[qi], cx = c % W, cy = ((c / W) | 0) + y0;
+    const c = q[qi], cx = (c % W) + X0, cy = ((c / W) | 0) + y0;
     for (const [dx, dy] of NB8) {
       const nx = cx + dx, ny = cy + dy;
       if (!free(nx, ny) || (dx && dy && (!free(cx + dx, cy) || !free(cx, cy + dy)))) continue;
-      const k = (ny - y0) * W + nx;
+      const k = (ny - y0) * W + nx - X0;
       if (prev[k] >= 0) continue;
       prev[k] = c;
       q.push(k);
@@ -309,7 +387,7 @@ export function ropePath(lv, ax, ay, bx, by) {
   }
   if (prev[goal] < 0) return straight;
   const cells = [];
-  for (let c = goal; ; c = prev[c]) { cells.push([(c % W) * T + T / 2, (((c / W) | 0) + y0) * T + T / 2]); if (c === start) break; }
+  for (let c = goal; ; c = prev[c]) { cells.push([((c % W) + X0) * T + T / 2, (((c / W) | 0) + y0) * T + T / 2]); if (c === start) break; }
   cells.reverse(); // de a hacia b
   // Tensar: desde cada punto, saltar a la celda más lejana que se vea
   const pts = [ax, ay];
@@ -430,10 +508,15 @@ function move(sim, p, dt) {
   }
   if (p.anchored) return;
   const lv = sim.lv;
-  const dx = p.vx * dt, dy = p.vy * dt;
+  let dx = p.vx * dt;
+  const dy = p.vy * dt;
+  if (lv.winds.length) { // ráfaga: arrastra la posición (la mitad en el suelo)
+    const wv = windAt(lv, sim.t, p.y).v;
+    if (wv) dx += wv * CFG.WIND_V * (p.grounded ? 0.5 : 1) * dt;
+  }
   const n = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 6));
   const wasDiving = p.diving;
-  p.grounded = false; p.onWood = false;
+  p.grounded = false; p.onWood = false; p.onMover = -1;
   for (let s = 0; s < n; s++) {
     moveX(lv, p, dx / n);
     if (moveY(sim, p, dy / n)) break;
@@ -483,6 +566,18 @@ function moveY(sim, p, d) {
       p.onWood = isWoodLike(t);
       if (t === CRUMBLE && !p.ko) crumbleAt(sim, tx, ty);
       return true;
+    }
+    // Plataformas móviles: se cruzan desde abajo como la madera y la picada las atraviesa
+    if (sim.mv.length && !p.diving && p.dropT <= 0) {
+      for (let i = 0; i < sim.mv.length; i++) {
+        const o = sim.mv[i];
+        if (p.x + HW <= o.x || p.x - HW >= o.x + o.w) continue;
+        if (prevBottom > Math.max(o.y, o.py) + 0.5 || p.y + HH < o.y) continue;
+        p.y = o.y - HH - 0.001;
+        p.vy = 0;
+        p.grounded = true; p.onWood = true; p.onMover = i;
+        return true;
+      }
     }
   } else {
     const ty = Math.floor((p.y - HH) / T);
@@ -573,6 +668,7 @@ function stepBullets(sim, dt) {
 function bulletHitsCreature(sim, c, owner) {
   if (CREATURE[c.kind].evil) damage(sim, c, 1, owner);
   else if (c.kind === 'cube') emit(sim, { k: 'plop', x: r1(c.x), y: r1(c.y) });
+  else if (c.kind === 'gargoyle') emit(sim, { k: 'clank', x: r1(c.x), y: r1(c.y) });
   else if (c.kind === 'fairy') {
     // Se enoja 5 s y persigue al que disparó: empuja y aturde, no daña
     if (c.angryT <= 0 && owner) owner.stats.angryFairies++;
@@ -614,6 +710,8 @@ function stepCreature(sim, c, dt) {
   else if (c.kind === 'cube') stepCube(sim, c, dt);
   else if (c.kind === 'skeleton') stepSkeleton(sim, c, dt);
   else if (c.kind === 'eyelet') stepEyelet(sim, c, dt);
+  else if (c.kind === 'bat') stepBat(sim, c, dt);
+  else if (c.kind === 'gargoyle') stepGargoyle(sim, c, dt);
   else stepFairy(sim, c, dt);
 }
 
@@ -715,6 +813,56 @@ function stepSkeleton(sim, c, dt) {
   emit(sim, { k: 'aim', x: r1(c.x), y: r1(c.y) });
 }
 
+/* Murciélago: cuelga dormido; si pasa un vivo cerca, despierta y lo persigue en picados
+   sinusoidales BAT_CHASE s; después vuelve a su percha y descansa BAT_REST s. */
+function stepBat(sim, c, dt) {
+  c.cd -= dt;
+  if (c.mode === 'sleep') {
+    c.x = c.hx; c.y = c.hy; c.vx = c.vy = 0;
+    if (c.cd > 0) return;
+    const tgt = nearestAlive(sim, c, CFG.BAT_WAKE);
+    if (!tgt) return;
+    c.mode = 'chase'; c.target = tgt.id; c.cd = CFG.BAT_CHASE;
+    emit(sim, { k: 'batwake', x: r1(c.x), y: r1(c.y) });
+    return;
+  }
+  let gx = c.hx, gy = c.hy;
+  if (c.mode === 'chase') {
+    const tgt = sim.players.find((p) => p.id === c.target);
+    if (!tgt || tgt.ko || c.cd <= 0) c.mode = 'back';
+    else { gx = tgt.x + Math.sin(c.t * 2.2) * 14; gy = tgt.y + Math.sin(c.t * 6) * 10; }
+  }
+  const dx = gx - c.x, dy = gy - c.y, d = Math.hypot(dx, dy) || 1;
+  if (c.mode === 'back' && d < 3) { c.mode = 'sleep'; c.cd = CFG.BAT_REST; return; }
+  c.vx += (dx / d) * 260 * dt; c.vy += (dy / d) * 260 * dt;
+  const sp = Math.hypot(c.vx, c.vy), max = c.mode === 'back' ? CFG.BAT_SPEED * 0.6 : CFG.BAT_SPEED;
+  if (sp > max) { c.vx *= max / sp; c.vy *= max / sp; }
+  if (Math.abs(dx) > 1) c.dir = dx > 0 ? 1 : -1;
+  if (c.mode === 'back') { c.x += c.vx * dt; c.y += c.vy * dt; } // vuelve sin trabarse
+  else moveBody(sim.lv, c, c.vx * dt, c.vy * dt, false);
+}
+
+/* Gárgola: estatua invulnerable. Cada GARG_PERIOD + GARG_BLOW s le brillan los ojos
+   GARG_WARN s (aviso) y sopla GARG_BLOW s una banda de 2 tiles de alto y GARG_LEN de largo
+   hacia su lado libre: empuja fuerte, no daña; al anclado no lo mueve. */
+function stepGargoyle(sim, c, dt) {
+  const L = CFG.GARG_PERIOD + CFG.GARG_BLOW, local = (sim.t + c.i * 0.77) % L;
+  const warn = local >= L - CFG.GARG_BLOW - CFG.GARG_WARN && local < L - CFG.GARG_BLOW;
+  const blow = local >= L - CFG.GARG_BLOW;
+  if (warn && c.aimT <= 0) emit(sim, { k: 'gargwarn', x: r1(c.x), y: r1(c.y) });
+  if (blow && c.angryT <= 0) emit(sim, { k: 'blow', x: r1(c.x), y: r1(c.y), dir: c.dir });
+  c.aimT = warn ? 1 : 0;
+  c.angryT = blow ? 1 : 0;
+  if (!blow) return;
+  for (const p of sim.players) {
+    if (p.anchored || p.trapped >= 0) continue;
+    const ahead = (p.x - c.x) * c.dir;
+    if (ahead < 2 || ahead > CFG.GARG_LEN * T || Math.abs(p.y - c.y) > T) continue;
+    if (p.vx * c.dir < 160) p.ax += c.dir * CFG.GARG_PUSH;
+    if (p.grounded && p.vy > -20) p.vy = -20; // lo despega un poco del piso
+  }
+}
+
 /* Flechas: rectas, se rompen contra la piedra y quitan 1 corazón. */
 function stepArrows(sim, dt) {
   if (!sim.arrows.length) return;
@@ -756,14 +904,15 @@ function stepEyelet(sim, c, dt) {
 /* ── Plataformas que se derrumban: tiemblan, caen (vacías) y vuelven si no hay nadie ── */
 function crumbleAt(sim, tx, ty) {
   const lv = sim.lv, W = lv.w;
+  if (lv.wrap) tx = ((tx % W) + W) % W;
   const i0 = ty * W + tx;
   if (sim.crumble.has(i0)) return;
   // toda la plataforma (tiles contiguos de la fila)
   let a = tx, b = tx;
-  while (baseTileAt(lv, a - 1, ty) === CRUMBLE) a--;
-  while (baseTileAt(lv, b + 1, ty) === CRUMBLE) b++;
+  while (a > tx - W && baseTileAt(lv, ((a - 1) % W + W) % W, ty) === CRUMBLE) a--;
+  while (b < tx + W && baseTileAt(lv, (b + 1) % W, ty) === CRUMBLE) b++;
   for (let x = a; x <= b; x++) {
-    const i = ty * W + x;
+    const i = ty * W + ((x % W) + W) % W;
     if (sim.crumble.has(i)) continue;
     sim.crumble.set(i, { st: 'shake', t: 0 });
     lv.shaking.set(i, 1);
@@ -782,8 +931,9 @@ function stepCrumble(sim, dt) {
       lv.dyn.set(i, EMPTY);
       emit(sim, { k: 'crumble', x: tx * T + T / 2, y: ty * T + T / 2 });
     } else if (e.st === 'gone' && e.t >= CFG.CRUMBLE_BACK) {
-      const busy = sim.players.some((p) => Math.abs(p.x - (tx * T + T / 2)) < HW + T / 2 && Math.abs(p.y - (ty * T + T / 2)) < HH + T / 2) ||
-        sim.creatures.some((c) => c.alive && Math.abs(c.x - (tx * T + T / 2)) < c.w / 2 + T / 2 && Math.abs(c.y - (ty * T + T / 2)) < c.h / 2 + T / 2);
+      const C = W * T, near = (x) => { const d = x - (tx * T + T / 2); return Math.abs(lv.wrap ? d - Math.round(d / C) * C : d); };
+      const busy = sim.players.some((p) => near(p.x) < HW + T / 2 && Math.abs(p.y - (ty * T + T / 2)) < HH + T / 2) ||
+        sim.creatures.some((c) => c.alive && near(c.x) < c.w / 2 + T / 2 && Math.abs(c.y - (ty * T + T / 2)) < c.h / 2 + T / 2);
       if (busy) continue;
       lv.dyn.delete(i);
       sim.crumble.delete(i);
@@ -963,7 +1113,7 @@ function stepFairy(sim, c, dt) {
   const dx = gx - c.x, dy = gy - c.y, d = Math.hypot(dx, dy);
   const m = Math.min(d, sp * dt);
   if (d > 0.01) { c.x += (dx / d) * m; c.y += (dy / d) * m; c.dir = dx > 0 ? 1 : -1; }
-  c.x = clamp(c.x, T + 6, CFG.COLS * T - T - 6);
+  if (!sim.lv.wrap) c.x = clamp(c.x, T + 6, CFG.COLS * T - T - 6);
 }
 
 /* ── Contactos: pinchos, criaturas, gemas ── */
@@ -992,6 +1142,7 @@ function contacts(sim) {
         } else if (c.biteCd <= 0 && hurt(sim, p, c.x, c.y)) {
           c.biteCd = 0.8; // no muerde a toda la cadena de una
           if (c.kind === 'eyelet') { c.alive = false; emit(sim, { k: 'kill', x: r1(c.x), y: r1(c.y), v: 0, kind: c.kind }); }
+          if (c.kind === 'bat') c.mode = 'back';
         }
       } else if (c.kind === 'cube') {
         if (!p.ko && p.invT <= 0 && p.cubeCd <= 0) {
@@ -1103,7 +1254,7 @@ export function playerFlags(p) {
     (p.holding ? 256 : 0) | (p.facing < 0 ? 512 : 0) | (p.arrived ? 1024 : 0);
 }
 export function creatureFlags(c) {
-  return (c.dir < 0 ? 1 : 0) | (c.angryT > 0 ? 2 : 0) | (c.flashT > 0 ? 4 : 0) | (c.aimT > 0 ? 8 : 0);
+  return (c.dir < 0 ? 1 : 0) | (c.angryT > 0 ? 2 : 0) | (c.flashT > 0 ? 4 : 0) | (c.aimT > 0 ? 8 : 0) | (c.mode === 'sleep' && c.kind === 'bat' ? 16 : 0);
 }
 
 export function encodeState(sim) {

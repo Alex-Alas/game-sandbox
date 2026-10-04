@@ -22,12 +22,12 @@ export function flowField(lv, goals = null) {
   };
   const q = [];
   if (goals) for (const g of goals) { dist[g] = 0; q.push(g); }
-  else for (let x = 1; x < w - 1; x++) if (pass(x, h - 2)) { dist[(h - 2) * w + x] = 0; q.push((h - 2) * w + x); }
+  else for (let x = lv.wrap ? 0 : 1; x < (lv.wrap ? w : w - 1); x++) if (pass(x, h - 2)) { dist[(h - 2) * w + x] = 0; q.push((h - 2) * w + x); }
   // Relajación tipo SPFA desde la meta: cuesta caer poco, moverse 1 y subir (saltar) 4
   while (q.length) {
     const b = q.shift(), bx = b % w, by = (b / w) | 0;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, -1], [0, 1]]) {
-      const ax = bx + dx, ay = by + dy; // a se mueve hacia b
+      const ax = lv.wrap ? (bx + dx + w) % w : bx + dx, ay = by + dy; // a se mueve hacia b
       if (ax < 0 || ax >= w || ay < 0 || ay >= h || !pass(ax, ay)) continue;
       let cost = dy === -1 ? 0.6 : dy === 1 ? 4 : 1; // a está arriba de b: cae
       if (isWoodLike(tile(bx, by))) cost += 1.5;
@@ -65,7 +65,7 @@ export function botView(sim, f) {
   const B = sim.boss;
   return {
     lv: sim.lv, t: sim.t, ...f,
-    players: sim.players.map((p) => ({ x: p.x, y: p.y, vy: p.vy, grounded: p.grounded, diving: p.diving, ammo: p.ammo, ko: p.ko, trapped: p.trapped >= 0, idx: p.idx })),
+    players: sim.players.map((p) => ({ x: p.x, y: p.y, vy: p.vy, grounded: p.grounded, diving: p.diving, ammo: p.ammo, ko: p.ko, trapped: p.trapped >= 0, idx: p.idx, onWood: p.onWood })),
     creatures: sim.creatures, arrows: sim.arrows,
     boss: B && { x: B.x, y: B.y, state: B.state, dead: B.dead, gateClosed: B.gateClosed, beams: B.beams.map((b) => b.y) },
   };
@@ -83,7 +83,7 @@ function memRand(mem) { // xorshift por bot: reproducible
   return x / 4294967296;
 }
 
-const EVIL = new Set(['goblin', 'imp', 'skeleton', 'eyelet']);
+const EVIL = new Set(['goblin', 'imp', 'skeleton', 'eyelet', 'bat']);
 
 export function botThink(view, me, mem, dt) {
   const out = { tilt: 0, hold: false, events: [] };
@@ -115,11 +115,13 @@ export function botThink(view, me, mem, dt) {
   const mode = fight ? 'boss' : 'run';
   if (mode !== mem.mode) { mem.mode = mode; mem.best = Infinity; mem.stuckT = 0; }
 
+  // En la torre la x no se envuelve: el campo se indexa con la columna envuelta
+  const wx = (x) => (lv.wrap ? ((x % w) + w) % w : x);
   const cx = Math.floor(me.x / T), cy = Math.floor(me.y / T);
-  const here = field[cy * w + cx];
+  const here = field[cy * w + wx(cx)];
   // Cayendo en picada hacia la percha: un disparo corta la picada (si no, la atraviesa)
   if (fight && me.diving && cy < view.perch.row && me.ammo > 0 && mem.tapCd <= 0) { out.events.push('tap'); mem.tapCd = 0.2; }
-  const onWood = isWoodLike(baseTileAt(lv, cx, Math.floor((me.y + CFG.PH / 2 + 1) / T)));
+  const onWood = me.onWood || isWoodLike(baseTileAt(lv, wx(cx), Math.floor((me.y + CFG.PH / 2 + 1) / T)));
 
   if (fight && here === 0) {
     // En la percha: seguir al ojo, picada cuando se abre justo debajo
@@ -133,8 +135,8 @@ export function botThink(view, me, mem, dt) {
     let best = here, bx = cx, by = cy;
     for (const [dx, dy] of [[0, 1], [-1, 0], [1, 0], [-1, 1], [1, 1], [0, -1]]) {
       const nx = cx + dx, ny = cy + dy;
-      if (nx < 0 || nx >= w || ny < 0 || ny >= lv.h) continue;
-      const d = field[ny * w + nx];
+      if ((!lv.wrap && (nx < 0 || nx >= w)) || ny < 0 || ny >= lv.h) continue;
+      const d = field[ny * w + wx(nx)];
       if (d < best - 0.01) { best = d; bx = nx; by = ny; }
     }
     const tx = bx * T + T / 2;
