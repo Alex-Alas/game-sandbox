@@ -4,10 +4,10 @@
    Todo lo que va en coordenadas del mundo pasa por project(x, y) (identidad en el interior;
    la torre exterior del futuro dará la vuelta en x). Dibuja una "vista" (ver main.js). */
 import { CFG, ALIGN } from './config.js';
-import { STONE, WOOD, SPIKE, tileAt, mulberry32 } from './level.js';
+import { STONE, WOOD, SPIKE, CRUMBLE, EMPTY, baseTileAt, tileAt, mulberry32 } from './level.js';
 import { canvas, heroFrames, creatureFrames, CODE, CASTLE, drawCastle, drawCastleRaw, DOOR } from './sprites.js';
 import { makeLink, stepLink } from './rope.js';
-import { ropePath } from './sim.js';
+import { ropePath, BOSS_W } from './sim.js';
 
 const T = CFG.TILE, W = CFG.VIEW_W, HH = CFG.PH / 2;
 
@@ -30,6 +30,44 @@ function pixText(g, str, x, y, color) {
     if (gl) for (let i = 0; i < 15; i++) if (gl[i] === '1') g.fillRect(cx + (i % 3), Math.round(y) + ((i / 3) | 0), 1, 1);
     cx += 4;
   }
+}
+
+/* Tiles del tramo pre-dibujados en un canvas del alto del nivel (también lo usa el visor de
+   bloques). Los tiles dinámicos (CRUMBLE, entrada y piso del jefe) se dibujan aparte. */
+export function paintLevel(lv) {
+  const [c, g] = canvas(W, lv.pxH);
+  const rnd = mulberry32(lv.decoSeed);
+  const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
+  const solid = (x, y) => { const t = baseTileAt(lv, x, y); return t === STONE || t === SPIKE; };
+  g.fillStyle = '#1a1210';
+  g.fillRect(0, 0, W, lv.pxH);
+  for (let y = 0; y < lv.h; y++) for (let x = 0; x < lv.w; x++) {
+    if (baseTileAt(lv, x, y) !== STONE) drawCastle(g, rnd() < 0.85 ? pick(CASTLE.bg) : pick(CASTLE.bgShadow), x * T, y * T);
+  }
+  // Estandartes contra el fondo, donde haya 3 celdas libres en vertical
+  for (let y = 1; y < lv.h - 3; y++) for (let x = 1; x < lv.w - 1; x++) {
+    if (rnd() > 0.018) continue;
+    if ([0, 1, 2].some((k) => baseTileAt(lv, x, y + k) !== 0)) continue;
+    drawCastle(g, CASTLE.banner, x * T, y * T, 16, 48);
+  }
+  for (let y = 0; y < lv.h; y++) for (let x = 0; x < lv.w; x++) {
+    const t = baseTileAt(lv, x, y), px = x * T, py = y * T;
+    if (t === STONE) {
+      const wall = x === 0 || x === lv.w - 1;
+      const open = !solid(x, y + 1) && y < lv.h - 1;
+      drawCastle(g, pick(wall ? (open ? CASTLE.brickBottom : CASTLE.brick) : (open ? CASTLE.stoneBottom : CASTLE.stone)), px, py);
+    } else if (t === WOOD) {
+      const l = baseTileAt(lv, x - 1, y) === WOOD, r = baseTileAt(lv, x + 1, y) === WOOD;
+      drawCastle(g, !l ? CASTLE.woodL : !r ? CASTLE.woodR : CASTLE.woodM, px, py);
+    } else if (t === SPIKE) {
+      const down = solid(x, y - 1) && !solid(x, y + 1) && baseTileAt(lv, x, y - 1) !== SPIKE;
+      g.drawImage(down ? CODE.spikeDown : CODE.spikeUp, px, py);
+    }
+  }
+  // Puerta de salida en el FIN
+  const [sx, sy, sw, sh] = DOOR;
+  drawCastleRaw(g, sx, sy, sw, sh, Math.round(W / 2 - sw / 2), lv.finY - sh);
+  return c;
 }
 
 export function createRenderer(cv) {
@@ -74,39 +112,11 @@ export function createRenderer(cv) {
     R.lv = lv;
     R.ropes = []; R.ropeKey = '';
     R.parts = []; R.pops = []; R.bullets = [];
-    const [c, g] = canvas(W, lv.pxH);
-    const rnd = mulberry32(lv.decoSeed);
-    const pick = (arr) => arr[Math.floor(rnd() * arr.length)];
-    const solid = (x, y) => { const t = tileAt(lv, x, y); return t === STONE || t === SPIKE; };
-    g.fillStyle = '#1a1210';
-    g.fillRect(0, 0, W, lv.pxH);
-    for (let y = 0; y < lv.h; y++) for (let x = 0; x < lv.w; x++) {
-      if (tileAt(lv, x, y) !== STONE) drawCastle(g, rnd() < 0.85 ? pick(CASTLE.bg) : pick(CASTLE.bgShadow), x * T, y * T);
-    }
-    // Estandartes contra el fondo, donde haya 3 celdas libres en vertical
-    for (let y = 1; y < lv.h - 3; y++) for (let x = 1; x < lv.w - 1; x++) {
-      if (rnd() > 0.018) continue;
-      if ([0, 1, 2].some((k) => tileAt(lv, x, y + k) !== 0)) continue;
-      drawCastle(g, CASTLE.banner, x * T, y * T, 16, 48);
-    }
-    for (let y = 0; y < lv.h; y++) for (let x = 0; x < lv.w; x++) {
-      const t = tileAt(lv, x, y), px = x * T, py = y * T;
-      if (t === STONE) {
-        const wall = x === 0 || x === lv.w - 1;
-        const open = !solid(x, y + 1) && y < lv.h - 1;
-        drawCastle(g, pick(wall ? (open ? CASTLE.brickBottom : CASTLE.brick) : (open ? CASTLE.stoneBottom : CASTLE.stone)), px, py);
-      } else if (t === WOOD) {
-        const l = tileAt(lv, x - 1, y) === WOOD, r = tileAt(lv, x + 1, y) === WOOD;
-        drawCastle(g, !l ? CASTLE.woodL : !r ? CASTLE.woodR : CASTLE.woodM, px, py);
-      } else if (t === SPIKE) {
-        const down = solid(x, y - 1) && !solid(x, y + 1) && tileAt(lv, x, y - 1) !== SPIKE;
-        g.drawImage(down ? CODE.spikeDown : CODE.spikeUp, px, py);
-      }
-    }
-    // Puerta de salida en el FIN
-    const [sx, sy, sw, sh] = DOOR;
-    drawCastleRaw(g, sx, sy, sw, sh, Math.round(W / 2 - sw / 2), lv.finY - sh);
-    R.levelCv = c;
+    R.levelCv = paintLevel(lv);
+    // Tiles que cambian (plataformas que se derrumban, entrada y piso de la sala del jefe): cada cuadro
+    R.dynTiles = [];
+    for (let i = 0; i < lv.tiles.length; i++) if (lv.tiles[i] === CRUMBLE) R.dynTiles.push(i);
+    R.dynTiles.push(...lv.gate, ...lv.exit);
     R.cam = 0;
   };
 
@@ -124,6 +134,7 @@ export function createRenderer(cv) {
     R.bullets.forEach((b, i) => { const d = Math.hypot(b.x - x, b.y - y); if (d < bd) { bd = d; best = i; } });
     if (best >= 0) R.bullets.splice(best, 1);
   }
+  R.burst = burst;
 
   /* Efectos visuales de un evento de la simulación. */
   R.fx = (ev, view) => {
@@ -142,7 +153,7 @@ export function createRenderer(cv) {
         killBullet(ev.x, ev.y);
         burst(ev.x, ev.y, 12, ALIGN.evil, 80, 0.5);
         burst(ev.x, ev.y, 5, '#7fb6ff', 60, 0.6);
-        pop(ev.x, ev.y - 8, '+' + ev.v, '#7fb6ff');
+        if (ev.v) pop(ev.x, ev.y - 8, '+' + ev.v, '#7fb6ff');
         break;
       case 'gem':
         burst(ev.x, ev.y, ev.big ? 14 : 5, '#a9d0ff', ev.big ? 90 : 50, 0.5, 60);
@@ -172,6 +183,23 @@ export function createRenderer(cv) {
       case 'bounce': if (pl) burst(pl.x, pl.y + 6, 6, '#f4e1b8', 50, 0.3, 0); break;
       case 'jump': if (pl) burst(pl.x, pl.y + HH, 3, '#a89070', 30, 0.25, 50); break;
       case 'anchor': if (pl) burst(pl.x, pl.y, 4, '#c0c0c8', 30, 0.2, 0); break;
+      case 'arrow': burst(ev.x, ev.y - 6, 3, '#e8dcc0', 30, 0.2, 0); break;
+      case 'arrowbreak': killBullet(ev.x, ev.y); burst(ev.x, ev.y, 5, '#d8cbb0', 40, 0.3); break;
+      case 'shake': burst(ev.x, ev.y, 4, '#8a7766', 20, 0.4, 150); break;
+      case 'crumble': burst(ev.x, ev.y, 7, '#8a7766', 40, 0.6, 300); break;
+      case 'reform': burst(ev.x, ev.y, 3, '#b3a08a', 15, 0.3, 0); break;
+      case 'chasewarn': R.shake(CFG.CHASE_WARN); break;
+      case 'chasego': R.shake(0.5); break;
+      case 'gate': burst(ev.x, ev.y, 18, '#9a8a7a', 60, 0.6, 200); R.shake(0.5); break;
+      case 'beam': R.shake(0.3); break;
+      case 'zap': if (pl) { burst(pl.x, pl.y, 8, '#ff5a7a', 60, 0.4, 0); pop(pl.x, pl.y - 20, '!', '#ff5a7a'); } if (me) R.shake(0.25); break;
+      case 'gaze': burst(ev.x, ev.y, 10, '#7a1020', 40, 0.5, 0); break;
+      case 'bosshit': burst(ev.x, ev.y, 16, '#ffffff', 90, 0.5); burst(ev.x, ev.y, 10, '#c0203a', 70, 0.6); pop(ev.x, ev.y - 14, '-1', '#ff5a7a'); R.shake(0.35); break;
+      case 'clank': killBullet(ev.x, ev.y); burst(ev.x, ev.y, 4, '#ffe14a', 50, 0.2); break;
+      case 'bossdie':
+        burst(ev.x, ev.y, 40, '#c0203a', 120, 0.9); burst(ev.x, ev.y, 30, '#ead8c6', 100, 0.8); burst(ev.x, ev.y, 24, '#a9d0ff', 80, 1, 120);
+        R.shake(1.2);
+        break;
       default: break;
     }
   };
@@ -225,11 +253,16 @@ export function createRenderer(cv) {
     dt = Math.min(dt, 1 / 20);
     const me = view.players.find((p) => p.id === view.meId);
     const focus = me || view.focus || view.players[0];
-    const target = focus ? focus.y - H * 0.38 : (view.camY ?? 0);
-    const maxCam = Math.max(0, lv.pxH - H);
-    const tgt = Math.max(0, Math.min(maxCam, target));
-    R.cam += (tgt - R.cam) * Math.min(1, dt * 7);
-    if (Math.abs(tgt - R.cam) > H) R.cam = tgt;
+    if (view.chase) { // derrumbe: la cámara es compartida y su borde de arriba son los escombros
+      R.cam = view.camY;
+      if (view.chaseWarn) R.shakeT = Math.max(R.shakeT, 0.1);
+    } else {
+      const target = focus ? focus.y - H * 0.38 : (view.camY ?? 0);
+      const maxCam = Math.max(0, lv.pxH - H);
+      const tgt = Math.max(0, Math.min(maxCam, target));
+      R.cam += (tgt - R.cam) * Math.min(1, dt * 7);
+      if (Math.abs(tgt - R.cam) > H) R.cam = tgt;
+    }
     R.shakeT = Math.max(0, R.shakeT - dt);
     const shk = R.shakeT > 0 ? Math.round((Math.random() - 0.5) * 4 * Math.min(1, R.shakeT * 6)) : 0;
     const cam = Math.round(R.cam) + shk;
@@ -240,6 +273,13 @@ export function createRenderer(cv) {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
     ctx.drawImage(R.levelCv, 0, cam, W, H, 0, cam, W, H);
+    for (const i of R.dynTiles) {
+      const x = i % lv.w, y = (i / lv.w) | 0;
+      if (!vis(y * T + 8)) continue;
+      const tt = tileAt(lv, x, y);
+      if (tt === CRUMBLE) ctx.drawImage(CODE.crumble, x * T + (lv.shaking.has(i) ? Math.round(Math.random() * 2 - 1) : 0), y * T);
+      else if (tt === STONE) drawCastle(ctx, CASTLE.stone[(x * 7 + y) % CASTLE.stone.length], x * T, y * T);
+    }
 
     // Antorchas (con un brillo cálido)
     for (const tc of lv.torches) {
@@ -254,7 +294,7 @@ export function createRenderer(cv) {
 
     // Gemas
     lv.gems.forEach((gm, i) => {
-      if (view.gemsTaken[i] || !vis(gm.y)) return;
+      if (view.gemsTaken[i] || !vis(gm.y) || (gm.boss && !view.bossDead)) return;
       const f = Math.floor(t * 5 + i * 1.3) % 4;
       const bob = Math.round(Math.sin(t * 3 + i) * (gm.big ? 1.5 : 1));
       const im = gm.big ? CODE.bigGem[f] : CODE.gem[f];
@@ -272,6 +312,15 @@ export function createRenderer(cv) {
         const fr = creatureFrames(c.kind);
         const im = fr.run[Math.floor(t * 8 + i) % 4];
         drawFlip(im, x, c.kind === 'goblin' ? y + 6 - im.height + 1 : y - 9, c.dir < 0);
+      } else if (c.kind === 'skeleton') {
+        const im = creatureFrames('skeleton').idle[Math.floor(t * 5 + i) % 4];
+        drawFlip(im, x, y + 7 - im.height + 1, c.dir < 0);
+        if (c.aim) { // tensa el arco: el aviso
+          ctx.fillStyle = Math.floor(t * 20) % 2 ? '#ffffff' : '#ff4040';
+          ctx.fillRect(x + (c.dir < 0 ? -6 : 5), y - 5, 2, 3);
+        }
+      } else if (c.kind === 'eyelet') {
+        ctx.drawImage(CODE.eyelet[Math.floor(t * 12 + i) % 2], x - 5, y - 4);
       } else if (c.kind === 'cube') {
         ctx.drawImage(CODE.cube[Math.floor(t * 3 + i) % 2], x - 9, y - 9);
       } else {
@@ -284,6 +333,18 @@ export function createRenderer(cv) {
         }
       }
     });
+
+    // Flechas
+    for (const a of view.arrows || []) {
+      const d = Math.hypot(a.vx, a.vy) || 1;
+      line(a.x - (a.vx / d) * 6, a.y - (a.vy / d) * 6, a.x, a.y, '#d8cbb0');
+      ctx.fillStyle = '#ff5050';
+      ctx.fillRect(Math.round(a.x), Math.round(a.y), 1, 1);
+    }
+
+    // El Ojo
+    const B = view.boss;
+    if (B && !B.dead) drawBoss(B, view, t);
 
     // Cuerda (partículas de dibujo que siguen el camino de la física)
     const P = view.players;
@@ -369,8 +430,19 @@ export function createRenderer(cv) {
     lv.gems.forEach((gm, i) => { if (!view.gemsTaken[i]) lightAt(gm.x, gm.y, gm.big ? 32 : 12); });
     for (const c of view.creatures) if (c && c.alive && c.kind === 'fairy') lightAt(c.x, c.y, 20);
     lightAt(W / 2, lv.finY - 14, 44); // la puerta de salida
+    for (const a of view.arrows || []) lightAt(a.x, a.y, 10);
+    for (const c of view.creatures) if (c && c.alive && c.kind === 'skeleton' && c.aim) lightAt(c.x, c.y, 18);
+    if (B && !B.dead) {
+      lightAt(B.x, B.y, B.state === 'open' ? 64 : 48);
+      if (B.state === 'beam') for (const by of B.beams) for (let x = 24; x < W; x += 36) lightAt(x, by, 30);
+    }
     for (const q of R.parts) if (q.color === 'flash') lightAt(q.x, q.y, 30);
     ctx.drawImage(dark, 0, cam);
+
+    // Escombros del derrumbe en el borde de arriba
+    if (view.chase) drawDebris(cam, t);
+    // Rayo de El Ojo (encima de la oscuridad: se ve venir)
+    if (B && !B.dead) drawBeams(B, t);
 
     // Encima de la oscuridad: ojos malvados, chevrones, vida propia, números, flechas
     for (const c of view.creatures) {
@@ -403,6 +475,13 @@ export function createRenderer(cv) {
     R.pops = R.pops.filter((q) => q.t > 0);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (B && !B.dead && B.gateClosed) { // vida de El Ojo
+      const bw = 60, bx = Math.round(W / 2 - bw / 2);
+      ctx.fillStyle = '#14060a'; ctx.fillRect(bx - 1, 3, bw + 2, 5);
+      ctx.fillStyle = '#4a1020'; ctx.fillRect(bx, 4, bw, 3);
+      ctx.fillStyle = '#ff3b5c'; ctx.fillRect(bx, 4, Math.round((bw * B.hp) / B.max), 3);
+      for (let k = 1; k < B.max; k++) { ctx.fillStyle = '#14060a'; ctx.fillRect(bx + Math.round((bw * k) / B.max), 4, 1, 3); }
+    }
     for (const p of P) { // flechas a los compañeros fuera de pantalla
       if (p.id === view.meId) continue;
       const [px, py] = project(p.x, p.y);
@@ -416,6 +495,62 @@ export function createRenderer(cv) {
       }
     }
   };
+
+  /* El Ojo: tallos, globo, iris que mira al jugador más cercano y párpado según el estado. */
+  function drawBoss(B, view, t) {
+    const x = Math.round(B.x), y = Math.round(B.y);
+    for (let k = 0; k < 4; k++) { // tallos
+      const ax = x - 12 + k * 8, sway = Math.sin(t * 3 + k * 1.7) * 3;
+      line(ax, y + 10, ax + sway, y + 22, '#5a1020');
+      line(ax + sway, y + 22, ax + sway * 1.6, y + 28, '#3a0a14');
+    }
+    ctx.drawImage(CODE.ojoBall, x - 16, y - 16);
+    let tx = 0, ty = 1, bd = Infinity;
+    for (const p of view.players) { const d = Math.hypot(p.x - B.x, p.y - B.y); if (!p.ko && d < bd) { bd = d; tx = p.x - B.x; ty = p.y - B.y; } }
+    const tl = Math.hypot(tx, ty) || 1, ox = Math.round((tx / tl) * 5), oy = Math.round((ty / tl) * 5);
+    const open = B.state === 'open', r = open ? 7 : 5;
+    const irisCol = open ? (Math.floor(t * 8) % 2 ? '#ff3b5c' : '#ff7a8a') : '#c0203a';
+    for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) {
+      const d = Math.hypot(i, j);
+      if (d > r + 0.3) continue;
+      ctx.fillStyle = d < 2.2 ? '#14060a' : d > r - 1 ? '#7a1020' : irisCol;
+      ctx.fillRect(x + ox + i, y + oy + j, 1, 1);
+    }
+    const lid = B.state === 'gaze' || B.state === 'wait' ? 1 : B.state === 'warn' || B.state === 'beam' ? 0.45 : 0;
+    if (lid > 0) { // párpado: baja desde arriba
+      const h = Math.round(30 * lid);
+      for (let j = 0; j < h; j++) {
+        const yy = j - 15, half = Math.floor(Math.sqrt(Math.max(0, 15 * 15 - yy * yy)));
+        ctx.fillStyle = j === h - 1 ? '#2a0810' : '#8a3040';
+        ctx.fillRect(x - half, y - 15 + j, half * 2, 1);
+      }
+    }
+    if (B.stun) { ctx.fillStyle = '#ffe14a'; ctx.fillRect(x - 14, y + 12, 1, 1); ctx.fillRect(x + 13, y + 12, 1, 1); }
+  }
+  function drawBeams(B, t) {
+    for (const by of B.beams) {
+      const y = Math.round(by);
+      if (B.state === 'warn') {
+        if (Math.floor(t * 12) % 2) { ctx.fillStyle = '#ff3b5c'; ctx.fillRect(T, y, W - 2 * T, 1); }
+      } else if (B.state === 'beam') {
+        ctx.fillStyle = 'rgba(255,60,90,0.55)'; ctx.fillRect(T, y - 16, W - 2 * T, 32);
+        ctx.fillStyle = 'rgba(255,140,160,0.85)'; ctx.fillRect(T, y - 8, W - 2 * T, 16);
+        ctx.fillStyle = '#fff4f6'; ctx.fillRect(T, y - 2 + (Math.floor(t * 30) % 2), W - 2 * T, 4);
+      }
+    }
+  }
+  /* Escombros que caen en el borde de arriba de la cámara del derrumbe. */
+  function drawDebris(cam, t) {
+    const top = Math.round(cam), h = CFG.CHASE_EDGE + 4;
+    for (let x = 0; x < W; x += 2) {
+      const n = Math.sin(x * 12.9898 + Math.floor(t * 6) * 0.7) * 43758.5453;
+      const r = n - Math.floor(n);
+      const hh = Math.round(h * (0.5 + r * 0.6));
+      ctx.fillStyle = '#2a1d17'; ctx.fillRect(x, top, 2, hh);
+      ctx.fillStyle = r > 0.6 ? '#8a7766' : '#5a4a3e'; ctx.fillRect(x, top + hh - 2, 2, 2);
+    }
+    if (Math.random() < 0.5) burst(Math.random() * W, top + h, 1, '#8a7766', 20, 0.6, 300);
+  }
 
   function drawFlip(im, x, y, flip) {
     if (!flip) { ctx.drawImage(im, Math.round(x - im.width / 2), Math.round(y)); return; }

@@ -4,30 +4,65 @@
    combate, fin del tramo, eventos (fx) y contadores para los premios.
    Posiciones en el centro de cada caja; y crece hacia abajo. */
 import { CFG } from './config.js';
-import { EMPTY, STONE, WOOD, SPIKE, tileAt, solidAt } from './level.js';
+import { EMPTY, STONE, SPIKE, CRUMBLE, tileAt, baseTileAt, solidAt, isWoodLike, resetDyn } from './level.js';
 
 const T = CFG.TILE, HW = CFG.PW / 2, HH = CFG.PH / 2;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const r1 = (v) => Math.round(v * 10) / 10;
 
-/* Modificadores de tramo (R4): { onTramoStart(sim), onStep(sim, dt), onEvent(sim, ev) }.
-   Un tramo los pide por id en tramo.mods. El prototipo trae la tabla vacía. */
+/* Modificadores de tramo: { onTramoStart(sim), onStep(sim, dt), onEvent(sim, ev) }.
+   Un tramo los pide por id en tramo.mods. */
 export const MODS = {};
 
-/* Ejemplo apagado (no está en MODS): el derrumbe. Una línea de escombros baja desde el
-   techo cada vez más rápido y lastima a quien alcanza. Para probarlo:
-   MODS.derrumbe = EJEMPLO_DERRUMBE y agregar 'derrumbe' a tramo.mods. */
-export const EJEMPLO_DERRUMBE = {
-  onTramoStart(sim) { sim.collapseY = -96; },
-  onStep(sim, dt) {
-    sim.collapseY += (10 + sim.t * 0.5) * dt;
-    for (const p of sim.players) if (p.y - HH < sim.collapseY) hurt(sim, p, p.x, p.y - 20);
+/* Derrumbe: cámara forzada compartida. sim.cam.y es el borde de arriba de la pantalla lógica
+   (CFG.CHASE_H de alto) y también el de los escombros que lastiman. Velocidad base según el
+   bloque (sube bloque a bloque, más lenta en los caros) y rubber banding solo en eventualidades:
+   alguien adelantado (la cámara lo alcanza con retraso) o golpes seguidos del derrumbe (afloja). */
+MODS.derrumbe = {
+  onTramoStart(sim) {
+    sim.cam = { y: 0, py: 0, v: 0, warn: CFG.CHASE_WARN, easeT: 0, hits: [], lead: false, started: false };
   },
-  onEvent(sim, ev) { if (ev.k === 'won') sim.collapseY = -Infinity; },
+  onStep(sim, dt) {
+    const cam = sim.cam, lv = sim.lv, H = CFG.CHASE_H, M = sim.metrics;
+    cam.py = cam.y;
+    if (!cam.started) { cam.started = true; emit(sim, { k: 'chasewarn' }); }
+    if (sim.status !== 'play') return; // al ganar (o caer todos) se detiene
+    if (cam.warn > 0) { cam.warn -= dt; if (cam.warn <= 0) emit(sim, { k: 'chasego' }); return; }
+    // Velocidad base del bloque en el que está la cámara
+    const mid = cam.y + H * 0.5;
+    let bi = 0;
+    while (bi + 1 < lv.blocks.length && lv.blocks[bi + 1].y0 <= mid) bi++;
+    const f = CFG.CHASE_FAST + (CFG.CHASE_SLOWF - CFG.CHASE_FAST) * clamp(lv.blocks[bi].cost / CFG.CHASE_MAX_COST, 0, 1);
+    const vBase = (CFG.CHASE_V0 + CFG.CHASE_VC * (lv.tramo.c || 0) + CFG.CHASE_VB * bi) * f;
+    let target = vBase;
+    let lead = -Infinity;
+    for (const p of sim.players) if (!p.ko && p.conn) lead = Math.max(lead, p.y);
+    const ex = lead - (cam.y + 0.75 * H);
+    if (ex > 0) { target = Math.min(CFG.CHASE_VMAX, vBase + CFG.CHASE_KA * ex); if (!cam.lead) M.rubberLead++; }
+    cam.lead = ex > 0;
+    if (cam.easeT > 0) { cam.easeT -= dt; target *= CFG.CHASE_EASE; }
+    cam.v += (target - cam.v) * (1 - Math.exp(-dt / CFG.CHASE_TAU));
+    cam.y = Math.min(Math.max(0, lv.pxH - H), cam.y + cam.v * dt);
+    // Escombros: lastiman a los vivos y empujan hacia abajo a todos
+    const edge = cam.y + CFG.CHASE_EDGE;
+    for (const p of sim.players) {
+      if (!p.ko && p.conn && p.y - HH < cam.y) M.chaseInT += dt;
+      if (p.y - HH >= edge || p.trapped >= 0) continue;
+      if (!p.ko && p.conn && hurt(sim, p, p.x, p.y - 30)) {
+        p.stats.chaseHits++;
+        M.chaseHits++;
+        cam.hits = cam.hits.filter((t) => sim.t - t <= 3);
+        cam.hits.push(sim.t);
+        if (cam.hits.length >= 2 && cam.easeT <= 0) { cam.easeT = CFG.CHASE_EASE_T; M.rubberEase++; }
+      }
+      p.vy = Math.max(p.vy, 180);
+      p.grounded = false; p.anchored = false;
+    }
+  },
 };
 
 const STAT_KEYS = ['anchorLoadT', 'bungeeGems', 'ffHits', 'traitorTugs', 'rescues', 'angryFairies',
-  'koT', 'hits', 'kos', 'gems', 'kills', 'shots', 'tugs', 'stomps'];
+  'koT', 'hits', 'kos', 'gems', 'kills', 'shots', 'tugs', 'stomps', 'chaseHits', 'bossHits', 'bossFinal'];
 export const newStats = () => Object.fromEntries(STAT_KEYS.map((k) => [k, 0]));
 
 export const CREATURE = {
@@ -35,16 +70,22 @@ export const CREATURE = {
   imp: { w: 10, h: 10, hp: 1, gems: 2, evil: true },
   cube: { w: 16, h: 16, hp: Infinity, gems: 0, evil: false },
   fairy: { w: 9, h: 9, hp: Infinity, gems: 0, evil: false },
+  skeleton: { w: 12, h: 14, hp: 2, gems: 3, evil: true },
+  eyelet: { w: 8, h: 8, hp: 1, gems: 1, evil: true },
 };
+export const BOSS_W = 32, BOSS_H = 32;
 
 /* roster: [{ id, name, color, hero, hp?, conn?, bot? }] ya en el orden de la cadena. */
 export function createSim(lv, roster) {
   const sim = {
     lv, t: 0, gems: 0, status: 'play', wonT: 0, fx: [],
-    players: [], creatures: [], bullets: [], links: [], pending: [],
+    players: [], creatures: [], bullets: [], links: [], pending: [], arrows: [],
     gemsTaken: new Uint8Array(lv.gems.length),
     mods: (lv.tramo.mods || []).map((id) => MODS[id]).filter(Boolean),
+    cam: null, boss: null, crumble: new Map(),
+    metrics: { chaseHits: 0, chaseInT: 0, rubberLead: 0, rubberEase: 0, bossDmg: 0 },
   };
+  resetDyn(lv);
   roster.forEach((r, i) => sim.players.push(newPlayer(r, i, lv.spawns[i] || lv.spawns[0])));
   for (let i = 0; i + 1 < sim.players.length; i++) {
     const a = sim.players[i], b = sim.players[i + 1];
@@ -52,6 +93,7 @@ export function createSim(lv, roster) {
     sim.links.push({ path, len: path.len, rate: 0 });
   }
   lv.creatures.forEach((c, i) => sim.creatures.push(newCreature(lv, c, i)));
+  if (lv.bossAt) sim.boss = newBoss(lv, roster.length);
   for (const m of sim.mods) m.onTramoStart?.(sim);
   return sim;
 }
@@ -65,7 +107,7 @@ function newPlayer(r, idx, sp) {
     grounded: false, groundT: 0, onWood: false, wallL: false, wallR: false,
     anchored: false, holding: false, burstT: 0, diving: false, dropT: 0,
     ko: false, conn: r.conn !== false, trapped: -1, trapT: 0, cubeCd: 0,
-    invT: 0, stunT: 0, tugCd: 0, bungeeT: 0, hurtT: -9, arrived: false,
+    invT: 0, stunT: 0, tugCd: 0, bungeeT: 0, hurtT: -9, beamT: -9, arrived: false,
     input: { tilt: 0, hold: false }, events: [], stats: newStats(),
   };
 }
@@ -76,7 +118,9 @@ function newCreature(lv, c, i) {
     i, kind: c.kind, x: c.x, y: c.y, px: c.x, py: c.y, hx: c.x, hy: c.y, vx: 0, vy: 0,
     w: k.w, h: k.h, hp: k.hp, alive: true, dir: i % 2 ? 1 : -1, grounded: false, hitWall: false,
     t: i * 1.7, flashT: 0, angryT: 0, target: null, pushCd: 0, biteCd: 0, mode: 'floor', side: 0,
+    cd: 1 + (i % 3) * 0.4, aimT: 0, aimX: 0, aimY: 0,
   };
+  if (c.dormant) cr.alive = false; // ojitos: los suelta El Ojo
   if (c.kind === 'cube') {
     const tx = Math.floor(c.x / T), ty = Math.floor(c.y / T);
     if (solidAt(lv, tx - 1, ty)) { cr.mode = 'wall'; cr.side = -1; }
@@ -102,7 +146,10 @@ export function step(sim, dt) {
   for (const p of P) move(sim, p, dt);
   stepRopes(sim, dt);
   stepBullets(sim, dt);
+  stepArrows(sim, dt);
+  stepCrumble(sim, dt);
   for (const c of sim.creatures) if (c.alive) { c.px = c.x; c.py = c.y; stepCreature(sim, c, dt); }
+  if (sim.boss) stepBoss(sim, dt);
   contacts(sim);
   bookkeeping(sim, dt);
 }
@@ -412,12 +459,13 @@ function moveY(sim, p, d) {
     const ty = Math.floor((p.y + HH) / T);
     for (let tx = l; tx <= r; tx++) {
       const t = tileAt(lv, tx, ty);
-      const wood = t === WOOD && !p.diving && p.dropT <= 0 && prevBottom <= ty * T + 0.01;
+      const wood = isWoodLike(t) && !p.diving && p.dropT <= 0 && prevBottom <= ty * T + 0.01;
       if (!blocks(t) && !wood) continue;
       p.y = ty * T - HH - 0.001;
       p.vy = 0;
       p.grounded = true;
-      p.onWood = t === WOOD;
+      p.onWood = isWoodLike(t);
+      if (t === CRUMBLE && !p.ko) crumbleAt(sim, tx, ty);
       return true;
     }
   } else {
@@ -473,6 +521,20 @@ function stepBullets(sim, dt) {
         break;
       }
       const owner = sim.players.find((p) => p.id === b.owner);
+      for (const a of sim.arrows) { // la bala rompe la flecha
+        if (a.dead || Math.abs(b.x - a.x) > 5 || Math.abs(b.y - a.y) > 6) continue;
+        a.dead = b.dead = true;
+        emit(sim, { k: 'arrowbreak', x: r1(a.x), y: r1(a.y) });
+        break;
+      }
+      if (b.dead) break;
+      const B = sim.boss;
+      if (B && !B.dead && Math.abs(b.x - B.x) < BOSS_W / 2 && Math.abs(b.y - B.y) < BOSS_H / 2) {
+        b.dead = true; // las balas solo aturden los tallos
+        B.stunT = 0.3;
+        emit(sim, { k: 'clank', x: r1(b.x), y: r1(b.y) });
+        break;
+      }
       for (const c of sim.creatures) {
         if (!c.alive || Math.abs(b.x - c.x) > c.w / 2 + 2 || Math.abs(b.y - c.y) > c.h / 2 + 3) continue;
         b.dead = true;
@@ -534,6 +596,8 @@ function stepCreature(sim, c, dt) {
   if (c.kind === 'goblin') stepGoblin(sim, c, dt);
   else if (c.kind === 'imp') stepImp(sim, c, dt);
   else if (c.kind === 'cube') stepCube(sim, c, dt);
+  else if (c.kind === 'skeleton') stepSkeleton(sim, c, dt);
+  else if (c.kind === 'eyelet') stepEyelet(sim, c, dt);
   else stepFairy(sim, c, dt);
 }
 
@@ -558,7 +622,7 @@ function moveBody(lv, c, dx, dy, walker) {
     const ty = Math.floor((dy > 0 ? c.y + hh : c.y - hh) / T);
     for (let tx = Math.floor((c.x - hw + 0.01) / T); tx <= Math.floor((c.x + hw - 0.01) / T); tx++) {
       const t = tileAt(lv, tx, ty);
-      const wood = walker && dy > 0 && t === WOOD && prevBottom <= ty * T + 0.01;
+      const wood = walker && dy > 0 && isWoodLike(t) && prevBottom <= ty * T + 0.01;
       if (!blocks(t) && !wood) continue;
       if (dy > 0) { c.y = ty * T - hh - 0.001; c.grounded = true; }
       else c.y = (ty + 1) * T + hh + 0.001;
@@ -603,6 +667,252 @@ function stepImp(sim, c, dt) {
   if (sp > max) { c.vx *= max / sp; c.vy *= max / sp; }
   if (dx) c.dir = dx > 0 ? 1 : -1;
   moveBody(sim.lv, c, c.vx * dt, c.vy * dt, false);
+}
+
+/* Esqueleto arquero: quieto en su cornisa, mira hacia arriba. Si hay un vivo arriba a menos
+   de SKEL_RANGE, tensa el arco SKEL_AIM (el aviso) y dispara recto adonde estaba. */
+function stepSkeleton(sim, c, dt) {
+  c.vy = Math.min(c.vy + CFG.GRAVITY * dt, CFG.MAX_FALL);
+  moveBody(sim.lv, c, 0, c.vy * dt, true);
+  if (c.aimT > 0) {
+    c.aimT -= dt;
+    if (c.aimT <= 0) {
+      const dx = c.aimX - c.x, dy = c.aimY - (c.y - 4), d = Math.hypot(dx, dy) || 1;
+      sim.arrows.push({ x: c.x, y: c.y - 4, vx: (dx / d) * CFG.ARROW_SPEED, vy: (dy / d) * CFG.ARROW_SPEED, t: 0, dead: false });
+      emit(sim, { k: 'arrow', x: r1(c.x), y: r1(c.y) });
+      c.cd = CFG.SKEL_CD;
+    }
+    return;
+  }
+  c.cd -= dt;
+  if (c.cd > 0) return;
+  let best = null, bd = CFG.SKEL_RANGE;
+  for (const p of sim.players) {
+    if (p.ko || !p.conn || p.y > c.y - 8) continue;
+    const d = Math.hypot(p.x - c.x, p.y - c.y);
+    if (d < bd) { bd = d; best = p; }
+  }
+  if (!best) { c.cd = 0.2; return; }
+  c.aimT = CFG.SKEL_AIM;
+  c.aimX = best.x; c.aimY = best.y;
+  c.dir = best.x >= c.x ? 1 : -1;
+  emit(sim, { k: 'aim', x: r1(c.x), y: r1(c.y) });
+}
+
+/* Flechas: rectas, se rompen contra la piedra y quitan 1 corazón. */
+function stepArrows(sim, dt) {
+  if (!sim.arrows.length) return;
+  for (const a of sim.arrows) {
+    a.t += dt;
+    for (let s = 0; s < 2 && !a.dead; s++) {
+      a.x += (a.vx * dt) / 2; a.y += (a.vy * dt) / 2;
+      if (blocks(tileAt(sim.lv, Math.floor(a.x / T), Math.floor(a.y / T))) || a.t > 3) {
+        a.dead = true;
+        emit(sim, { k: 'arrowbreak', x: r1(a.x), y: r1(a.y) });
+        break;
+      }
+      for (const p of sim.players) {
+        if (p.ko || Math.abs(a.x - p.x) > HW + 1 || Math.abs(a.y - p.y) > HH + 1) continue;
+        a.dead = true;
+        hurt(sim, p, a.x, a.y);
+        break;
+      }
+    }
+  }
+  sim.arrows = sim.arrows.filter((a) => !a.dead);
+}
+
+/* Ojitos de El Ojo: persiguen como diablillos (con más vista); se apagan a los EYELET_LIFE s
+   o al morder (cada uno cuesta a lo sumo un corazón). */
+function stepEyelet(sim, c, dt) {
+  c.life -= dt;
+  if (c.life <= 0) { c.alive = false; emit(sim, { k: 'kill', x: r1(c.x), y: r1(c.y), v: 0, kind: c.kind }); return; }
+  const tgt = nearestAlive(sim, c, 200);
+  const gx = tgt ? tgt.x : c.hx, gy = tgt ? tgt.y : c.hy;
+  const dx = gx - c.x, dy = gy - c.y, d = Math.hypot(dx, dy) || 1;
+  c.vx += (dx / d) * 180 * dt; c.vy += (dy / d) * 180 * dt;
+  const sp = Math.hypot(c.vx, c.vy);
+  if (sp > CFG.EYELET_SPEED) { c.vx *= CFG.EYELET_SPEED / sp; c.vy *= CFG.EYELET_SPEED / sp; }
+  if (dx) c.dir = dx > 0 ? 1 : -1;
+  moveBody(sim.lv, c, c.vx * dt, c.vy * dt, false);
+}
+
+/* ── Plataformas que se derrumban: tiemblan, caen (vacías) y vuelven si no hay nadie ── */
+function crumbleAt(sim, tx, ty) {
+  const lv = sim.lv, W = lv.w;
+  const i0 = ty * W + tx;
+  if (sim.crumble.has(i0)) return;
+  // toda la plataforma (tiles contiguos de la fila)
+  let a = tx, b = tx;
+  while (baseTileAt(lv, a - 1, ty) === CRUMBLE) a--;
+  while (baseTileAt(lv, b + 1, ty) === CRUMBLE) b++;
+  for (let x = a; x <= b; x++) {
+    const i = ty * W + x;
+    if (sim.crumble.has(i)) continue;
+    sim.crumble.set(i, { st: 'shake', t: 0 });
+    lv.shaking.set(i, 1);
+  }
+  emit(sim, { k: 'shake', x: r1(((a + b + 1) / 2) * T), y: r1(ty * T) });
+}
+function stepCrumble(sim, dt) {
+  if (!sim.crumble.size) return;
+  const lv = sim.lv, W = lv.w;
+  for (const [i, e] of sim.crumble) {
+    e.t += dt;
+    const tx = i % W, ty = (i / W) | 0;
+    if (e.st === 'shake' && e.t >= CFG.CRUMBLE_SHAKE) {
+      e.st = 'gone'; e.t = 0;
+      lv.shaking.delete(i);
+      lv.dyn.set(i, EMPTY);
+      emit(sim, { k: 'crumble', x: tx * T + T / 2, y: ty * T + T / 2 });
+    } else if (e.st === 'gone' && e.t >= CFG.CRUMBLE_BACK) {
+      const busy = sim.players.some((p) => Math.abs(p.x - (tx * T + T / 2)) < HW + T / 2 && Math.abs(p.y - (ty * T + T / 2)) < HH + T / 2) ||
+        sim.creatures.some((c) => c.alive && Math.abs(c.x - (tx * T + T / 2)) < c.w / 2 + T / 2 && Math.abs(c.y - (ty * T + T / 2)) < c.h / 2 + T / 2);
+      if (busy) continue;
+      lv.dyn.delete(i);
+      sim.crumble.delete(i);
+      emit(sim, { k: 'reform', x: tx * T + T / 2, y: ty * T + T / 2 });
+    }
+  }
+}
+
+/* ── El Ojo ──
+   Estados: wait (hasta que todos pasan la entrada, que se cierra) → idle → warn (aviso del
+   rayo) → beam (rayo horizontal que barre la sala: empuja y aturde, sin daño) → gaze (cierra el
+   ojo y suelta 2 ojitos) → open (la ventana para la picada) → idle… Bajo el 50 % de vida va más
+   rápido y tira dos rayos cruzados. Solo la picada sobre el ojo abierto lo lastima. */
+export const BOSS_STATES = ['wait', 'idle', 'warn', 'beam', 'gaze', 'open', 'dead'];
+function newBoss(lv, players) {
+  const W = lv.w;
+  const top = (lv.gateRow + 1) * T, bottom = Math.floor(lv.exit[0] / W) * T;
+  const hp = 3 + players;
+  return {
+    x: lv.bossAt.x, y: lv.bossAt.y, px: lv.bossAt.x, py: lv.bossAt.y, hx: lv.bossAt.x, hy: lv.bossAt.y,
+    hp, max: hp, state: 'wait', st: 0, dir: 1, stunT: 0, dead: false, gateClosed: false,
+    top, bottom, beams: [], round: 0, hitCd: 0,
+  };
+}
+function bossNext(B, state) { B.state = state; B.st = 0; }
+function stepBoss(sim, dt) {
+  const B = sim.boss, lv = sim.lv;
+  B.px = B.x; B.py = B.y;
+  if (B.dead) return;
+  B.hitCd = Math.max(0, B.hitCd - dt);
+  if (!B.gateClosed) {
+    const alive = sim.players.filter((p) => !p.ko && p.conn);
+    if (alive.length && alive.every((p) => p.y - HH > B.top)) closeGate(sim);
+    return;
+  }
+  B.st += dt;
+  const fast = B.hp <= B.max / 2 ? CFG.OJO_FAST : 1;
+  // Se desliza de lado a lado (las balas lo frenan un momento)
+  B.stunT = Math.max(0, B.stunT - dt);
+  if (B.stunT <= 0 && B.state !== 'beam') {
+    B.x += B.dir * CFG.OJO_SPEED * dt;
+    const lo = 3 * T + BOSS_W / 2, hi = (lv.w - 3) * T - BOSS_W / 2;
+    if (B.x < lo) { B.x = lo; B.dir = 1; } else if (B.x > hi) { B.x = hi; B.dir = -1; }
+  }
+  B.y = B.hy + Math.sin(sim.t * 1.6) * 3;
+  switch (B.state) {
+    case 'idle':
+      if (B.st >= CFG.OJO_IDLE * fast) {
+        bossNext(B, 'warn');
+        B.round++;
+        const down = B.round % 2 === 1;
+        const span = [B.top + 16, B.bottom - 16];
+        B.beams = fast < 1 ? [{ y0: span[0], y1: span[1] }, { y0: span[1], y1: span[0] }]
+          : [down ? { y0: span[0], y1: span[1] } : { y0: span[1], y1: span[0] }];
+        for (const b of B.beams) b.y = b.y0;
+        emit(sim, { k: 'beamwarn', x: r1(B.x), y: r1(B.y) });
+      }
+      break;
+    case 'warn':
+      if (B.st >= CFG.OJO_WARN * fast) { bossNext(B, 'beam'); emit(sim, { k: 'beam', x: r1(B.x), y: r1(B.y) }); }
+      break;
+    case 'beam': {
+      const dur = CFG.OJO_BEAM * fast, f = Math.min(1, B.st / dur);
+      for (const b of B.beams) {
+        b.y = b.y0 + (b.y1 - b.y0) * f;
+        for (const p of sim.players) {
+          if (Math.abs(p.y - b.y) > 16 + HH - 2 || sim.t - p.beamT < 0.8 || p.trapped >= 0) continue;
+          p.beamT = sim.t;
+          p.vx = (p.x >= B.x ? 1 : -1) * CFG.OJO_PUSH;
+          p.vy = -120;
+          if (!p.ko) p.stunT = CFG.OJO_BEAM_STUN;
+          p.anchored = false; p.grounded = false; p.diving = false;
+          emit(sim, { k: 'zap', id: p.id, x: r1(p.x), y: r1(p.y) });
+        }
+      }
+      if (f >= 1) { B.beams = []; bossNext(B, 'gaze'); spawnEyelets(sim, 2); }
+      break;
+    }
+    case 'gaze':
+      if (B.st >= CFG.OJO_GAZE * fast) { bossNext(B, 'open'); emit(sim, { k: 'eyeopen', x: r1(B.x), y: r1(B.y) }); }
+      break;
+    case 'open':
+      if (B.st >= CFG.OJO_OPEN) bossNext(B, 'idle');
+      break;
+    default: break;
+  }
+  // Contacto: la picada sobre el ojo abierto lastima; lo demás rebota o empuja
+  for (const p of sim.players) {
+    if (p.trapped >= 0 || Math.abs(p.x - B.x) > HW + BOSS_W / 2 || Math.abs(p.y - B.y) > HH + BOSS_H / 2) continue;
+    if (p.vy > 20 && p.py + HH <= B.y - BOSS_H / 2 + 8) {
+      if (!p.ko && p.diving && B.state === 'open' && B.hitCd <= 0) {
+        B.hp--;
+        B.hitCd = 0.3;
+        p.stats.bossHits++;
+        sim.metrics.bossDmg++;
+        p.vy = -CFG.DIVE_STOMP_V;
+        p.diving = false;
+        emit(sim, { k: 'bosshit', id: p.id, x: r1(B.x), y: r1(B.y - 10) });
+        if (B.hp <= 0) killBoss(sim, p);
+      } else {
+        p.vy = -CFG.STOMP_V;
+        p.diving = false;
+        emit(sim, { k: 'clank', x: r1(p.x), y: r1(p.y + HH) });
+      }
+    } else {
+      p.vx = (p.x >= B.x ? 1 : -1) * 180;
+      p.vy = Math.min(p.vy, -60);
+      p.grounded = false; p.anchored = false;
+    }
+  }
+}
+function closeGate(sim) {
+  const B = sim.boss, lv = sim.lv;
+  B.gateClosed = true;
+  for (const i of lv.gate) lv.dyn.set(i, STONE);
+  // los que quedaron arriba (caídos, desconectados) pasan con la cuerda
+  for (const p of sim.players) {
+    if (p.y - HH > B.top) continue;
+    p.x = lv.w * T / 2 + (p.idx - 1.5) * 12; p.y = B.top + HH + 4; p.vx = p.vy = 0;
+    p.px = p.x; p.py = p.y;
+  }
+  bossNext(B, 'idle');
+  emit(sim, { k: 'gate', x: lv.w * T / 2, y: B.top - 8 });
+}
+function spawnEyelets(sim, n) {
+  const B = sim.boss;
+  n = Math.min(n, 2 - sim.creatures.filter((c) => c.kind === 'eyelet' && c.alive).length); // nunca más de 2 vivos
+  for (const c of sim.creatures) {
+    if (n <= 0) break;
+    if (c.kind !== 'eyelet' || c.alive) continue;
+    Object.assign(c, { alive: true, hp: CREATURE.eyelet.hp, life: CFG.EYELET_LIFE, x: B.x + (n % 2 ? -10 : 10), y: B.y + 4, vx: (n % 2 ? -1 : 1) * 40, vy: -30, flashT: 0, hx: B.x, hy: B.y });
+    c.px = c.x; c.py = c.y;
+    n--;
+  }
+  emit(sim, { k: 'gaze', x: r1(B.x), y: r1(B.y) });
+}
+function killBoss(sim, p) {
+  const B = sim.boss, lv = sim.lv;
+  B.dead = true;
+  bossNext(B, 'dead');
+  B.beams = [];
+  p.stats.bossFinal++;
+  for (const i of lv.exit) lv.dyn.set(i, EMPTY);
+  for (const c of sim.creatures) if (c.kind === 'eyelet' && c.alive) { c.alive = false; emit(sim, { k: 'kill', x: r1(c.x), y: r1(c.y), v: 0, kind: c.kind }); }
+  emit(sim, { k: 'bossdie', id: p.id, x: r1(B.x), y: r1(B.y) });
 }
 
 /* Cubo gelatinoso: se desliza por las paredes (o por el suelo si no tiene pared al lado). */
@@ -663,7 +973,10 @@ function contacts(sim) {
           p.diving = false;
           p.stats.stomps++;
           emit(sim, { k: 'stomp', id: p.id, x: r1(c.x), y: r1(c.y), strong });
-        } else if (c.biteCd <= 0 && hurt(sim, p, c.x, c.y)) c.biteCd = 0.8; // no muerde a toda la cadena de una
+        } else if (c.biteCd <= 0 && hurt(sim, p, c.x, c.y)) {
+          c.biteCd = 0.8; // no muerde a toda la cadena de una
+          if (c.kind === 'eyelet') { c.alive = false; emit(sim, { k: 'kill', x: r1(c.x), y: r1(c.y), v: 0, kind: c.kind }); }
+        }
       } else if (c.kind === 'cube') {
         if (!p.ko && p.invT <= 0 && p.cubeCd <= 0) {
           p.trapped = c.i; p.trapT = CFG.TRAP_TIME;
@@ -687,6 +1000,7 @@ function contacts(sim) {
     for (let i = 0; i < lv.gems.length; i++) {
       if (sim.gemsTaken[i]) continue;
       const g = lv.gems[i];
+      if (g.boss && !sim.boss?.dead) continue; // lluvia de gemas: solo al morir El Ojo
       const r = g.big ? 7 : 4;
       if (Math.abs(g.x - p.x) > HW + r || Math.abs(g.y - p.y) > HH + r) continue;
       sim.gemsTaken[i] = 1;
@@ -773,7 +1087,7 @@ export function playerFlags(p) {
     (p.holding ? 256 : 0) | (p.facing < 0 ? 512 : 0) | (p.arrived ? 1024 : 0);
 }
 export function creatureFlags(c) {
-  return (c.dir < 0 ? 1 : 0) | (c.angryT > 0 ? 2 : 0) | (c.flashT > 0 ? 4 : 0);
+  return (c.dir < 0 ? 1 : 0) | (c.angryT > 0 ? 2 : 0) | (c.flashT > 0 ? 4 : 0) | (c.aimT > 0 ? 8 : 0);
 }
 
 export function encodeState(sim) {
@@ -784,5 +1098,38 @@ export function encodeState(sim) {
     p: sim.players.map((p) => [r1(p.x), r1(p.y), r1(p.vx), r1(p.vy), p.hp, p.ammo, playerFlags(p)]),
     c: sim.creatures.map((c) => (c.alive ? [r1(c.x), r1(c.y), creatureFlags(c)] : 0)),
     gm: taken,
+    ...extraState(sim),
   };
+}
+
+/* Lo de F1: cámara del derrumbe (cy, cw), tiles dinámicos (dy: índice, tile; 9 = tiembla),
+   flechas (ar) y El Ojo (b: x, y, vida, máx, estado; bm: la y de cada rayo). */
+function extraState(sim) {
+  const o = {};
+  if (sim.cam) { o.cy = r1(sim.cam.y); if (sim.cam.warn > 0) o.cw = 1; }
+  const lv = sim.lv;
+  if (lv.dyn.size || lv.shaking.size) {
+    const dy = [];
+    for (const [i, t] of lv.dyn) dy.push(i, t);
+    for (const i of lv.shaking.keys()) dy.push(i, 9);
+    o.dy = dy;
+  }
+  if (sim.arrows.length) o.ar = sim.arrows.map((a) => [r1(a.x), r1(a.y), r1(a.vx), r1(a.vy)]);
+  const B = sim.boss;
+  if (B) {
+    o.b = [r1(B.x), r1(B.y), B.hp, B.max, BOSS_STATES.indexOf(B.state)];
+    if (B.beams.length || B.state === 'warn') o.bm = B.beams.map((b) => r1(b.y));
+  }
+  return o;
+}
+
+/* Del lado del invitado: aplica dy al mapa local. */
+export function applyDyn(lv, dy) {
+  lv.dyn.clear();
+  lv.shaking.clear();
+  if (!dy) { for (const i of lv.exit) lv.dyn.set(i, STONE); return; }
+  for (let k = 0; k < dy.length; k += 2) {
+    if (dy[k + 1] === 9) lv.shaking.set(dy[k], 1);
+    else lv.dyn.set(dy[k], dy[k + 1]);
+  }
 }

@@ -6,7 +6,7 @@ import { downcastleRelay } from './games/downcastle/server/vite-plugin.js';
 // BASE_PATH lo fija el workflow de GitHub Pages (/game-sandbox/); en local queda '/'
 export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
-  server: { port: 5173, open: false },
+  server: { port: +process.env.PORT || 5173, open: false }, // PORT: otra sesión de vista previa
   plugins: [downcastleRelay()], // salas de DOWNCASTLE en /downcastle-ws (dev y preview)
   build: {
     target: 'es2022',

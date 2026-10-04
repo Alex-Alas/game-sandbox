@@ -91,8 +91,9 @@ export function heroFrames(hero, color) {
   return h;
 }
 
+const ATLAS_NAME = { goblin: 'goblin', imp: 'imp', skeleton: 'skelet' };
 export function creatureFrames(kind) {
-  const name = kind === 'goblin' ? 'goblin' : 'imp';
+  const name = ATLAS_NAME[kind] || 'imp';
   return {
     idle: [0, 1, 2, 3].map((i) => outlined(`${name}_idle_anim_f${i}`, ALIGN.evil)),
     run: [0, 1, 2, 3].map((i) => outlined(`${name}_run_anim_f${i}`, ALIGN.evil)),
@@ -203,6 +204,40 @@ function buildCodeSprites() {
     }
     return c;
   });
+  // Plataforma que se derrumba (16×6): losa de piedra agrietada
+  CODE.crumble = (() => {
+    const [c, g] = canvas(16, 6);
+    px(g, '#2a1d17', [[0, 0, 16, 6]]);
+    px(g, '#8a7766', [[1, 0, 14, 4]]);
+    px(g, '#b3a08a', [[1, 0, 14, 1]]);
+    px(g, '#5a4a3e', [[1, 4, 14, 1], [5, 1, 1, 2], [6, 3, 1, 1], [11, 0, 1, 2], [10, 2, 1, 2], [2, 2, 2, 1]]);
+    return c;
+  })();
+  // Ojito de El Ojo (9×9) con alitas, 2 cuadros
+  CODE.eyelet = [0, 1].map((f) => {
+    const [c, g] = canvas(11, 9);
+    px(g, '#5a1020', f ? [[0, 1, 2, 2], [9, 1, 2, 2]] : [[0, 4, 2, 2], [9, 4, 2, 2]]);
+    px(g, '#3a0a14', [[3, 1, 5, 1], [2, 2, 7, 5], [3, 7, 5, 1]]);
+    px(g, '#f2e2d0', [[3, 2, 5, 1], [3, 3, 5, 3], [4, 6, 3, 1]]);
+    px(g, '#c0203a', [[4, 3, 3, 3]]);
+    px(g, '#14060a', [[5, 4, 1, 1]]);
+    return c;
+  });
+  // El Ojo (32×32): globo con venas; el iris y el párpado se dibujan encima en render.js
+  CODE.ojoBall = (() => {
+    const [c, g] = canvas(32, 32);
+    for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+      const dx = x - 15.5, dy = y - 15.5, d = Math.hypot(dx, dy);
+      if (d > 15.5) continue;
+      g.fillStyle = d > 14.3 ? '#3a0a14' : (dx + dy < -8 && d < 12) ? '#fff6ea' : d > 11 ? '#c9b4a2' : '#ead8c6';
+      g.fillRect(x, y, 1, 1);
+    }
+    g.fillStyle = '#b8293f';
+    for (const [x0, y0, dx, dy, n] of [[3, 12, 1, 0.3, 7], [28, 10, -1, 0.4, 6], [6, 25, 1, -0.5, 6], [26, 25, -1, -0.6, 6]]) {
+      for (let i = 0; i < n; i++) g.fillRect(Math.round(x0 + dx * i), Math.round(y0 + dy * i + Math.sin(i) * 0.8), 1, 1);
+    }
+    return c;
+  })();
   // Hada (9×9) turquesa con alas; cuadros: calma ×2, enojada ×2
   CODE.fairy = [0, 1, 2, 3].map((f) => {
     const [c, g] = canvas(11, 11);

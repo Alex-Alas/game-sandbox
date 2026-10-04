@@ -126,7 +126,8 @@ function stats(el, items) {
 
 export function renderAwards(r, s, cb) {
   // r: { result, awards, n, gems, runGems, dur }; s: { isHost }
-  $('aw-title').textContent = r.result === 'won' ? `Tramo ${r.n + 1} superado` : 'Cayeron todos';
+  $('aw-title').textContent = r.result !== 'won' ? 'Cayeron todos'
+    : r.kind === 'boss' ? '¡El Ojo vencido!' : `Ciclo ${r.c + 1} · Tramo ${r.k + 1} superado`;
   stats($('aw-stats'), [['gemas', r.gems, 'g'], ['run', r.runGems, 'g'], ['tiempo', fmtTime(r.dur)]]);
   awardList($('aw-list'), r.awards, 'Sin trofeos este tramo');
   const stars = $('aw-rate');
@@ -144,7 +145,7 @@ export function renderAwards(r, s, cb) {
 }
 
 export function renderRunEnd(r, s) {
-  stats($('re-stats'), [['gemas', r.gems, 'g'], ['tramos', r.tramos], ['tiempo', fmtTime(r.dur)]]);
+  stats($('re-stats'), [['gemas', r.gems, 'g'], ['ciclo', r.ciclo || 1], ['tramos', r.tramos], ['tiempo', fmtTime(r.dur)]]);
   awardList($('re-list'), r.awards, 'Sin trofeos en esta run');
   $('btn-tolobby').classList.toggle('hidden', !s.isHost);
   $('re-wait').classList.toggle('hidden', s.isHost);
