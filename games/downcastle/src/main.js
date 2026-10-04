@@ -709,7 +709,7 @@ function guestView(now) {
 }
 
 function demoView(dt) {
-  if (!app.demo) app.demo = { lv: buildLevel(genTramo(424242, 3)), camY: 0, t: 0 };
+  if (!app.demo) app.demo = { lv: buildLevel(genTramo(424242, 0, 3, { mods: [] })), camY: 0, t: 0 };
   const d = app.demo;
   d.t += dt;
   d.camY = (d.t * 12) % Math.max(1, d.lv.pxH - R.H);

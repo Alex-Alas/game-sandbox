@@ -272,7 +272,7 @@ export function createVoice(signal) {
 /* «Sonido crujiente»: devuelve el nodo de entrada de la cadena, que termina en `out`.
    pasabanda 450–2400 Hz → compresor brutal → saturación → bitcrusher (worklet; sin él, solo
    la saturación cuantizada). */
-async function crunchChain(ac, out) {
+export async function crunchChain(ac, out) {
   const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 450; hp.Q.value = 0.9;
   const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400; lp.Q.value = 1.4;
   const comp = ac.createDynamicsCompressor();
