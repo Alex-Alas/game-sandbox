@@ -238,6 +238,54 @@ function buildCodeSprites() {
     }
     return c;
   })();
+  // Murciélago (13×9): colgado, alas arriba, alas abajo; contorno rojo (malvado)
+  CODE.bat = [0, 1, 2].map((f) => {
+    const [c, g] = canvas(13, 9);
+    const body = [[5, 2, 3, 4], [4, 3, 5, 2]];
+    const wings = f === 0 ? [[4, 1, 1, 5], [8, 1, 1, 5]] // plegadas (colgado)
+      : f === 1 ? [[0, 0, 2, 1], [1, 1, 3, 1], [3, 2, 2, 1], [11, 0, 2, 1], [9, 1, 3, 1], [8, 2, 2, 1]]
+      : [[0, 6, 2, 1], [1, 5, 3, 1], [3, 4, 2, 1], [11, 6, 2, 1], [9, 5, 3, 1], [8, 4, 2, 1]];
+    px(g, ALIGN.evil, [...wings, ...body].flatMap(([x, y, w, h]) => [[x - 1, y, w + 2, h], [x, y - 1, w, h + 2]]));
+    px(g, '#3a2440', [...wings, ...body]);
+    px(g, '#5c3a66', [[5, 2, 3, 1]]);
+    px(g, '#ffe14a', f === 0 ? [[5, 4], [7, 4]] : [[5, 3], [7, 3]]);
+    return c;
+  });
+  // Gárgola (16×16) de piedra mirando a la derecha; cuadro 1: ojos encendidos (aviso)
+  CODE.gargoyle = [0, 1].map((f) => {
+    const [c, g] = canvas(16, 16);
+    px(g, '#2a2a33', [[3, 3, 9, 13], [10, 5, 5, 6], [1, 6, 3, 8], [5, 1, 5, 3]]);
+    px(g, '#6e6e7c', [[4, 4, 7, 11], [10, 6, 4, 4], [2, 7, 2, 6], [6, 2, 3, 2]]);
+    px(g, '#8e8e9c', [[4, 4, 7, 1], [10, 6, 4, 1], [6, 2, 3, 1]]);
+    px(g, '#4a4a56', [[13, 8, 2, 2], [4, 12, 7, 1], [6, 14, 3, 1]]); // boca y patas
+    px(g, f ? '#ff6a2a' : '#22222a', [[11, 6, 2, 1]]);
+    if (f) px(g, '#ffe14a', [[11, 6, 1, 1]]);
+    return c;
+  });
+  // Plataforma móvil: tablón con herrajes (16×6)
+  CODE.plank = (() => {
+    const [c, g] = canvas(16, 6);
+    px(g, '#2a1a0e', [[0, 0, 16, 6]]);
+    px(g, '#8a5a30', [[0, 0, 16, 4]]);
+    px(g, '#b07a44', [[0, 0, 16, 1]]);
+    px(g, '#5a3a1e', [[5, 1, 1, 3], [11, 1, 1, 3]]);
+    px(g, '#9a9aa8', [[1, 1, 2, 2], [13, 1, 2, 2]]);
+    return c;
+  })();
+  // Ventana de la torre (20×28): rota (inicio, con vidrios) o abierta con luz (FIN)
+  CODE.window = [0, 1].map((f) => {
+    const [c, g] = canvas(20, 28);
+    for (let y = 0; y < 28; y++) for (let x = 0; x < 20; x++) {
+      const arch = y < 10 ? Math.hypot(x - 9.5, y - 10) <= 10 : true;
+      const inner = y < 10 ? Math.hypot(x - 9.5, y - 10) <= 7.5 : x >= 3 && x <= 16 && y <= 25;
+      if (!arch) continue;
+      g.fillStyle = inner ? (f ? (y > 18 ? '#ffb85a' : '#ff9a3a') : '#0e0a14') : (x + y) % 5 ? '#5a5560' : '#46424c';
+      g.fillRect(x, y, 1, 1);
+    }
+    if (!f) px(g, '#bfe4ff', [[4, 12, 1, 3], [5, 14, 1, 2], [15, 9, 1, 4], [14, 12, 1, 2], [8, 24, 3, 1], [12, 22, 1, 2]]);
+    else px(g, '#ffe6b0', [[8, 6, 4, 2], [6, 12, 2, 6], [12, 14, 2, 4]]);
+    return c;
+  });
   // Hada (9×9) turquesa con alas; cuadros: calma ×2, enojada ×2
   CODE.fairy = [0, 1, 2, 3].map((f) => {
     const [c, g] = canvas(11, 11);

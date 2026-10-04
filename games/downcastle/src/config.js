@@ -99,6 +99,20 @@ export const CFG = {
   OJO_FAST: 0.7,           // bajo el 50 % de vida, el ciclo dura esto
   OJO_PUSH: 300, OJO_BEAM_STUN: 0.6,
 
+  // Exterior de la torre (F2): cilindro de EXT_COLS tiles, anillos de 32×8, proyección tipo Nebulus
+  EXT_COLS: 32,
+  RING_H: 8,
+  EXT_R: 80,               // radio de dibujo (px): el centro queda ~1:1 y se ve cielo a los costados
+  EXT_MAX_RINGS: 7,        // tope de anillos intermedios de la bajada
+  EXT_B0: 2.2, EXT_Bc: 0.6, // presupuesto por anillo: EXT_B0 + EXT_Bc·ciclo
+  WIND_V: 70,              // deriva de la ráfaga (px/s) en el aire; la mitad en el suelo
+  WIND_WARN: 1, WIND_GUST: 1.5,
+  MOVER_V: 30,             // velocidad media de las plataformas móviles
+  GARG_PERIOD: 3, GARG_WARN: 0.8, GARG_BLOW: 1,
+  GARG_LEN: 6,             // tiles de alcance del soplido
+  GARG_PUSH: 1500,         // aceleración del soplido (px/s²)
+  BAT_WAKE: 64, BAT_CHASE: 3, BAT_SPEED: 70, BAT_REST: 2,
+
   // Entrada
   HOLD_MS: 180,
   TAP_PX: 12,

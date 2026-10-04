@@ -3,14 +3,14 @@
    y dibujan a los demás interpolados). window.__downcastle para depurar. */
 import { CFG, saveSettings, params, load, store, PLAYER_COLORS, HEROES } from './config.js';
 import { loadSprites } from './sprites.js';
-import { genTramo, buildLevel, mulberry32 } from './level.js';
-import { createSim, step, encodeState, newStats, PF, applyDyn, BOSS_STATES } from './sim.js';
+import { genTramo, genExterior, buildLevel, mulberry32 } from './level.js';
+import { createSim, step, encodeState, newStats, PF, applyDyn, BOSS_STATES, windAt } from './sim.js';
 import { botFields, botView, botThink, newBotMemory } from './bots.js';
 import { initInput, readTilt, takeEvents, input, calibrate, requestTiltPermission, needsTiltPermission } from './input.js';
 import { createRenderer } from './render.js';
 import { connectRoom, createSnapBuffer, randomCode, ERRORS } from './net.js';
 import { computeAwards, sumStats, saveTel, rateTel } from './awards.js';
-import { unlockAudio, music, musicFilter, sfx, vibrate, applySettings } from './audio.js';
+import { unlockAudio, music, musicFilter, sfx, vibrate, applySettings, windAmbience } from './audio.js';
 import { createVoice } from './voice.js';
 import { showBlockViewer } from './viewer.js';
 import { $, showScreen, overlay, renderLobby, renderAwards, renderRunEnd, bindSettings, toast, colorHex } from './ui.js';
@@ -103,15 +103,16 @@ function voiceSync() {
   voice.sync(ids);
   micUI();
 }
-/* Fuera del pozo, todos en seco. En el pozo, los vivos suenan con eco de cueva para todos;
-   los caídos (o los que miran) solo se oyen entre caídos, en seco. Devuelve [lo que oigo, me oye]. */
+/* Fuera del pozo, todos en seco. En el pozo, los vivos suenan con eco de cueva para todos
+   (afuera de la torre, en seco: aire libre); los caídos (o los que miran) solo se oyen entre
+   caídos, en seco. Devuelve [lo que oigo, me oye]. */
 const ALL = [() => 'dry', () => true];
 function voiceModes(view) {
   if (app.screen !== 'play' || !view?.players?.length) return ALL;
   const dead = (id) => { const p = view.players.find((q) => q.id === id); return !p || p.ko; };
   const meDead = dead(app.myId);
   return [
-    (id) => (!dead(id) ? 'cave' : meDead ? 'dry' : 'off'),
+    (id) => (!dead(id) ? (view.lv?.wrap ? 'dry' : 'cave') : meDead ? 'dry' : 'off'),
     (id) => !meDead || dead(id),
   ];
 }
@@ -265,20 +266,27 @@ function publishLobby() {
 const sendTo = (id, m) => app.online && app.conn.send({ to: id, m });
 const startMsg = () => ({ t: 'start', tramo: app.tramo, roster: app.roster, runGems: app.run.gems });
 
-/* Etiqueta del tramo: «CICLO 1 · TRAMO 3» o «CICLO 1 · JEFE: EL OJO». */
+/* Secuencia de cada ciclo: T1, T2, mini-exterior, T3, T4, jefe y la bajada por afuera de la
+   torre. run.s es la posición en la secuencia; los tramos normales conservan su k (0..3, 4 = jefe). */
+const CYCLE_SEQ = [{ k: 0 }, { k: 1 }, { ext: 'mini' }, { k: 2 }, { k: 3 }, { k: 4 }, { ext: 'bajada' }];
+const seqOf = (k) => CYCLE_SEQ.findIndex((e) => e.k === k);
+
+/* Etiqueta del tramo: «CICLO 1 · TRAMO 3», «CICLO 1 · JEFE: EL OJO», «CICLO 1 · AFUERA»… */
 const BOSS_NAMES = { ojo: 'EL OJO' };
 function tramoLabel(tr) {
   if (!tr) return '';
+  if (tr.kind === 'exterior') return `CICLO ${tr.c + 1} · ` + (tr.sub === 'mini' ? 'AFUERA' : 'BAJADA POR LA TORRE');
   return `CICLO ${tr.c + 1} · ` + (tr.kind === 'boss' ? `JEFE: ${BOSS_NAMES[tr.boss] || 'JEFE'}` : `TRAMO ${tr.k + 1}`);
 }
 
-/* Punto de arranque desde la URL (?ciclo, ?tramo, ?jefe, ?mods, ?seed, ?bloque) o goto(). */
+/* Punto de arranque desde la URL (?ciclo, ?tramo, ?jefe, ?ext, ?mods, ?seed, ?bloque) o goto(). */
 function urlStart() {
   const num = (k) => (params.has(k) ? Math.max(0, Math.floor(+params.get(k)) || 0) : null);
-  const o = { c: num('ciclo') ?? 0, k: num('tramo') ?? 0, force: null };
-  const mods = params.get('mods'), boss = params.get('jefe') === '1', only = params.get('bloque');
+  const o = { c: num('ciclo') ?? 0, s: seqOf(Math.min(3, num('tramo') ?? 0)), force: null };
+  const mods = params.get('mods'), boss = params.get('jefe') === '1', only = params.get('bloque'), ext = params.get('ext');
   if (mods != null || boss || only) o.force = { mods: mods != null ? mods.split(',').filter(Boolean) : undefined, boss, only: only || undefined };
-  if (boss) o.k = 4;
+  if (boss) o.s = seqOf(4);
+  if (ext === 'mini' || ext === 'bajada') { o.s = CYCLE_SEQ.findIndex((e) => e.ext === ext); o.force = null; }
   return o;
 }
 if (params.has('seed')) app.seedBase = (+params.get('seed')) >>> 0;
@@ -359,7 +367,7 @@ function hostMessage(m) {
 
 function startRun(at = urlStart()) {
   app.run = {
-    c: at.c, k: Math.min(4, at.k), force: at.force, seed: app.seedBase ?? (Math.random() * 2 ** 31) >>> 0,
+    c: at.c, s: at.s, force: at.force, seed: app.seedBase ?? (Math.random() * 2 ** 31) >>> 0,
     gems: 0, cleared: 0, t: 0, stats: {}, hp: {}, order: null, names: {}, over: false, maxC: at.c,
   };
   startTramo();
@@ -373,7 +381,7 @@ function shuffle(arr, rnd) {
 function startTramo() {
   const run = app.run;
   const ids = app.lobby.map((e) => e.id);
-  const rnd = mulberry32(run.seed + (run.c * 5 + run.k) * 7919);
+  const rnd = mulberry32(run.seed + (run.c * 7 + run.s) * 7919);
   // El orden se sortea en cada tramo; los que se unieron entre tramos entran al final
   const prev = shuffle((run.order || ids).filter((id) => ids.includes(id)), rnd);
   const fresh = ids.filter((id) => !prev.includes(id));
@@ -383,7 +391,9 @@ function startTramo() {
     const e = entry(id);
     return { id, name: e.name, color: colorHex(e.color), hero: e.hero, bot: !!e.bot, hp: run.hp[id], conn: e.on !== false };
   });
-  app.tramo = genTramo(run.seed, run.c, run.k, run.force || {}); // los forzados (URL, goto) solo valen para este tramo
+  const st = CYCLE_SEQ[run.s];
+  app.tramo = st.ext ? genExterior(run.seed, run.c, st.ext, run.s)
+    : { ...genTramo(run.seed, run.c, st.k, run.force || {}), s: run.s }; // los forzados (URL, goto) solo valen para este tramo
   run.force = null;
   app.lv = buildLevel(app.tramo);
   app.fields = botFields(app.lv);
@@ -393,7 +403,7 @@ function startTramo() {
   app.netFx = [];
   app.endT = null;
   app.phase = 'play';
-  app.runInfo = { c: run.c, k: run.k, gems: run.gems };
+  app.runInfo = { c: run.c, s: run.s, gems: run.gems };
   if (app.online) { app.conn.send({ m: startMsg() }); publishLobby(); }
   enterPlay();
 }
@@ -481,13 +491,14 @@ function hostEndTramo() {
   for (const p of sim.players) run.hp[p.id] = p.ko ? 0 : p.hp;
   const tr = app.tramo;
   const res = {
-    t: 'res', result: won ? 'won' : 'wiped', c: tr.c, k: tr.k, kind: tr.kind, boss: tr.boss || null, mods: tr.mods, gems: sim.gems, runGems: run.gems,
+    t: 'res', result: won ? 'won' : 'wiped', c: tr.c, k: tr.k, s: tr.s, kind: tr.kind, sub: tr.sub || null, rings: tr.kind === 'exterior' ? tr.chunks : undefined,
+    boss: tr.boss || null, mods: tr.mods, gems: sim.gems, runGems: run.gems,
     dur: Math.round(sim.t * 10) / 10, awards: computeAwards(players), players: players.length,
     stats: Object.fromEntries(players.map((p) => [p.id, roundStats(p.stats)])),
   };
-  if (won) { // tras el jefe, el ciclo siguiente
-    run.k++;
-    if (run.k > 4) { run.c++; run.k = 0; run.maxC = Math.max(run.maxC, run.c); }
+  if (won) { // tras la bajada, el ciclo siguiente
+    run.s++;
+    if (run.s >= CYCLE_SEQ.length) { run.c++; run.s = 0; run.maxC = Math.max(run.maxC, run.c); }
   }
   run.over = !won;
   app.phase = 'awards';
@@ -582,7 +593,7 @@ function guestStart(m) {
   app.lv = buildLevel(m.tramo);
   app.fields = botFields(app.lv);
   app.roster = m.roster;
-  app.runInfo = { c: m.tramo.c, k: m.tramo.k, gems: m.runGems };
+  app.runInfo = { c: m.tramo.c, s: m.tramo.s, gems: m.runGems };
   app.snaps.clear();
   app.hurtAt.clear(); app.lastHp.clear();
   app.phase = 'play';
@@ -640,7 +651,7 @@ function simView(alpha) {
     })),
     creatures: sim.creatures.map((c) => ({
       kind: c.kind, alive: c.alive, x: lerp(c.px, c.x, alpha), y: lerp(c.py, c.y, alpha),
-      dir: c.dir, angry: c.angryT > 0, flash: c.flashT > 0, aim: c.aimT > 0,
+      dir: c.dir, angry: c.angryT > 0, flash: c.flashT > 0, aim: c.aimT > 0, sleep: c.mode === 'sleep' && c.kind === 'bat',
     })),
     arrows: sim.arrows,
     ...(sim.cam ? { chase: true, camY: lerp(sim.cam.py, sim.cam.y, alpha), chaseWarn: sim.cam.warn > 0 } : {}),
@@ -682,12 +693,15 @@ function guestView(now) {
       hurtAgo: now - (app.hurtAt.get(r.id) ?? -99),
     });
   });
+  const C = app.lv.w * CFG.TILE;
   const creatures = app.lv.creatures.map((c0, i) => {
-    const ca = a.c[i], cb = b.c[i];
+    let ca = a.c[i];
+    const cb = b.c[i];
     if (!cb) return { kind: c0.kind, alive: false };
+    if (ca && app.lv.wrap && Math.abs(cb[0] - ca[0]) > C / 2) ca = null; // el anfitrión la llevó a otra vuelta
     return {
       kind: c0.kind, alive: true, x: ca ? lerp(ca[0], cb[0], f) : cb[0], y: ca ? lerp(ca[1], cb[1], f) : cb[1],
-      dir: cb[2] & 1 ? -1 : 1, angry: !!(cb[2] & 2), flash: !!(cb[2] & 4), aim: !!(cb[2] & 8),
+      dir: cb[2] & 1 ? -1 : 1, angry: !!(cb[2] & 2), flash: !!(cb[2] & 4), aim: !!(cb[2] & 8), sleep: !!(cb[2] & 16),
     };
   });
   const gemsTaken = new Uint8Array(app.lv.gems.length);
@@ -725,6 +739,7 @@ const FX_SOUND = {
   stomp: 'stomp', land: 'land', bounce: 'bounce', kill: 'kill', chit: 'chit', plop: 'plop', heal: 'heal',
   angry: 'angry', ff: 'ff', anchor: 'anchor', fairypush: 'ff', won: 'won', wiped: 'wiped',
   aim: 'aim', arrow: 'arrow', arrowbreak: 'arrowbreak', shake: 'shake', crumble: 'crumble', reform: 'reform',
+  batwake: 'batwake', gargwarn: 'gargwarn', blow: 'blow',
   chasewarn: 'rumble', chasego: 'rumble', gate: 'gate', beamwarn: 'beamwarn', beam: 'beam', zap: 'zap',
   gaze: 'gaze', eyeopen: 'eyeopen', bosshit: 'bosshit', clank: 'clank', bossdie: 'bossdie',
 };
@@ -738,7 +753,7 @@ function playFx(ev, view) {
   if (mine && FX_VIBRATE[ev.k]) vibrate(FX_VIBRATE[ev.k]);
   if (mine && ev.k === 'shot') vibrate(10);
   if (mine && ev.k === 'ko') toast('Fuera de combate', 2200);
-  if (ev.k === 'won') toast(app.tramo?.kind === 'boss' ? '¡Ciclo superado!' : '¡Tramo superado!', 1400);
+  if (ev.k === 'won') toast(app.tramo?.kind === 'boss' ? '¡El Ojo vencido! Ahora, por afuera' : app.tramo?.kind === 'exterior' ? '¡Adentro!' : '¡Tramo superado!', 1400);
   if (ev.k === 'chasewarn') toast('¡DERRUMBE! La cámara se suelta de ti', CFG.CHASE_WARN * 1000);
   if (ev.k === 'gate') toast('¡EL OJO!', 1600);
   if (ev.k === 'bossdie') toast('¡El Ojo vencido!', 2000);
@@ -750,7 +765,7 @@ function showAwards(res) {
   app.phase = 'awards';
   setScreen('awards');
   app.telAt = saveTel({
-    tramo: res.c * 5 + res.k, c: res.c, k: res.k, kind: res.kind, mods: res.mods, dur: res.dur, gems: res.gems,
+    tramo: res.c * 7 + (res.s ?? 0), c: res.c, k: res.k, s: res.s, kind: res.kind, sub: res.sub, rings: res.rings, mods: res.mods, dur: res.dur, gems: res.gems,
     counters: res.stats, result: res.result, players: res.players, role: app.role, rating: null,
   });
   renderAwards(res, { isHost: app.role === 'host' }, { rate: (r) => rateTel(app.telAt, r) });
@@ -786,8 +801,15 @@ function frame(dt, now) {
   if (app.online) voice.setModes(...voiceModes(view));
   if (R.lv !== view.lv) R.setLevel(view.lv);
   R.draw(view, dt);
+  windAmbience(app.screen === 'play' && !!view.lv?.wrap);
   if (app.screen === 'play') {
     $('gemcount').textContent = app.runInfo.gems + (view.gems || 0);
+    if (view.lv.wrap) { // aviso y ráfaga del viento a la altura propia
+      const me = view.players.find((p) => p.id === app.myId) || view.focus;
+      const w = me ? windAt(view.lv, view.t, me.y) : { v: 0, warn: 0 };
+      const ws = w.v ? 'gust' : w.warn ? 'warn' : '';
+      if (ws !== app.windState) { if (ws) sfx(ws === 'gust' ? 'gust' : 'windwarn'); app.windState = ws; }
+    }
     const me = view.players.find((p) => p.id === app.myId);
     const ko = !!me?.ko;
     if (ko !== app.wasKo) { app.wasKo = ko; musicFilter(!ko); }
@@ -888,6 +910,11 @@ window.__downcastle = {
     publishLobby();
     return app.lobby.length;
   },
+  /** Corre n cuadros completos (red, vista, dibujo) sin rAF: sirve con la pestaña oculta. */
+  tick(n = 1, dt = 1 / 60) {
+    for (let i = 0; i < n; i++) frame(dt, performance.now() / 1000 + i * dt);
+    return this.state();
+  },
   /** Simula `seg` segundos sin rAF (anfitrión). */
   advance(seg) {
     if (app.role !== 'host' || !app.sim) return null;
@@ -900,7 +927,7 @@ window.__downcastle = {
     return {
       screen: app.screen, role: app.role, online: app.online, code: app.code, myId: app.myId, phase: app.phase,
       ready: app.ready, lobby: app.lobby.map((e) => ({ id: e.id, name: e.name, ready: e.ready, on: e.on, bot: !!e.bot, pending: !!e.pending })),
-      tramo: app.tramo && { seed: app.tramo.seed, c: app.tramo.c, k: app.tramo.k, kind: app.tramo.kind, mods: app.tramo.mods, chunks: app.tramo.chunks },
+      tramo: app.tramo && { seed: app.tramo.seed, c: app.tramo.c, k: app.tramo.k, s: app.tramo.s, kind: app.tramo.kind, sub: app.tramo.sub, mods: app.tramo.mods, chunks: app.tramo.chunks },
       cam: app.sim?.cam ? Math.round(app.sim.cam.y) : (v?.camY != null ? Math.round(v.camY) : null),
       boss: v?.boss ? { hp: v.boss.hp, state: v.boss.state, gate: v.boss.gateClosed } : null,
       status: app.sim?.status, t: app.sim?.t, gems: (app.run?.gems ?? app.runInfo.gems) + (v?.gems || 0),
@@ -913,12 +940,14 @@ window.__downcastle = {
   auto(on = true) { app.auto = !!on; return app.auto; },
   /** Arranca la run sin esperar a que estén listos (anfitrión). */
   start() { if (app.role === 'host') startRun(); return this.state(); },
-  /** Salta al tramo k del ciclo c (k = 4 o { boss: true }: el jefe), con { mods } forzados. Anfitrión. */
+  /** Salta al tramo k del ciclo c (k = 4 o { boss: true }: el jefe; { ext: 'mini' | 'bajada' }: el
+      exterior), con { mods } forzados. Anfitrión. */
   goto(c = 0, k = 0, o = {}) {
     if (app.role !== 'host') return 'solo el anfitrión';
-    const at = { c, k: o.boss ? 4 : k, force: { mods: o.mods, boss: !!o.boss, only: o.only } };
+    const s = o.ext ? CYCLE_SEQ.findIndex((e) => e.ext === o.ext) : seqOf(o.boss ? 4 : Math.min(4, k));
+    const at = { c, s, force: o.ext ? null : { mods: o.mods, boss: !!o.boss, only: o.only } };
     if (!app.run) startRun(at);
-    else { Object.assign(app.run, { c: at.c, k: at.k, force: at.force, over: false }); startTramo(); }
+    else { Object.assign(app.run, { c: at.c, s: at.s, force: at.force, over: false }); startTramo(); }
     return this.state();
   },
   next() { hostNext(); return this.state(); },

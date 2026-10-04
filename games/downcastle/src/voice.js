@@ -270,19 +270,19 @@ export function createVoice(signal) {
 }
 
 /* «Sonido crujiente»: devuelve el nodo de entrada de la cadena, que termina en `out`.
-   pasabanda 450–2400 Hz → compresor brutal → saturación → bitcrusher (worklet; sin él, solo
+   pasabanda 350–3000 Hz → compresor fuerte → saturación → bitcrusher (worklet; sin él, solo
    la saturación cuantizada). */
 export async function crunchChain(ac, out) {
-  const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 450; hp.Q.value = 0.9;
-  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400; lp.Q.value = 1.4;
+  const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 350; hp.Q.value = 0.8;
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = 1.1;
   const comp = ac.createDynamicsCompressor();
-  comp.threshold.value = -42; comp.knee.value = 0; comp.ratio.value = 20;
+  comp.threshold.value = -34; comp.knee.value = 6; comp.ratio.value = 10;
   comp.attack.value = 0.001; comp.release.value = 0.12;
-  const drive = ac.createGain(); drive.gain.value = 9;
+  const drive = ac.createGain(); drive.gain.value = 4.5;
   const shaper = ac.createWaveShaper();
-  shaper.curve = crunchCurve(4096, 5);
+  shaper.curve = crunchCurve(4096, 7);
   shaper.oversample = 'none';
-  const post = ac.createGain(); post.gain.value = 0.5;
+  const post = ac.createGain(); post.gain.value = 0.6;
   hp.connect(lp); lp.connect(comp); comp.connect(drive); drive.connect(shaper);
   let last = shaper;
   try {
@@ -292,7 +292,7 @@ export async function crunchChain(ac, out) {
       crunchChain.loaded = ac.audioWorklet.addModule(url);
     }
     await crunchChain.loaded;
-    const crush = new AudioWorkletNode(ac, 'crusher', { processorOptions: { rate: 5200, bits: 4, crackle: 0.0025 } });
+    const crush = new AudioWorkletNode(ac, 'crusher', { processorOptions: { rate: 8000, bits: 6, crackle: 0.001 } });
     shaper.connect(crush);
     last = crush;
   } catch { /* sin worklet: queda la saturación */ }
@@ -305,7 +305,7 @@ function crunchCurve(n, bits) {
   const c = new Float32Array(n), q = 2 ** (bits - 1);
   for (let i = 0; i < n; i++) {
     const x = (i / (n - 1)) * 2 - 1;
-    c[i] = Math.round(Math.tanh(x * 2.5) * q) / q;
+    c[i] = Math.round(Math.tanh(x * 1.8) * q) / q;
   }
   return c;
 }

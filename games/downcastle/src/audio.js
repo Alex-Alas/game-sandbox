@@ -151,8 +151,36 @@ export function sfx(name) {
     case 'bosshit': tone('sawtooth', 300, 60, 0.4, 0.28); noise(0.25, 0.4, 500, 0.6); break;
     case 'clank': tone('square', 1500, 1300, 0.05, 0.08); break;
     case 'bossdie': [0, 0.15, 0.3, 0.45, 0.6].forEach((d, i) => tone('triangle', [392, 523, 659, 784, 1047][i], [392, 523, 659, 784, 1047][i], 0.3, 0.15, d)); noise(1.2, 0.4, 140, 0.5, 0, 'lowpass'); break;
+    case 'batwake': tone('square', 2400, 3200, 0.06, 0.05); tone('square', 2600, 3400, 0.06, 0.05, 0.08); break;
+    case 'gargwarn': tone('sawtooth', 70, 90, 0.7, 0.08); noise(0.6, 0.15, 300, 1); break;
+    case 'blow': noise(1, 0.45, 700, 0.5, 0, 'lowpass'); break;
+    case 'windwarn': tone('sine', 700, 1500, 0.9, 0.04); noise(0.9, 0.12, 1800, 2); break;
+    case 'gust': noise(1.5, 0.4, 500, 0.4, 0, 'lowpass'); noise(1.4, 0.15, 2000, 1.5); break;
     case 'won': [0, 0.12, 0.24, 0.42].forEach((d, i) => tone('triangle', [523, 659, 784, 1047][i], [523, 659, 784, 1047][i], 0.22, 0.14, d)); break;
     case 'wiped': [0, 0.2, 0.4].forEach((d, i) => tone('triangle', [392, 330, 262][i], [392, 330, 262][i], 0.3, 0.15, d)); break;
     default: break;
+  }
+}
+
+/* Viento de fondo afuera de la torre: ruido filtrado que respira despacio. */
+let wind = null;
+export function windAmbience(on) {
+  if (!ac) return;
+  if (on && !wind) {
+    const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    const lfo = ac.createOscillator(), lg = ac.createGain();
+    src.buffer = noiseBuf.b; src.loop = true;
+    f.type = 'lowpass'; f.frequency.value = 420; f.Q.value = 0.6;
+    g.gain.value = 0.12;
+    lfo.frequency.value = 0.15; lg.gain.value = 0.07;
+    lfo.connect(lg); lg.connect(g.gain);
+    src.connect(f); f.connect(g); g.connect(sfxGain);
+    src.start(); lfo.start();
+    wind = { src, lfo, g };
+  } else if (!on && wind) {
+    const w = wind;
+    wind = null;
+    w.g.gain.setTargetAtTime(0, ac.currentTime, 0.3);
+    setTimeout(() => { try { w.src.stop(); w.lfo.stop(); } catch { /* */ } }, 1500);
   }
 }
