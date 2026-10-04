@@ -270,7 +270,12 @@ export function renderAccount(a) {
   $('btn-acc-google').classList.toggle('hidden', !a.google);
   $('btn-acc-email').disabled = !!a.busy;
   $('btn-acc-sync').disabled = !!a.busy;
-  if (a.user) $('acc-who').textContent = `Conectado como ${a.user.email || 'cuenta de Google'}.` + (a.syncedAt ? ` Sincronizado ${new Date(a.syncedAt).toLocaleTimeString()}.` : '');
+  const mail = a.user ? a.user.email || a.user.user_metadata?.email || 'tu cuenta de Google' : '';
+  $('acc-who').textContent = mail;
+  $('acc-when').textContent = a.syncedAt ? `Última vez: ${new Date(a.syncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : '';
+  // También en el título, para saber con qué cuenta se está jugando sin abrir Ajustes
+  $('title-acct').classList.toggle('hidden', !a.user);
+  $('title-acct').textContent = a.user ? `☁ ${mail}` : '';
   $('acc-msg').textContent = a.msg || '';
 }
 

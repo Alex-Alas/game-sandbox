@@ -14,14 +14,17 @@ export const onAuth = (f) => { listeners.add(f); return () => listeners.delete(f
 export const currentUser = () => user;
 
 const redirectTo = () => location.origin + location.pathname;
-const returning = () => /access_token=|error_description=/.test(location.hash) || /[?&]code=/.test(location.search);
+/* Los tokens del enlace (#access_token=…) se leen al cargar el módulo: el arranque del juego
+   reescribe la URL (toTitle → setUrl) antes de que supabase-js termine de cargarse. */
+const linkHash = new URLSearchParams(location.hash.slice(1));
+const returning = () => linkHash.has('access_token') || linkHash.has('error_description');
 const hasSession = () => { try { return !!localStorage.getItem(TOKEN_KEY); } catch { return false; } };
 
 async function client() {
   if (sb) return sb;
   loading ||= import('@supabase/supabase-js').then(({ createClient }) => {
     // implicit: el enlace del correo funciona aunque se abra en otro navegador del teléfono
-    sb = createClient(SUPA.url, SUPA.key, { auth: { flowType: 'implicit', persistSession: true, detectSessionInUrl: true, autoRefreshToken: true } });
+    sb = createClient(SUPA.url, SUPA.key, { auth: { flowType: 'implicit', persistSession: true, detectSessionInUrl: false, autoRefreshToken: true } });
     sb.auth.onAuthStateChange((_ev, session) => {
       const u = session?.user || null;
       if (u?.id !== user?.id) { user = u; emit(); }
@@ -35,10 +38,15 @@ async function client() {
 export async function initCloud() {
   if (!hasSession() && !returning()) return null;
   try {
+    if (/access_token=|refresh_token=/.test(location.hash)) history.replaceState(null, '', location.pathname + location.search);
     const c = await client();
+    if (linkHash.has('access_token')) {
+      const { error } = await c.auth.setSession({ access_token: linkHash.get('access_token'), refresh_token: linkHash.get('refresh_token') });
+      linkHash.delete('access_token');
+      if (error) console.warn('[cloud] enlace inválido o vencido', error);
+    }
     const { data } = await c.auth.getSession();
     user = data.session?.user || null;
-    if (returning()) history.replaceState(null, '', location.pathname + location.search.replace(/[?&]code=[^&]*/, ''));
     emit();
   } catch (e) { console.warn('[cloud] sin sesión', e); }
   return user;
