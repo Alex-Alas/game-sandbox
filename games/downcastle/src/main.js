@@ -13,7 +13,10 @@ import { computeAwards, sumStats, saveTel, rateTel } from './awards.js';
 import { unlockAudio, music, musicFilter, sfx, vibrate, applySettings, windAmbience } from './audio.js';
 import { createVoice } from './voice.js';
 import { showBlockViewer } from './viewer.js';
-import { $, showScreen, overlay, renderLobby, renderAwards, renderRunEnd, bindSettings, toast, colorHex } from './ui.js';
+import { $, showScreen, overlay, renderLobby, renderAwards, renderRunEnd, bindSettings, toast, colorHex, renderUnlocks, renderBestiary, renderAccount } from './ui.js';
+import { loadProfile, storeProfile, accumulateTramo, accumulateRun, mergeProfile, migrate, newProfile, evalUnlocks, applyEntitlements, cloudData, hasTitle, hasRope, BKEY } from './profile.js';
+import { validTitle, validRope, titleById } from './cosmetics.js';
+import { initCloud, onAuth, currentUser, signInEmail, signInGoogle, signOut, googleEnabled, pullProfile, pushProfile, pullEntitlements } from './cloud.js';
 
 const STEP = 1 / CFG.SIM_HZ;
 const BOT_NAMES = ['Grog', 'Mirla', 'Tuck', 'Brina'];
@@ -21,8 +24,12 @@ const HERO_IDS = HEROES.flatMap((h) => [h.id + '_m', h.id + '_f']);
 const lerp = (a, b, f) => a + (b - a) * f;
 const nowS = () => performance.now() / 1000;
 
-const profile = Object.assign({ name: '', color: 'amarillo', hero: 'knight_m' }, load('downcastle.profile', {}));
-const saveProfile = () => store('downcastle.profile', profile);
+const profile = loadProfile(); // perfil v1 (profile.js); migra el viejo { name, color, hero }
+const saveProfile = () => { storeProfile(profile); queueSync(); };
+/* Elecciones del perfil (nombre, color, héroe, título, cuerda): la más reciente gana al sincronizar. */
+const setPref = (k, v) => { profile[k] = v; profile.prefAt = Date.now(); saveProfile(); };
+const myTitle = () => (hasTitle(profile, profile.title) ? profile.title : '');
+const myRope = () => (hasRope(profile, profile.rope) ? profile.rope : 'soga');
 
 const app = {
   screen: 'loading',
@@ -146,7 +153,7 @@ function toTitle(msg = '') {
 function selfEntry() {
   let e = entry(app.myId);
   if (!e) { e = { id: app.myId, host: true, on: true }; app.lobby.unshift(e); }
-  Object.assign(e, { name: clean(profile.name) || 'Aventurero', color: profile.color, hero: validHero(profile.hero), ready: app.ready });
+  Object.assign(e, { name: clean(profile.name) || 'Aventurero', color: profile.color, hero: validHero(profile.hero), title: myTitle(), rope: myRope(), ready: app.ready });
   return e;
 }
 
@@ -174,17 +181,19 @@ function renderLobbyUI() {
     players: app.lobby, myId: app.myId, isHost: app.role === 'host', canStart: canStart(),
     phase: app.phase, ready: app.ready, profile, msg,
   }, {
-    color: (c) => { profile.color = c; saveProfile(); profileChanged(); },
-    hero: (h) => { profile.hero = h; saveProfile(); profileChanged(); },
+    color: (c) => { setPref('color', c); profileChanged(); },
+    hero: (h) => { setPref('hero', h); profileChanged(); },
+    title: (t) => { setPref('title', t); profileChanged(); },
+    rope: (r) => { setPref('rope', r); profileChanged(); },
   });
 }
 
 function profileChanged() {
   if (app.role === 'host') { selfEntry(); publishLobby(); }
   else if (app.role === 'guest') {
-    app.conn?.send({ t: 'prof', name: clean(profile.name), color: profile.color, hero: profile.hero });
+    app.conn?.send({ t: 'prof', name: clean(profile.name), color: profile.color, hero: profile.hero, title: myTitle(), rope: myRope() });
     const me = entry(app.myId);
-    if (me) Object.assign(me, { name: clean(profile.name), hero: profile.hero, color: colorFree(profile.color, app.myId) ? profile.color : me.color });
+    if (me) Object.assign(me, { name: clean(profile.name), hero: profile.hero, title: myTitle(), rope: myRope(), color: colorFree(profile.color, app.myId) ? profile.color : me.color });
     renderLobbyUI();
   }
 }
@@ -256,7 +265,7 @@ function setBots(n) {
 function publishLobby() {
   if (app.role !== 'host') return;
   if (app.online) {
-    const players = app.lobby.map(({ id, name, color, hero, ready, host, on, bot, pending }) => ({ id, name, color, hero, ready, host, on, bot, pending }));
+    const players = app.lobby.map(({ id, name, color, hero, title, rope, ready, host, on, bot, pending }) => ({ id, name, color, hero, title, rope, ready, host, on, bot, pending }));
     app.conn.send({ m: { t: 'lobby', phase: app.phase, players } });
   }
   voiceSync();
@@ -321,6 +330,8 @@ function hostMessage(m) {
       e.on = true;
       e.name = clean(g.name) || 'Aventurero';
       e.hero = validHero(g.hero);
+      e.title = validTitle(g.title);
+      e.rope = validRope(g.rope);
       e.color = colorFree(g.color, id) ? g.color : (colorFree(e.color, id) ? e.color : freeColor(id));
       e.ready = !!g.ready;
       publishLobby();
@@ -336,6 +347,8 @@ function hostMessage(m) {
     case 'prof':
       if (!e) return;
       e.name = clean(g.name) || e.name;
+      e.title = validTitle(g.title);
+      e.rope = validRope(g.rope); // la cuerda se ve desde el próximo tramo
       if (app.phase === 'lobby' || e.pending) {
         e.hero = validHero(g.hero);
         if (colorFree(g.color, id)) e.color = g.color;
@@ -367,6 +380,7 @@ function hostMessage(m) {
 
 function startRun(at = urlStart()) {
   app.run = {
+    id: Math.random().toString(36).slice(2, 10), // rid: el perfil no cuenta dos veces el mismo tramo
     c: at.c, s: at.s, force: at.force, seed: app.seedBase ?? (Math.random() * 2 ** 31) >>> 0,
     gems: 0, cleared: 0, t: 0, stats: {}, hp: {}, order: null, names: {}, over: false, maxC: at.c,
   };
@@ -389,7 +403,7 @@ function startTramo() {
   for (const e of app.lobby) e.pending = false;
   app.roster = run.order.map((id) => {
     const e = entry(id);
-    return { id, name: e.name, color: colorHex(e.color), hero: e.hero, bot: !!e.bot, hp: run.hp[id], conn: e.on !== false };
+    return { id, name: e.name, color: colorHex(e.color), hero: e.hero, rope: validRope(e.rope), bot: !!e.bot, hp: run.hp[id], conn: e.on !== false };
   });
   const st = CYCLE_SEQ[run.s];
   app.tramo = st.ext ? genExterior(run.seed, run.c, st.ext, run.s)
@@ -491,7 +505,7 @@ function hostEndTramo() {
   for (const p of sim.players) run.hp[p.id] = p.ko ? 0 : p.hp;
   const tr = app.tramo;
   const res = {
-    t: 'res', result: won ? 'won' : 'wiped', c: tr.c, k: tr.k, s: tr.s, kind: tr.kind, sub: tr.sub || null, rings: tr.kind === 'exterior' ? tr.chunks : undefined,
+    t: 'res', rid: run.id, seen: [...sim.seen], result: won ? 'won' : 'wiped', c: tr.c, k: tr.k, s: tr.s, kind: tr.kind, sub: tr.sub || null, rings: tr.kind === 'exterior' ? tr.chunks : undefined,
     boss: tr.boss || null, mods: tr.mods, gems: sim.gems, runGems: run.gems,
     dur: Math.round(sim.t * 10) / 10, awards: computeAwards(players), players: players.length,
     stats: Object.fromEntries(players.map((p) => [p.id, roundStats(p.stats)])),
@@ -517,7 +531,7 @@ function hostNext() {
 function hostRunEnd() {
   const run = app.run;
   const totals = Object.entries(run.stats).map(([id, stats]) => ({ id: +id, name: run.names[id].name, color: run.names[id].color, stats }));
-  const msg = { t: 'runend', gems: run.gems, tramos: run.cleared, ciclo: run.maxC + 1, dur: Math.round(run.t), awards: computeAwards(totals) };
+  const msg = { t: 'runend', rid: run.id, gems: run.gems, tramos: run.cleared, ciclo: run.maxC + 1, dur: Math.round(run.t), awards: computeAwards(totals) };
   app.phase = 'runend';
   app.lastRunEnd = msg;
   if (app.online) { app.conn.send({ m: msg }); publishLobby(); }
@@ -549,7 +563,7 @@ function joinRoom(code) {
       welcome(m, first) {
         app.myId = m.id;
         voice.setId(m.id);
-        app.conn.send({ t: 'hello', name: clean(profile.name), color: profile.color, hero: profile.hero, ready: app.ready });
+        app.conn.send({ t: 'hello', name: clean(profile.name), color: profile.color, hero: profile.hero, title: myTitle(), rope: myRope(), ready: app.ready });
         if (first) { setUrl(code); toLobby(); } else toast('Reconectado');
       },
       message: guestMessage,
@@ -644,7 +658,7 @@ function simView(alpha) {
   return {
     lv: app.lv, t: sim.t, meId: app.myId, gemsTaken: sim.gemsTaken, gems: sim.gems,
     players: sim.players.map((p) => ({
-      id: p.id, idx: p.idx, name: p.name, color: p.color, hero: p.hero,
+      id: p.id, idx: p.idx, name: p.name, color: p.color, hero: p.hero, rope: p.rope,
       x: lerp(p.px, p.x, alpha), y: lerp(p.py, p.y, alpha), vx: p.vx, vy: p.vy, hp: p.hp, ammo: p.ammo,
       grounded: p.grounded, anchored: p.anchored, ko: p.ko, trapped: p.trapped >= 0, inv: p.invT > 0,
       stun: p.stunT > 0, off: !p.conn, left: p.facing < 0, hurtAgo: sim.t - p.hurtT,
@@ -687,7 +701,7 @@ function guestView(now) {
     if (last != null && hp < last) app.hurtAt.set(r.id, now);
     app.lastHp.set(r.id, hp);
     players.push({
-      id: r.id, idx: i, name: r.name, color: r.color, hero: r.hero, x, y, vx: s[2], vy: s[3], hp, ammo: s[5],
+      id: r.id, idx: i, name: r.name, color: r.color, hero: r.hero, rope: r.rope, x, y, vx: s[2], vy: s[3], hp, ammo: s[5],
       grounded: !!(fl & PF.grounded), anchored: !!(fl & PF.anchored), ko: !!(fl & PF.ko), trapped: !!(fl & PF.trapped), diving: !!(fl & PF.diving),
       inv: !!(fl & PF.inv), stun: !!(fl & PF.stun), off: !!(fl & PF.off), left: !!(fl & PF.left),
       hurtAgo: now - (app.hurtAt.get(r.id) ?? -99),
@@ -768,14 +782,22 @@ function showAwards(res) {
     tramo: res.c * 7 + (res.s ?? 0), c: res.c, k: res.k, s: res.s, kind: res.kind, sub: res.sub, rings: res.rings, mods: res.mods, dur: res.dur, gems: res.gems,
     counters: res.stats, result: res.result, players: res.players, role: app.role, rating: null,
   });
-  renderAwards(res, { isHost: app.role === 'host' }, { rate: (r) => rateTel(app.telAt, r) });
+  const got = accumulateTramo(profile, res, app.myId);
+  if (got) saveProfile();
+  renderUnlocks('aw-unlocks', got);
+  renderAwards({ ...res, awards: withTitles(res.awards) }, { isHost: app.role === 'host' }, { rate: (r) => rateTel(app.telAt, r) });
 }
+/* El título de cada premiado, según la sala. */
+const withTitles = (awards) => awards.map((a) => ({ ...a, title: titleById(entry(a.pid)?.title)?.name }));
 
 function showRunEnd(msg) {
   app.phase = 'runend';
   app.lastRunEnd = msg;
   setScreen('runend');
-  renderRunEnd(msg, { isHost: app.role === 'host' });
+  const got = accumulateRun(profile, msg);
+  if (got) saveProfile();
+  renderUnlocks('re-unlocks', got);
+  renderRunEnd({ ...msg, awards: withTitles(msg.awards) }, { isHost: app.role === 'host' });
 }
 
 /* ───────────────────────── Bucle ───────────────────────── */
@@ -844,8 +866,11 @@ function bindUI() {
       await screen.orientation?.lock?.('portrait');
     } catch { /* algunos navegadores no dejan trabar la orientación */ }
   };
-  $('btn-settings').onclick = () => overlay('settings', true);
-  $('btn-pause-settings').onclick = () => overlay('settings', true);
+  $('btn-settings').onclick = () => { overlay('settings', true); accountUI(true); };
+  $('btn-bestiary').onclick = () => { overlay('bestiary', true); bestiaryUI(); };
+  $('btn-bestiary-close').onclick = () => overlay('bestiary', false);
+  bindAccount();
+  $('btn-pause-settings').onclick = () => { overlay('settings', true); accountUI(true); };
   $('btn-settings-close').onclick = () => { overlay('settings', false); saveSettings(); applySettings(); voice.refresh(); };
   $('btn-calibrate').onclick = async () => {
     await requestTiltPermission();
@@ -856,7 +881,7 @@ function bindUI() {
   $('micbtn').onclick = toggleMic;
 
   // Sala
-  $('me-name').addEventListener('input', (e) => { profile.name = clean(e.target.value); saveProfile(); profileChanged(); });
+  $('me-name').addEventListener('input', (e) => { setPref('name', clean(e.target.value)); profileChanged(); });
   $('btn-share').onclick = async () => {
     const url = roomLink(app.code);
     try {
@@ -899,6 +924,91 @@ function bindUI() {
       $('pause-tip').textContent = 'Partida en pausa.';
     }
   });
+}
+
+/* ───────────────────────── Bestiario ───────────────────────── */
+let bestiaryPick = null;
+function bestiaryUI() {
+  renderBestiary(profile, bestiaryPick, (k) => { bestiaryPick = k; bestiaryUI(); });
+}
+
+/* ───────────────────────── Cuenta y sincronización ─────────────────────────
+   Al iniciar sesión, al volver la red y tras cada cambio del perfil (con demora), se trae el
+   perfil de la nube, se fusiona con el local (profile.js: mergeProfile) y se sube el
+   resultado. La base es lo último sincronizado con esa cuenta: así cada dispositivo aporta
+   solo lo que sumó desde entonces, y un perfil de invitado se suma entero a la cuenta. */
+const acct = { msg: '', busy: false, syncedAt: 0, google: false };
+let syncChain = Promise.resolve(), syncTimer = 0;
+function queueSync(delay = 4000) {
+  if (!currentUser()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, delay);
+}
+function syncNow() {
+  clearTimeout(syncTimer);
+  syncChain = syncChain.then(syncOnce, syncOnce);
+  return syncChain;
+}
+async function syncOnce() {
+  const u = currentUser();
+  if (!u) return;
+  try {
+    const [remote, ents] = await Promise.all([pullProfile(), pullEntitlements()]);
+    // Sin await hasta asignar: un tramo que se sume en medio no se pisa
+    const base = load(BKEY, null);
+    let merged;
+    if (profile.acct && profile.acct !== u.id) { // el perfil era de otra cuenta: se toma el de esta
+      merged = remote ? migrate(remote) : Object.assign(newProfile(), { name: profile.name, color: profile.color, hero: profile.hero });
+      Object.assign(merged, { lastRes: profile.lastRes, lastRun: profile.lastRun });
+    } else merged = mergeProfile(remote, profile, profile.acct === u.id ? (base?.acct === u.id ? base.data : remote) : null);
+    applyEntitlements(merged, ents);
+    evalUnlocks(merged);
+    merged.acct = u.id;
+    const prefsChanged = ['name', 'color', 'hero', 'title', 'rope'].some((k) => merged[k] !== profile[k]);
+    Object.assign(profile, merged);
+    storeProfile(profile);
+    const up = cloudData(profile);
+    await pushProfile(up);
+    store(BKEY, { acct: u.id, data: up });
+    acct.syncedAt = Date.now();
+    acct.msg = '';
+    if (prefsChanged) profileChanged();
+  } catch (e) {
+    console.warn('[cloud] sincronización', e);
+    acct.msg = 'No se pudo sincronizar; se reintenta solo.';
+    syncTimer = setTimeout(syncNow, 30000);
+  }
+  accountUI();
+  if (app.screen === 'lobby') renderLobbyUI();
+}
+
+function accountUI(fetchGoogle = false) {
+  if (fetchGoogle) googleEnabled().then((g) => { if (g !== acct.google) { acct.google = g; accountUI(); } });
+  renderAccount({ user: currentUser(), ...acct });
+}
+
+function bindAccount() {
+  const mailOk = (m) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m);
+  $('btn-acc-email').onclick = async () => {
+    const mail = $('acc-email').value.trim();
+    if (!mailOk(mail)) { acct.msg = 'Escribí un correo válido.'; accountUI(); return; }
+    acct.busy = true; acct.msg = 'Enviando…'; accountUI();
+    try { await signInEmail(mail); acct.msg = 'Listo: abrí el enlace que te llegó al correo.'; } catch (e) {
+      acct.msg = /rate|seconds/i.test(e?.message || '') ? 'Esperá un minuto antes de pedir otro enlace.' : 'No se pudo enviar el enlace.';
+    }
+    acct.busy = false; accountUI();
+  };
+  $('acc-email').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-acc-email').click(); });
+  $('btn-acc-google').onclick = async () => {
+    try { await signInGoogle(); } catch { acct.msg = 'No se pudo abrir Google.'; accountUI(); }
+  };
+  $('btn-acc-out').onclick = async () => { await signOut(); acct.msg = 'Sesión cerrada. Tu progreso sigue en este dispositivo.'; accountUI(); };
+  $('btn-acc-sync').onclick = () => { acct.msg = 'Sincronizando…'; accountUI(); syncNow(); };
+  onAuth((u) => {
+    if (u) { toast('Sesión iniciada', 1600); syncNow(); }
+    accountUI();
+  });
+  addEventListener('online', () => queueSync(500));
 }
 
 /* ───────────────────────── Depuración ───────────────────────── */
@@ -954,6 +1064,9 @@ window.__downcastle = {
   toLobby() { if (app.role === 'host') hostToLobby(); },
   get app() { return app; },
   voice: () => voice.debug(),
+  /** El perfil local (bestiario, contadores, inventario) y la sincronización con la cuenta. */
+  profile: () => profile,
+  sync: () => syncNow(),
   voiceStats: () => voice.stats(),
   get sim() { return app.sim; },
 };
@@ -966,6 +1079,7 @@ async function boot() {
   try { await loadSprites(); } catch (e) { $('loading').textContent = 'No se pudieron cargar los sprites'; throw e; }
   $('loading').classList.add('hidden');
   requestAnimationFrame(loop);
+  initCloud(); // con sesión guardada (o al volver de un enlace) sincroniza en segundo plano
   const sala = (params.get('sala') || '').toUpperCase();
   if (params.get('ver') === 'bloques') { showBlockViewer(); return; }
   if (params.get('solo') === '1') startSolo(params.has('bots') ? +params.get('bots') : 2);

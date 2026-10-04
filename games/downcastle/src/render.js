@@ -9,6 +9,7 @@ import { STONE, WOOD, SPIKE, CRUMBLE, EMPTY, baseTileAt, tileAt, mulberry32 } fr
 import { canvas, heroFrames, creatureFrames, CODE, CASTLE, drawCastle, drawCastleRaw, DOOR } from './sprites.js';
 import { makeLink, stepLink } from './rope.js';
 import { ropePath, BOSS_W, moverPos, windAt } from './sim.js';
+import { ropeColor } from './cosmetics.js';
 
 const T = CFG.TILE, W = CFG.VIEW_W, HH = CFG.PH / 2;
 const TAU = Math.PI * 2;
@@ -178,7 +179,7 @@ export function createRenderer(cv) {
   }
 
   const R = {
-    cam: 0, camX: 0, shakeT: 0, lv: null, levelCv: null, ropes: [], ropeKey: '',
+    cam: 0, camX: 0, shakeT: 0, lv: null, levelCv: null, ropes: [], ropeKey: '', ropeLenPx: [],
     parts: [], pops: [], bullets: [], hpSeen: new Map(), hpShowT: new Map(),
     get H() { return H; }, get scale() { return scale; },
   };
@@ -321,24 +322,28 @@ export function createRenderer(cv) {
     ctx.fillRect(x - 1, y + 1, 1, 1); ctx.fillRect(x + 1, y + 1, 1, 1);
     ctx.fillRect(x, y + 2, 1, 1);
   }
-  function line(x0, y0, x1, y1, color) {
+  /* color: un color, o una función del píxel n → color (n0 = primer índice de este tramo). */
+  function line(x0, y0, x1, y1, color, n0 = 0) {
     let d0, d1;
     [x0, y0, d0] = project(x0, y0);
     [x1, y1, d1] = project(x1, y1);
     const back = d0 <= 0 && d1 <= 0; // detrás de la torre: tenue y punteada
-    ctx.fillStyle = color;
+    const fn = typeof color === 'function';
+    if (!fn) ctx.fillStyle = color;
     if (back) ctx.globalAlpha = 0.35;
     x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
     const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
     let err = dx + dy;
-    for (let n = 0; n < 400; n++) {
-      if (!back || n % 2 === 0) ctx.fillRect(x0, y0, 1, 1);
+    let n = 0;
+    for (; n < 400; n++) {
+      if (!back || n % 2 === 0) { if (fn) ctx.fillStyle = color(n0 + n); ctx.fillRect(x0, y0, 1, 1); }
       if (x0 === x1 && y0 === y1) break;
       const e2 = 2 * err;
       if (e2 >= dy) { err += dy; x0 += sx; }
       if (e2 <= dx) { err += dx; y0 += sy; }
     }
     if (back) ctx.globalAlpha = 1;
+    return n0 + n;
   }
 
   /* Tile (o tablón) de ancho w en x: en la torre se achata según el ángulo de sus bordes. */
@@ -539,11 +544,20 @@ export function createRenderer(cv) {
       const a = P[i], b = P[i + 1];
       const guide = ropePath(lv, a.x, a.y, b.x, b.y);
       stepLink(L, lv, a.x, a.y, b.x, b.y, dt, guide.pts);
+      // Mitad y mitad: cada mitad con el estilo de cuerda del jugador de su extremo
       const taut = guide.len > CFG.ROPE_LEN * 1.5;
-      const col = taut ? '#e8925a' : '#b88b56';
-      let px = a.x, py = a.y;
-      for (const q of L.pts) { line(px, py, q.x, q.y, col); px = q.x; py = q.y; }
-      line(px, py, b.x, b.y, col);
+      const pts = [a, ...L.pts, b];
+      let total = 0;
+      for (let k = 1; k < pts.length; k++) total += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y);
+      let along = 0, n = 0;
+      for (let k = 1; k < pts.length; k++) {
+        const p0 = pts[k - 1], p1 = pts[k], d = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+        const own = along + d / 2 < total / 2 ? a : b;
+        const col = own === a ? (m) => ropeColor(a.rope, m, t, taut) : (m) => ropeColor(b.rope, Math.max(0, (R.ropeLenPx[i] || 0) - m), t, taut);
+        n = line(p0.x, p0.y, p1.x, p1.y, col, n);
+        along += d;
+      }
+      R.ropeLenPx[i] = n;
     });
 
     // Jugadores
