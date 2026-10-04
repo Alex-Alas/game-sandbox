@@ -11,6 +11,7 @@ import { createRenderer } from './render.js';
 import { connectRoom, createSnapBuffer, randomCode, ERRORS } from './net.js';
 import { computeAwards, sumStats, saveTel, rateTel } from './awards.js';
 import { unlockAudio, music, musicFilter, sfx, vibrate, applySettings } from './audio.js';
+import { createVoice } from './voice.js';
 import { $, showScreen, overlay, renderLobby, renderAwards, renderRunEnd, bindSettings, toast, colorHex } from './ui.js';
 
 const STEP = 1 / CFG.SIM_HZ;
@@ -39,6 +40,7 @@ const app = {
   lastRes: null, lastRunEnd: null, telAt: null, seedBase: null, view: null, demo: null, wasKo: false,
 };
 let R = null;
+const voice = createVoice(voiceSignal);
 
 /* ───────────────────────── Utilidades de sala ───────────────────────── */
 const clean = (s) => String(s || '').replace(/[<>]/g, '').trim().slice(0, 12);
@@ -84,6 +86,50 @@ function leaveNet() {
   if (app.conn) app.conn.close();
   app.conn = null;
   app.online = false;
+  voice.reset();
+  voice.setMic(false);
+  micUI();
+}
+
+/* ───────────────────────── Chat de voz ───────────────────────── */
+const rtcOK = typeof RTCPeerConnection !== 'undefined';
+function voiceSignal(to, d) {
+  if (app.role === 'host') sendTo(to, { t: 'rtc', from: app.myId, d });
+  else app.conn?.send({ t: 'rtc', to, d });
+}
+function voiceSync() {
+  const ids = app.online && rtcOK ? app.lobby.filter((e) => !e.bot && e.on !== false && e.id !== app.myId).map((e) => e.id) : [];
+  voice.sync(ids);
+  micUI();
+}
+/* Fuera del pozo, todos en seco. En el pozo, los vivos suenan con eco de cueva para todos;
+   los caídos (o los que miran) solo se oyen entre caídos, en seco. Devuelve [lo que oigo, me oye]. */
+const ALL = [() => 'dry', () => true];
+function voiceModes(view) {
+  if (app.screen !== 'play' || !view?.players?.length) return ALL;
+  const dead = (id) => { const p = view.players.find((q) => q.id === id); return !p || p.ko; };
+  const meDead = dead(app.myId);
+  return [
+    (id) => (!dead(id) ? 'cave' : meDead ? 'dry' : 'off'),
+    (id) => !meDead || dead(id),
+  ];
+}
+function micUI() {
+  const show = app.online && rtcOK;
+  for (const id of ['btn-mic', 'micbtn']) {
+    $(id).classList.toggle('hidden', !show);
+    $(id).classList.toggle('on', voice.micOn);
+  }
+  $('voice-tip').classList.toggle('hidden', !show);
+  $('btn-mic').textContent = voice.micOn ? '🎤 Micrófono encendido' : '🎤 Micrófono apagado';
+}
+async function toggleMic() {
+  unlockAudio();
+  if (!voice.micOn && !navigator.mediaDevices?.getUserMedia) { toast('El micrófono necesita https', 2600); return; }
+  const wanted = !voice.micOn;
+  const on = await voice.setMic(wanted);
+  if (wanted && !on) toast('Sin permiso de micrófono', 2600);
+  micUI();
 }
 
 function toTitle(msg = '') {
@@ -116,6 +162,7 @@ function canStart() {
 
 function renderLobbyUI() {
   if (app.screen !== 'lobby') return;
+  micUI();
   const me = entry(app.myId);
   let msg = app.lobbyMsg || '';
   if (app.role === 'guest' && app.phase !== 'lobby' && me?.pending) msg = 'Partida en curso: entrás en el próximo tramo.';
@@ -156,6 +203,7 @@ function createRoom(tries = 0) {
     on: {
       welcome(m) {
         app.myId = m.id;
+        voice.setId(m.id);
         app.lobby = [];
         selfEntry();
         setUrl(code);
@@ -175,6 +223,7 @@ function hostLost(why) {
   if (app.phase === 'lobby' || !app.run) { toTitle(ERRORS[why] || ERRORS.net); return; }
   // En plena run: se sigue sin red; los invitados quedan como peso muerto
   app.online = false;
+  voiceSync();
   for (const e of app.lobby) if (!e.bot && e.id !== app.myId) e.on = false;
   for (const p of app.sim?.players || []) if (!p.bot && p.id !== app.myId) p.conn = false;
   toast('Se perdió la conexión: seguís sin red', 3000);
@@ -208,6 +257,7 @@ function publishLobby() {
     const players = app.lobby.map(({ id, name, color, hero, ready, host, on, bot, pending }) => ({ id, name, color, hero, ready, host, on, bot, pending }));
     app.conn.send({ m: { t: 'lobby', phase: app.phase, players } });
   }
+  voiceSync();
   renderLobbyUI();
 }
 
@@ -267,6 +317,11 @@ function hostMessage(m) {
       break;
     case 'ready':
       if (e) { e.ready = !!g.v; publishLobby(); }
+      break;
+    case 'rtc': // señalización de voz: para mí o para reenviar a otro invitado
+      if (!e) return;
+      if (g.to === app.myId) voice.onSignal(id, g.d);
+      else if (entry(g.to) && !entry(g.to).bot) sendTo(g.to, { t: 'rtc', from: id, d: g.d });
       break;
     case 'in':
       app.guestIn.set(id, { x: Math.max(-1, Math.min(1, +g.x || 0)), h: !!g.h });
@@ -459,6 +514,7 @@ function joinRoom(code) {
     on: {
       welcome(m, first) {
         app.myId = m.id;
+        voice.setId(m.id);
         app.conn.send({ t: 'hello', name: clean(profile.name), color: profile.color, hero: profile.hero, ready: app.ready });
         if (first) { setUrl(code); toLobby(); } else toast('Reconectado');
       },
@@ -480,8 +536,10 @@ function guestMessage(m) {
       if (me && me.color !== profile.color) { profile.color = me.color; saveProfile(); }
       if (app.screen === 'lobby') renderLobbyUI();
       else if (m.phase === 'lobby' && app.screen !== 'title') toLobby();
+      voiceSync();
       break;
     }
+    case 'rtc': voice.onSignal(m.from, m.d); break;
     case 'start': guestStart(m); break;
     case 'st':
       if (!app.lv || app.screen !== 'play') break;
@@ -672,6 +730,7 @@ function frame(dt, now) {
   }
   if (!view) { takeEvents(); view = demoView(dt); }
   app.view = view;
+  if (app.online) voice.setModes(...voiceModes(view));
   if (R.lv !== view.lv) R.setLevel(view.lv);
   R.draw(view, dt);
   if (app.screen === 'play') {
@@ -686,6 +745,7 @@ function frame(dt, now) {
 function bindUI() {
   const gesture = () => {
     unlockAudio();
+    voice.refresh(); // reanuda audio remoto bloqueado por autoplay y arma el eco
     if (needsTiltPermission() && input.gamma == null) requestTiltPermission();
   };
   addEventListener('pointerup', gesture, { passive: true });
@@ -711,12 +771,14 @@ function bindUI() {
   };
   $('btn-settings').onclick = () => overlay('settings', true);
   $('btn-pause-settings').onclick = () => overlay('settings', true);
-  $('btn-settings-close').onclick = () => { overlay('settings', false); saveSettings(); applySettings(); };
+  $('btn-settings-close').onclick = () => { overlay('settings', false); saveSettings(); applySettings(); voice.refresh(); };
   $('btn-calibrate').onclick = async () => {
     await requestTiltPermission();
     toast(calibrate() ? 'Inclinación calibrada' : 'Sin sensor de inclinación');
   };
-  bindSettings(() => { saveSettings(); applySettings(); });
+  bindSettings(() => { saveSettings(); applySettings(); voice.refresh(); });
+  $('btn-mic').onclick = toggleMic;
+  $('micbtn').onclick = toggleMic;
 
   // Sala
   $('me-name').addEventListener('input', (e) => { profile.name = clean(e.target.value); saveProfile(); profileChanged(); });
@@ -799,6 +861,8 @@ window.__downcastle = {
   next() { hostNext(); return this.state(); },
   toLobby() { if (app.role === 'host') hostToLobby(); },
   get app() { return app; },
+  voice: () => voice.debug(),
+  voiceStats: () => voice.stats(),
   get sim() { return app.sim; },
 };
 

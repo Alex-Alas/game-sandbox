@@ -118,7 +118,7 @@ CFG.WS_URL = wsUrl();
 
 /* Ajustes del jugador (pantalla de Ajustes), guardados en localStorage. */
 const SKEY = 'downcastle.settings';
-export const SETTINGS = { control: 'tilt', music: true, sfx: true, vibration: true };
+export const SETTINGS = { control: 'tilt', music: true, sfx: true, vibration: true, voice: true, micComp: false };
 try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem(SKEY)) || {}); } catch { /* sin storage */ }
 export function saveSettings() {
   try { localStorage.setItem(SKEY, JSON.stringify(SETTINGS)); } catch { /* sin storage */ }

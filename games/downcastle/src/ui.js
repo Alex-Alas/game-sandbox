@@ -170,5 +170,5 @@ export function bindSettings(onChange) {
     sync();
   };
   seg('opt-control', 'control', (v) => v, (v) => v);
-  for (const k of ['music', 'sfx', 'vibration']) seg('opt-' + k, k, (v) => v === '1', (v) => (v ? '1' : '0'));
+  for (const k of ['music', 'sfx', 'vibration', 'voice', 'micComp']) seg('opt-' + k, k, (v) => v === '1', (v) => (v ? '1' : '0'));
 }
