@@ -4,11 +4,11 @@
    con 'hi' (al entrar o recargar). Cada oferta lleva una sesión `n` al azar: respuestas y
    candidatos de otra sesión se ignoran.
 
-   Ruteo por compañero (`setModes`): 'dry' (sala, premios, o ambos muertos), 'cave' (ambos
-   vivos: seco + eco de cueva) u 'off'. El seco sale por un <audio> (Chrome solo decodifica
+   Ruteo por compañero (`setModes`), lo que oigo de él: 'dry' (seco), 'cave' (seco + eco de
+   cueva) u 'off'; y aparte si él me oye a mí (tx), que puede no ser simétrico. El seco sale por un <audio> (Chrome solo decodifica
    el audio remoto si un elemento lo reproduce, y así el cancelador de eco lo ve); el eco va
    por Web Audio a un bus compartido (reverb por convolución + eco con realimentación).
-   Con 'off' tampoco se le manda el micrófono (replaceTrack(null)): no hay renegociación.
+   Si él no me oye, ni se le manda el micrófono (replaceTrack(null)): no hay renegociación.
 
    Micrófono: getUserMedia → [compresor + ganancia de compensación si SETTINGS.micComp] →
    MediaStreamDestination; esa pista única es la que se envía a todos. */
@@ -91,7 +91,7 @@ export function createVoice(signal) {
   }
 
   /* ── Conexiones ── */
-  const want = (p) => !!(V.micOn && V.mic && p.mode !== 'off');
+  const want = (p) => !!(V.micOn && V.mic && p.tx);
   function applyTrack(p) {
     if (!p.sender) return;
     const t = want(p) ? V.mic.track : null;
@@ -100,7 +100,7 @@ export function createVoice(signal) {
 
   function peer(id) {
     let p = V.peers.get(id);
-    if (!p) { p = { id, pc: null, n: null, sender: null, el: null, src: null, send: null, mode: 'dry', pend: [], timer: 0 }; V.peers.set(id, p); }
+    if (!p) { p = { id, pc: null, n: null, sender: null, el: null, src: null, send: null, mode: 'dry', tx: true, pend: [], timer: 0 }; V.peers.set(id, p); }
     return p;
   }
 
@@ -236,11 +236,11 @@ export function createVoice(signal) {
       }
     },
     onSignal,
-    /** modeOf(id) → 'dry' | 'cave' | 'off'; barato si nada cambió. */
-    setModes(modeOf) {
+    /** modeOf(id) → 'dry' | 'cave' | 'off' (lo que oigo); txOf(id) → si me oye. Barato si nada cambió. */
+    setModes(modeOf, txOf) {
       for (const p of V.peers.values()) {
-        const m = modeOf(p.id);
-        if (m !== p.mode) { p.mode = m; route(p); }
+        const m = modeOf(p.id), tx = txOf(p.id);
+        if (m !== p.mode || tx !== p.tx) { p.mode = m; p.tx = tx; route(p); }
       }
     },
     async setMic(on) { if (on) return micStart(); micStop(); return false; },
@@ -264,7 +264,7 @@ export function createVoice(signal) {
     /** Para depurar: estado de cada conexión. */
     debug() {
       return [...V.peers.values()].map((p) => ({
-        id: p.id, mode: p.mode, state: p.pc?.connectionState || 'none', sending: !!p.sender?.track,
+        id: p.id, mode: p.mode, tx: p.tx, state: p.pc?.connectionState || 'none', sending: !!p.sender?.track,
         receiving: !!p.el?.srcObject, cave: p.send?.gain.value ?? null,
       }));
     },

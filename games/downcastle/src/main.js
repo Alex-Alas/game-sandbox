@@ -102,12 +102,17 @@ function voiceSync() {
   voice.sync(ids);
   micUI();
 }
-/* Vivos con vivos: con eco de cueva. Caídos (o mirando) solo con caídos. Fuera del pozo, todos. */
+/* Fuera del pozo, todos en seco. En el pozo, los vivos suenan con eco de cueva para todos;
+   los caídos (o los que miran) solo se oyen entre caídos, en seco. Devuelve [lo que oigo, me oye]. */
+const ALL = [() => 'dry', () => true];
 function voiceModes(view) {
-  if (app.screen !== 'play' || !view?.players?.length) return () => 'dry';
+  if (app.screen !== 'play' || !view?.players?.length) return ALL;
   const dead = (id) => { const p = view.players.find((q) => q.id === id); return !p || p.ko; };
   const meDead = dead(app.myId);
-  return (id) => (dead(id) !== meDead ? 'off' : meDead ? 'dry' : 'cave');
+  return [
+    (id) => (!dead(id) ? 'cave' : meDead ? 'dry' : 'off'),
+    (id) => !meDead || dead(id),
+  ];
 }
 function micUI() {
   const show = app.online && rtcOK;
@@ -725,7 +730,7 @@ function frame(dt, now) {
   }
   if (!view) { takeEvents(); view = demoView(dt); }
   app.view = view;
-  if (app.online) voice.setModes(voiceModes(view));
+  if (app.online) voice.setModes(...voiceModes(view));
   if (R.lv !== view.lv) R.setLevel(view.lv);
   R.draw(view, dt);
   if (app.screen === 'play') {
