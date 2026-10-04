@@ -270,8 +270,10 @@ export function createVoice(signal) {
 }
 
 /* «Sonido crujiente»: devuelve el nodo de entrada de la cadena, que termina en `out`.
-   pasabanda 350–3000 Hz → compresor fuerte → saturación → bitcrusher (worklet; sin él, solo
-   la saturación cuantizada). */
+   pasabanda 350–3000 Hz → compuerta → compresor fuerte → saturación → bitcrusher (worklets; sin
+   ellos, solo la saturación cuantizada). La compuerta es imprescindible: compresor + drive suben
+   el ruido de fondo del micrófono (alto en teléfonos, por el control automático de ganancia)
+   casi al nivel de la voz y el crusher lo vuelve estática continua. */
 export async function crunchChain(ac, out) {
   const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 350; hp.Q.value = 0.8;
   const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3000; lp.Q.value = 1.1;
@@ -283,7 +285,7 @@ export async function crunchChain(ac, out) {
   shaper.curve = crunchCurve(4096, 7);
   shaper.oversample = 'none';
   const post = ac.createGain(); post.gain.value = 0.6;
-  hp.connect(lp); lp.connect(comp); comp.connect(drive); drive.connect(shaper);
+  hp.connect(lp); comp.connect(drive); drive.connect(shaper);
   let last = shaper;
   try {
     if (!ac.audioWorklet) throw 0;
@@ -292,10 +294,12 @@ export async function crunchChain(ac, out) {
       crunchChain.loaded = ac.audioWorklet.addModule(url);
     }
     await crunchChain.loaded;
+    const gate = new AudioWorkletNode(ac, 'gate');
     const crush = new AudioWorkletNode(ac, 'crusher', { processorOptions: { rate: 8000, bits: 6, crackle: 0.001 } });
+    lp.connect(gate); gate.connect(comp);
     shaper.connect(crush);
     last = crush;
-  } catch { /* sin worklet: queda la saturación */ }
+  } catch { lp.connect(comp); /* sin worklet: queda la saturación */ }
   last.connect(post); post.connect(out);
   return hp;
 }
@@ -340,6 +344,36 @@ class Crusher extends AudioWorkletProcessor {
   }
 }
 registerProcessor('crusher', Crusher);
+
+/* Compuerta (el «squelch» de una radio): abre cuando el nivel RMS (15 ms) supera 4× el piso de
+   ruido, que se estima solo (baja enseguida al mínimo, sube despacio), o un mínimo absoluto. */
+class Gate extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.e2 = 0; this.floor = 0.003; this.g = 0; this.open = 0;
+    this.k = 1 - Math.exp(-1 / (0.015 * sampleRate));
+    this.rise = Math.exp(0.25 / sampleRate); // el piso sube ×1,28 por segundo
+    this.holdN = Math.round(0.2 * sampleRate);
+  }
+  process(inputs, outputs) {
+    const inp = inputs[0][0], out = outputs[0];
+    if (!out.length) return true;
+    for (let i = 0; i < out[0].length; i++) {
+      const x = inp ? inp[i] : 0;
+      this.e2 += (x * x - this.e2) * this.k;
+      const env = Math.sqrt(this.e2);
+      this.floor = env < this.floor ? this.floor + (env - this.floor) * 0.001 : this.floor * this.rise;
+      if (this.floor < 1e-4) this.floor = 1e-4;
+      if (env > Math.max(this.floor * 4, 0.006)) this.open = this.holdN;
+      else if (this.open > 0) this.open--;
+      const t = this.open > 0 ? 1 : 0;
+      this.g += (t - this.g) * (t > this.g ? 0.01 : 0.0006);
+      for (let ch = 0; ch < out.length; ch++) out[ch][i] = x * this.g;
+    }
+    return true;
+  }
+}
+registerProcessor('gate', Gate);
 `;
 
 /* Respuesta al impulso de una caverna: primeras reflexiones dispersas + cola de ruido que
