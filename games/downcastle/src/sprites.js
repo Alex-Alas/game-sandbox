@@ -298,3 +298,17 @@ function buildCodeSprites() {
     return c;
   });
 }
+
+/* Ícono de una criatura o jefe para el bestiario (cuadro quieto). */
+export function beastIcon(kind) {
+  switch (kind) {
+    case 'goblin': case 'imp': case 'skeleton': return creatureFrames(kind).idle[0];
+    case 'cube': return CODE.cube[0];
+    case 'fairy': return CODE.fairy[0];
+    case 'bat': return CODE.bat[1];
+    case 'gargoyle': return CODE.gargoyle[0];
+    case 'eyelet': return CODE.eyelet[0];
+    case 'ojo': return CODE.ojoBall;
+    default: return null;
+  }
+}

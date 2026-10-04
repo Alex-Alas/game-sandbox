@@ -48,7 +48,7 @@ MODS.derrumbe = {
     for (const p of sim.players) {
       if (!p.ko && p.conn && p.y - HH < cam.y) M.chaseInT += dt;
       if (p.y - HH >= edge || p.trapped >= 0) continue;
-      if (!p.ko && p.conn && hurt(sim, p, p.x, p.y - 30)) {
+      if (!p.ko && p.conn && hurt(sim, p, p.x, p.y - 30, 'derrumbe')) {
         p.stats.chaseHits++;
         M.chaseHits++;
         cam.hits = cam.hits.filter((t) => sim.t - t <= 3);
@@ -109,7 +109,7 @@ export const BOSS_W = 32, BOSS_H = 32;
 export function createSim(lv, roster) {
   const sim = {
     lv, t: 0, gems: 0, status: 'play', wonT: 0, fx: [],
-    players: [], creatures: [], bullets: [], links: [], pending: [], arrows: [],
+    players: [], creatures: [], bullets: [], links: [], pending: [], arrows: [], seen: new Set(), seenT: 0,
     gemsTaken: new Uint8Array(lv.gems.length),
     mods: (lv.tramo.mods || []).map((id) => MODS[id]).filter(Boolean),
     cam: null, boss: null, crumble: new Map(), mv: (lv.movers || []).map(() => ({ x: 0, y: 0, px: 0, py: 0 })),
@@ -131,7 +131,7 @@ export function createSim(lv, roster) {
 
 function newPlayer(r, idx, sp) {
   return {
-    id: r.id, idx, name: r.name, color: r.color, hero: r.hero, bot: !!r.bot,
+    id: r.id, idx, name: r.name, color: r.color, hero: r.hero, bot: !!r.bot, rope: r.rope || 'soga',
     x: sp.x, y: sp.y, px: sp.x, py: sp.y, vx: 0, vy: 0, ax: 0, ay: 0, inv: 1,
     hp: r.hp > 0 ? Math.min(r.hp, CFG.HEARTS) : (r.hp === 0 ? 1 : CFG.HEARTS), // fuera de combate vuelve con 1
     ammo: CFG.AMMO, facing: 1,
@@ -186,6 +186,18 @@ export function step(sim, dt) {
   if (sim.boss) stepBoss(sim, dt);
   contacts(sim);
   bookkeeping(sim, dt);
+  if ((sim.seenT -= dt) <= 0) { sim.seenT = 0.25; markSeen(sim); }
+}
+
+/* Bestiario: criaturas vivas en la pantalla de algún jugador en pie (los presentes cuentan
+   como que la vieron). Tras rewrap, las x se comparan directo. */
+function markSeen(sim) {
+  const live = sim.players.filter((p) => !p.ko && p.conn);
+  for (const c of sim.creatures) {
+    if (!c.alive || sim.seen.has(c.kind)) continue;
+    if (live.some((p) => Math.abs(c.y - p.y) < 160 && Math.abs(c.x - p.x) < 7 * T)) sim.seen.add(c.kind);
+  }
+  if (sim.boss?.gateClosed) sim.seen.add('ojo');
 }
 
 const canAct = (p) => !p.ko && p.conn && p.trapped < 0 && p.stunT <= 0;
@@ -585,7 +597,7 @@ function moveY(sim, p, d) {
       if (!blocks(tileAt(lv, tx, ty))) continue;
       p.y = (ty + 1) * T + HH + 0.001;
       // El rebote del bungee (o un tirón) lo estrella contra el techo
-      if (p.vy < -340) hurt(sim, p, p.x, p.y - 12);
+      if (p.vy < -340) hurt(sim, p, p.x, p.y - 12, 'techo');
       p.vy = 0;
       return true;
     }
@@ -696,7 +708,7 @@ function damage(sim, c, dmg, by) {
   c.alive = false;
   const v = CREATURE[c.kind].gems;
   sim.gems += v;
-  if (by) { by.stats.kills++; by.stats.gems += v; }
+  if (by) { by.stats.kills++; by.stats.gems += v; by.stats['kill_' + c.kind] = (by.stats['kill_' + c.kind] || 0) + 1; }
   emit(sim, { k: 'kill', x: r1(c.x), y: r1(c.y), v, kind: c.kind, id: by?.id });
 }
 
@@ -878,7 +890,7 @@ function stepArrows(sim, dt) {
       for (const p of sim.players) {
         if (p.ko || Math.abs(a.x - p.x) > HW + 1 || Math.abs(a.y - p.y) > HH + 1) continue;
         a.dead = true;
-        hurt(sim, p, a.x, a.y);
+        hurt(sim, p, a.x, a.y, 'skeleton');
         break;
       }
     }
@@ -1125,7 +1137,7 @@ function contacts(sim) {
     if (p.trapped >= 0) continue;
     if (!p.ko && p.invT <= 0) {
       const s = touchingSpike(lv, p);
-      if (s) hurt(sim, p, s[0], s[1]);
+      if (s) hurt(sim, p, s[0], s[1], 'spikes');
     }
     for (const c of sim.creatures) {
       if (!c.alive || !overlap(p, c)) continue;
@@ -1139,7 +1151,7 @@ function contacts(sim) {
           p.diving = false;
           p.stats.stomps++;
           emit(sim, { k: 'stomp', id: p.id, x: r1(c.x), y: r1(c.y), strong });
-        } else if (c.biteCd <= 0 && hurt(sim, p, c.x, c.y)) {
+        } else if (c.biteCd <= 0 && hurt(sim, p, c.x, c.y, c.kind)) {
           c.biteCd = 0.8; // no muerde a toda la cadena de una
           if (c.kind === 'eyelet') { c.alive = false; emit(sim, { k: 'kill', x: r1(c.x), y: r1(c.y), v: 0, kind: c.kind }); }
           if (c.kind === 'bat') c.mode = 'back';
@@ -1189,8 +1201,9 @@ function touchingSpike(lv, p) {
   return null;
 }
 
-/* −1 corazón, invulnerable 1,5 s y empujón. Con 0 corazones queda fuera de combate. */
-export function hurt(sim, p, sx, sy) {
+/* −1 corazón, invulnerable 1,5 s y empujón. Con 0 corazones queda fuera de combate; src (la
+   criatura o el peligro) queda en stats.ko_<src> para el bestiario. */
+export function hurt(sim, p, sx, sy, src) {
   if (p.ko || p.invT > 0) return false;
   p.hp--;
   p.invT = CFG.INVULN;
@@ -1205,6 +1218,7 @@ export function hurt(sim, p, sx, sy) {
   emit(sim, { k: 'hit', id: p.id, x: r1(p.x), y: r1(p.y) });
   if (p.hp <= 0) {
     p.hp = 0; p.ko = true; p.stats.kos++;
+    if (src) p.stats['ko_' + src] = (p.stats['ko_' + src] || 0) + 1;
     if (p.trapped >= 0) release(p);
     emit(sim, { k: 'ko', id: p.id });
   }
@@ -1219,7 +1233,7 @@ function bookkeeping(sim, dt) {
       if (p.trapT <= 0) { // se cumplió el tiempo: −1 corazón y lo expulsa
         release(p);
         p.invT = 0;
-        hurt(sim, p, p.x, p.y + 10);
+        hurt(sim, p, p.x, p.y + 10, 'cube');
         p.vy = -220; p.vx = (p.x < (CFG.COLS * T) / 2 ? 1 : -1) * 150;
       }
     }

@@ -2,7 +2,10 @@
    Solo arma y muestra; las decisiones viven en main.js. */
 import { renderSVG } from 'uqr';
 import { PLAYER_COLORS, HEROES, SETTINGS } from './config.js';
-import { heroFrames } from './sprites.js';
+import { heroFrames, beastIcon } from './sprites.js';
+import { TITLES, ROPES, titleById, ropeColor } from './cosmetics.js';
+import { BEASTS, BOSSES } from './beasts.js';
+import { hasTitle, hasRope } from './profile.js';
 
 export const $ = (id) => document.getElementById(id);
 const SCREENS = ['title', 'lobby', 'awards', 'runend'];
@@ -53,6 +56,8 @@ export function renderLobby(s, cb) {
     nm.className = 'nm';
     nm.textContent = (p.name || '…') + (p.id === s.myId ? ' (vos)' : '');
     nm.style.color = colorHex(p.color);
+    const ti = titleById(p.title);
+    if (ti) { const e = document.createElement('span'); e.className = 'ti'; e.textContent = ti.name; nm.appendChild(e); }
     row.appendChild(nm);
     const st = document.createElement('span');
     st.className = 'st';
@@ -90,6 +95,28 @@ export function renderLobby(s, cb) {
     b.onclick = () => cb.hero(id);
     hs.appendChild(b);
   }
+  // Título y cuerda (solo los ganados; los demás muestran cómo se ganan)
+  const sel = $('me-title');
+  sel.textContent = '';
+  for (const t of [{ id: '', name: 'Sin título' }, ...TITLES.filter((x) => hasTitle(s.profile, x.id))]) {
+    const o = document.createElement('option');
+    o.value = t.id; o.textContent = t.name;
+    sel.appendChild(o);
+  }
+  sel.value = hasTitle(s.profile, s.profile.title) ? s.profile.title : '';
+  sel.onchange = () => cb.title(sel.value);
+  const rs = $('me-ropes');
+  rs.textContent = '';
+  for (const r of ROPES) {
+    const b = document.createElement('button');
+    const own = hasRope(s.profile, r.id);
+    b.className = (s.profile.rope === r.id ? 'sel' : '') + (own ? '' : ' lock');
+    b.title = own ? r.name : `${r.name}: ${r.desc}`;
+    b.appendChild(ropeSwatch(r.id));
+    b.appendChild(document.createTextNode(own ? r.name : '🔒'));
+    b.onclick = () => (own ? cb.rope(r.id) : toast(`${r.name}: ${r.desc}`, 2200));
+    rs.appendChild(b);
+  }
   $('btn-ready').textContent = s.ready ? 'No estoy listo' : 'Listo';
   $('btn-ready').classList.toggle('hidden', !!s.solo);
   $('ready-tip').classList.toggle('hidden', !!s.solo || s.ready);
@@ -115,6 +142,7 @@ function awardList(el, awards, empty) {
     d.querySelector('.ic').textContent = a.icon;
     d.querySelector('.t').textContent = a.name;
     d.querySelector('.w').textContent = a.who;
+    if (a.title) { const e = document.createElement('span'); e.className = 'ti'; e.textContent = ' · ' + a.title; d.querySelector('.w').appendChild(e); }
     d.querySelector('.w').style.color = colorHex(a.color);
     d.querySelector('.d').textContent = a.text;
     el.appendChild(d);
@@ -149,6 +177,101 @@ export function renderRunEnd(r, s) {
   awardList($('re-list'), r.awards, 'Sin trofeos en esta run');
   $('btn-tolobby').classList.toggle('hidden', !s.isHost);
   $('re-wait').classList.toggle('hidden', s.isHost);
+}
+
+/* Lo recién ganado (títulos y cuerdas), arriba de los premios. */
+export function renderUnlocks(id, list) {
+  const el = $(id);
+  el.textContent = '';
+  for (const u of list || []) {
+    const d = document.createElement('div');
+    d.textContent = u.kind === 'cuerda' ? `¡Nueva cuerda: ${u.name}!` : `¡Nuevo título: «${u.name}»!`;
+    el.appendChild(d);
+  }
+  el.classList.toggle('hidden', !el.children.length);
+}
+
+/* Muestra de cuerda: 32×4 px (se ve a 64×8). */
+function ropeSwatch(id) {
+  const c = document.createElement('canvas');
+  c.width = 32; c.height = 4;
+  const g = c.getContext('2d');
+  for (let x = 0; x < 32; x++) {
+    g.fillStyle = ropeColor(id, x, 0.4, false);
+    g.fillRect(x, Math.round(1.5 + Math.sin(x / 5) * 1), 1, 1);
+  }
+  return c;
+}
+
+/* ── Bestiario ── */
+function iconCanvas(kind, seen, scale = 2) {
+  const im = beastIcon(kind);
+  const c = document.createElement('canvas');
+  c.width = im?.width || 16; c.height = im?.height || 16;
+  const g = c.getContext('2d');
+  if (im) g.drawImage(im, 0, 0);
+  if (!seen) { g.globalCompositeOperation = 'source-in'; g.fillStyle = '#000'; g.fillRect(0, 0, c.width, c.height); }
+  c.style.width = c.width * scale + 'px'; c.style.height = c.height * scale + 'px';
+  return c;
+}
+
+export function renderBestiary(prof, pick, onPick) {
+  const seen = (k) => (prof.beasts[k]?.seen || 0) > 0;
+  const nSeen = BEASTS.filter((b) => seen(b.kind)).length;
+  $('bst-count').textContent = `${nSeen} de ${BEASTS.length} criaturas vistas`;
+  const cell = (b, box, scale) => {
+    const btn = document.createElement('button');
+    btn.className = b.kind === pick ? 'sel' : '';
+    btn.appendChild(iconCanvas(b.kind, seen(b.kind), scale));
+    btn.appendChild(document.createTextNode(seen(b.kind) ? b.name : '???'));
+    btn.onclick = () => onPick(b.kind);
+    box.appendChild(btn);
+  };
+  const grid = $('bst-grid'), bosses = $('bst-bosses');
+  grid.textContent = ''; bosses.textContent = '';
+  for (const b of BEASTS) cell(b, grid, 2);
+  for (const b of BOSSES) cell(b, bosses, 1);
+  // Ficha
+  const det = $('bst-detail');
+  const b = [...BEASTS, ...BOSSES].find((x) => x.kind === pick);
+  const st = prof.beasts[pick] || {};
+  if (!b) det.innerHTML = '<div class="lore">Tocá una criatura para ver su ficha.</div>';
+  else if (!seen(pick)) det.innerHTML = '<div class="t">???</div><div class="lore">Todavía no la viste. Bajá más hondo.</div>';
+  else {
+    const boss = BOSSES.includes(b);
+    const nums = boss
+      ? [['Enfrentado', st.fought || 0], ['Vencido', st.beaten || 0], ['Te mató', st.killedMe || 0]]
+      : [['Bajas', st.kills || 0], ['Te mató', `${st.killedMe || 0} ${st.killedMe === 1 ? 'vez' : 'veces'}`], ['Vista en', `${st.seen} tramos`]];
+    det.innerHTML = '<div class="t"></div><div class="lore"></div><div class="nums"></div>';
+    det.querySelector('.t').textContent = b.name + (boss ? ` · ${b.biome}` : '');
+    det.querySelector('.lore').textContent = b.lore;
+    det.querySelector('.nums').innerHTML = nums.map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('');
+  }
+  // Cosméticos: lo ganado y cuánto falta
+  const cz = $('bst-cosm');
+  cz.textContent = '';
+  const row = (name, desc, got, prog) => {
+    const d = document.createElement('div');
+    d.className = 'it' + (got ? ' got' : '');
+    d.innerHTML = '<span></span><span class="bar"><i></i></span>';
+    d.firstChild.textContent = (got ? '✓ ' : '') + name + (got ? '' : ` — ${desc}`);
+    d.querySelector('i').style.width = Math.round((got ? 1 : prog || 0) * 100) + '%';
+    cz.appendChild(d);
+  };
+  for (const t of TITLES) row(`«${t.name}»`, t.desc, hasTitle(prof, t.id), t.progress(prof));
+  for (const r of ROPES) if (!r.free) row(`Cuerda ${r.name.toLowerCase()}`, r.desc, hasRope(prof, r.id), r.progress?.(prof));
+}
+
+/* ── Cuenta ── */
+export function renderAccount(a) {
+  // a: { user, google, msg, busy }
+  $('acc-out').classList.toggle('hidden', !!a.user);
+  $('acc-in').classList.toggle('hidden', !a.user);
+  $('btn-acc-google').classList.toggle('hidden', !a.google);
+  $('btn-acc-email').disabled = !!a.busy;
+  $('btn-acc-sync').disabled = !!a.busy;
+  if (a.user) $('acc-who').textContent = `Conectado como ${a.user.email || 'cuenta de Google'}.` + (a.syncedAt ? ` Sincronizado ${new Date(a.syncedAt).toLocaleTimeString()}.` : '');
+  $('acc-msg').textContent = a.msg || '';
 }
 
 export function fmtTime(s) {

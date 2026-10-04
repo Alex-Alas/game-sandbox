@@ -167,6 +167,10 @@ function wsUrl() {
 }
 CFG.WS_URL = wsUrl();
 
+/* Cuentas (Supabase). La URL y la clave publicable son públicas por diseño: los datos los
+   protege RLS (cada cuenta solo lee y escribe lo suyo). */
+export const SUPA = { url: 'https://mkohmjfzuyxtpccvckub.supabase.co', key: 'sb_publishable_UrIc5BQcnl5Nxmm8UOTAcA_UNOP_2YV' };
+
 /* Ajustes del jugador (pantalla de Ajustes), guardados en localStorage. */
 const SKEY = 'downcastle.settings';
 export const SETTINGS = { control: 'tilt', music: true, sfx: true, vibration: true, voice: true, crunch: false };

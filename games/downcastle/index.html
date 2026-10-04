@@ -40,6 +40,7 @@
       <button id="btn-join">Unirse</button>
     </div>
     <button id="btn-solo">Jugar solo con bots</button>
+    <button id="btn-bestiary">Bestiario</button>
     <button id="btn-full">Pantalla completa</button>
     <button id="btn-settings">Ajustes</button>
   </div>
@@ -61,6 +62,9 @@
     <input id="me-name" maxlength="12" placeholder="Tu nombre" autocomplete="off" />
     <div id="me-colors" class="swatches"></div>
     <div id="me-heroes" class="heroes"></div>
+    <div class="opt"><span>Título</span><select id="me-title"></select></div>
+    <div class="lbl">Cuerda</div>
+    <div id="me-ropes" class="ropes"></div>
   </div>
   <p id="lobby-msg" class="msg"></p>
   <div class="row"><button id="btn-mic" class="small mic hidden">🎤 Micrófono apagado</button></div>
@@ -75,6 +79,7 @@
 
 <section id="awards" class="screen hidden">
   <h2 id="aw-title">Tramo superado</h2>
+  <div id="aw-unlocks" class="unlocks hidden"></div>
   <div id="aw-stats" class="stats"></div>
   <div id="aw-list"></div>
   <div class="rate">
@@ -90,6 +95,7 @@
 
 <section id="runend" class="screen hidden">
   <h2>Fin de la run</h2>
+  <div id="re-unlocks" class="unlocks hidden"></div>
   <div id="re-stats" class="stats"></div>
   <div id="re-list"></div>
   <div class="row">
@@ -109,7 +115,32 @@
   <button id="btn-calibrate" class="small">Calibrar inclinación ahora</button>
   <p class="tip">Sonido crujiente: tu voz llega como por una radio rota (mala calidad a propósito).</p>
   <p class="tip">Arrastrar: el desplazamiento del dedo desde donde tocaste equivale a inclinar.</p>
+  <div id="account" class="account">
+    <div class="lbl">Cuenta</div>
+    <div id="acc-out">
+      <p class="tip">Opcional: guardá tu progreso, el bestiario y tus cosméticos en cualquier dispositivo.</p>
+      <div class="joinrow"><input id="acc-email" type="email" placeholder="tu@correo.com" autocomplete="email" spellcheck="false" /><button id="btn-acc-email">Enviar enlace</button></div>
+      <button id="btn-acc-google" class="hidden">Entrar con Google</button>
+    </div>
+    <div id="acc-in" class="hidden">
+      <p id="acc-who" class="tip"></p>
+      <div class="row"><button id="btn-acc-sync" class="small">Sincronizar</button><button id="btn-acc-out" class="small">Cerrar sesión</button></div>
+    </div>
+    <p id="acc-msg" class="msg"></p>
+  </div>
   <div class="row"><button id="btn-settings-close" class="big">Listo</button></div>
+</section>
+
+<section id="bestiary" class="screen hidden">
+  <h2>Bestiario</h2>
+  <p id="bst-count" class="tip"></p>
+  <div id="bst-grid" class="bgrid"></div>
+  <div class="lbl">Jefes</div>
+  <div id="bst-bosses" class="bgrid bosses"></div>
+  <div id="bst-detail" class="bdetail"></div>
+  <div class="lbl">Cosméticos</div>
+  <div id="bst-cosm" class="cosm"></div>
+  <div class="row"><button id="btn-bestiary-close" class="big">Volver</button></div>
 </section>
 
 <section id="pause" class="screen dim hidden">

@@ -70,8 +70,9 @@ input {
   overflow-y: auto;
   touch-action: pan-y;
 }
+.screen { justify-content: safe center; } /* si no entra, se scrollea desde arriba sin recortar */
 .screen.dim { background: rgba(5, 3, 4, 0.82); }
-#settings, #pause { z-index: 5; background: rgba(10, 6, 7, 0.97); }
+#settings, #pause, #bestiary { z-index: 5; background: rgba(10, 6, 7, 0.97); }
 .screen > * { max-width: 420px; width: 100%; }
 h1 {
   font-family: Georgia, "Times New Roman", serif;
@@ -187,3 +188,37 @@ button.mic.on { opacity: 1; filter: none; box-shadow: 0 0 8px rgba(255, 210, 63,
 @media (orientation: landscape) and (max-height: 520px) and (pointer: coarse) {
   #rotate { display: flex; }
 }
+
+/* Perfil: cosméticos, bestiario y cuenta (F3) */
+select {
+  font: inherit; color: var(--ink); background: #1d1210; border: 2px solid #4a2f1d; border-radius: 6px;
+  padding: 7px 8px; max-width: 60%;
+}
+.ropes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.ropes button { padding: 6px 4px 4px; background: #1d1210; display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; }
+.ropes button.sel { background: linear-gradient(180deg, var(--wood-hi), var(--wood)); }
+.ropes button.lock { opacity: 0.45; }
+.ropes canvas { width: 64px; height: 8px; image-rendering: pixelated; }
+.pl .ti { display: block; font-size: 11px; font-weight: 400; color: var(--gold); font-style: italic; }
+.award .w .ti { font-weight: 400; font-style: italic; color: var(--gold); font-size: 12px; }
+.unlocks { display: flex; flex-direction: column; gap: 4px; text-align: center; color: var(--gold); font-size: 14px; font-weight: 700; }
+.unlocks div { background: rgba(255, 210, 63, 0.1); border: 1px solid #806418; border-radius: 6px; padding: 6px; }
+.bgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.bgrid button { padding: 6px 2px; background: #1d1210; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; min-height: 76px; justify-content: flex-end; }
+.bgrid button.sel { background: linear-gradient(180deg, var(--wood-hi), var(--wood)); }
+.bgrid canvas { image-rendering: pixelated; }
+.bgrid.bosses { grid-template-columns: 1fr; }
+.bgrid.bosses button { flex-direction: row; justify-content: center; gap: 12px; font-size: 14px; min-height: 0; }
+.bdetail { background: var(--panel); border: 1px solid #5a3a20; border-radius: 8px; padding: 10px 12px; min-height: 92px; }
+.bdetail .t { font-family: Georgia, serif; font-weight: 700; color: var(--gold); font-size: 18px; }
+.bdetail .lore { font-style: italic; color: var(--dim); font-size: 13px; margin: 4px 0 8px; }
+.bdetail .nums { display: flex; gap: 14px; font-size: 13px; color: var(--dim); flex-wrap: wrap; }
+.bdetail .nums b { color: var(--ink); }
+.cosm { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.cosm .it { display: flex; justify-content: space-between; gap: 8px; color: var(--dim); }
+.cosm .it.got { color: var(--ink); }
+.cosm .it .bar { flex: none; width: 70px; height: 6px; background: #2a1a12; border-radius: 3px; align-self: center; overflow: hidden; }
+.cosm .it .bar i { display: block; height: 100%; background: var(--gold); }
+.account { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #3a2416; padding-top: 12px; }
+.account .joinrow input { letter-spacing: 0; text-transform: none; font-weight: 400; text-align: left; min-width: 0; }
+#btn-acc-google { width: 100%; }
