@@ -61,6 +61,43 @@ export const CFG = {
   TRAP_TIME: 3,
   FAIRY_ANGRY: 5,
   FAIRY_SPEED: 70,
+  SKEL_CD: 2.2,            // esqueleto arquero: entre disparos
+  SKEL_AIM: 0.5,           // tensa el arco (el aviso)
+  SKEL_RANGE: 110,
+  ARROW_SPEED: 160,
+  EYELET_SPEED: 34,
+  EYELET_LIFE: 7,          // los ojitos se apagan solos (y al morder)
+
+  // Plataformas que se derrumban
+  CRUMBLE_SHAKE: 0.45,
+  CRUMBLE_BACK: 4,
+
+  // Ciclos: 4 tramos + jefe. Presupuesto de complejidad por bloque intermedio:
+  // B0 + Bc·ciclo + Bk·tramo (el del tramo es eso × la cantidad de bloques).
+  MAX_BLOCKS: 14,
+  B0: 3, Bc: 0.6, Bk: 0.35,
+  NEWS_FRAC: 0.4,          // en el ciclo de presentación, ~40 % de los bloques llevan novedades
+  BUNGEE_P: 0.16,
+  CHASE_P: (c) => Math.min(0.5, 0.2 + 0.1 * c), // derrumbe en los ciclos «+1» (por tramo k = 1..3)
+  CHASE_MAX_COST: 5,       // costo máximo de un bloque con derrumbe
+  CHASE_BUDGET: 0.85,
+
+  // Derrumbe (cámara forzada). CHASE_H: alto lógico de la pantalla compartida.
+  CHASE_H: 360,
+  CHASE_WARN: 3,
+  CHASE_V0: 24, CHASE_VC: 4, CHASE_VB: 1.5, // px/s: base + por ciclo + por bloque
+  CHASE_FAST: 1.15, CHASE_SLOWF: 0.8,        // factor en bloques baratos / caros
+  CHASE_KA: 1.2,           // adelantado: px/s extra por px de exceso
+  CHASE_VMAX: 150,
+  CHASE_TAU: 0.6,
+  CHASE_EASE: 0.85, CHASE_EASE_T: 2, // golpes seguidos: × 0,85 durante 2 s
+  CHASE_EDGE: 6,           // alto de los escombros que lastiman
+
+  // El Ojo
+  OJO_SPEED: 20,
+  OJO_IDLE: 1.4, OJO_WARN: 1, OJO_BEAM: 1.8, OJO_GAZE: 1.4, OJO_OPEN: 2.5,
+  OJO_FAST: 0.7,           // bajo el 50 % de vida, el ciclo dura esto
+  OJO_PUSH: 300, OJO_BEAM_STUN: 0.6,
 
   // Entrada
   HOLD_MS: 180,
@@ -118,7 +155,7 @@ CFG.WS_URL = wsUrl();
 
 /* Ajustes del jugador (pantalla de Ajustes), guardados en localStorage. */
 const SKEY = 'downcastle.settings';
-export const SETTINGS = { control: 'tilt', music: true, sfx: true, vibration: true, voice: true, micComp: false };
+export const SETTINGS = { control: 'tilt', music: true, sfx: true, vibration: true, voice: true, crunch: false };
 try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem(SKEY)) || {}); } catch { /* sin storage */ }
 export function saveSettings() {
   try { localStorage.setItem(SKEY, JSON.stringify(SETTINGS)); } catch { /* sin storage */ }

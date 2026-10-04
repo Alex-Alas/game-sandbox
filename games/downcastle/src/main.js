@@ -4,14 +4,15 @@
 import { CFG, saveSettings, params, load, store, PLAYER_COLORS, HEROES } from './config.js';
 import { loadSprites } from './sprites.js';
 import { genTramo, buildLevel, mulberry32 } from './level.js';
-import { createSim, step, encodeState, newStats, PF } from './sim.js';
-import { flowField, botThink, newBotMemory } from './bots.js';
+import { createSim, step, encodeState, newStats, PF, applyDyn, BOSS_STATES } from './sim.js';
+import { botFields, botView, botThink, newBotMemory } from './bots.js';
 import { initInput, readTilt, takeEvents, input, calibrate, requestTiltPermission, needsTiltPermission } from './input.js';
 import { createRenderer } from './render.js';
 import { connectRoom, createSnapBuffer, randomCode, ERRORS } from './net.js';
 import { computeAwards, sumStats, saveTel, rateTel } from './awards.js';
 import { unlockAudio, music, musicFilter, sfx, vibrate, applySettings } from './audio.js';
 import { createVoice } from './voice.js';
+import { showBlockViewer } from './viewer.js';
 import { $, showScreen, overlay, renderLobby, renderAwards, renderRunEnd, bindSettings, toast, colorHex } from './ui.js';
 
 const STEP = 1 / CFG.SIM_HZ;
@@ -32,7 +33,7 @@ const app = {
   lobby: [],             // anfitrión: la verdad; invitado: copia
   phase: 'lobby',        // 'lobby' | 'play' | 'awards' | 'runend'
   ready: false,
-  run: null, sim: null, lv: null, field: null, roster: [], tramo: null, runInfo: { n: 0, gems: 0 },
+  run: null, sim: null, lv: null, fields: null, roster: [], tramo: null, runInfo: { c: 0, k: 0, gems: 0 },
   botMem: new Map(), guestIn: new Map(), lastSeq: new Map(), netFx: [],
   acc: 0, stateT: 0, inT: 0, seq: 0, endT: null, paused: false,
   auto: false, autoMem: newBotMemory(9),
@@ -262,7 +263,25 @@ function publishLobby() {
 }
 
 const sendTo = (id, m) => app.online && app.conn.send({ to: id, m });
-const startMsg = () => ({ t: 'start', tramo: app.tramo, roster: app.roster, n: app.run.n, runGems: app.run.gems });
+const startMsg = () => ({ t: 'start', tramo: app.tramo, roster: app.roster, runGems: app.run.gems });
+
+/* Etiqueta del tramo: «CICLO 1 · TRAMO 3» o «CICLO 1 · JEFE: EL OJO». */
+const BOSS_NAMES = { ojo: 'EL OJO' };
+function tramoLabel(tr) {
+  if (!tr) return '';
+  return `CICLO ${tr.c + 1} · ` + (tr.kind === 'boss' ? `JEFE: ${BOSS_NAMES[tr.boss] || 'JEFE'}` : `TRAMO ${tr.k + 1}`);
+}
+
+/* Punto de arranque desde la URL (?ciclo, ?tramo, ?jefe, ?mods, ?seed, ?bloque) o goto(). */
+function urlStart() {
+  const num = (k) => (params.has(k) ? Math.max(0, Math.floor(+params.get(k)) || 0) : null);
+  const o = { c: num('ciclo') ?? 0, k: num('tramo') ?? 0, force: null };
+  const mods = params.get('mods'), boss = params.get('jefe') === '1', only = params.get('bloque');
+  if (mods != null || boss || only) o.force = { mods: mods != null ? mods.split(',').filter(Boolean) : undefined, boss, only: only || undefined };
+  if (boss) o.k = 4;
+  return o;
+}
+if (params.has('seed')) app.seedBase = (+params.get('seed')) >>> 0;
 
 function hostMessage(m) {
   if (m.t === 'peer') {
@@ -338,10 +357,10 @@ function hostMessage(m) {
   }
 }
 
-function startRun() {
+function startRun(at = urlStart()) {
   app.run = {
-    n: 0, seed: app.seedBase ?? (Math.random() * 2 ** 31) >>> 0,
-    gems: 0, cleared: 0, t: 0, stats: {}, hp: {}, order: null, names: {}, over: false,
+    c: at.c, k: Math.min(4, at.k), force: at.force, seed: app.seedBase ?? (Math.random() * 2 ** 31) >>> 0,
+    gems: 0, cleared: 0, t: 0, stats: {}, hp: {}, order: null, names: {}, over: false, maxC: at.c,
   };
   startTramo();
 }
@@ -354,7 +373,7 @@ function shuffle(arr, rnd) {
 function startTramo() {
   const run = app.run;
   const ids = app.lobby.map((e) => e.id);
-  const rnd = mulberry32(run.seed + run.n * 7919);
+  const rnd = mulberry32(run.seed + (run.c * 5 + run.k) * 7919);
   // El orden se sortea en cada tramo; los que se unieron entre tramos entran al final
   const prev = shuffle((run.order || ids).filter((id) => ids.includes(id)), rnd);
   const fresh = ids.filter((id) => !prev.includes(id));
@@ -364,16 +383,17 @@ function startTramo() {
     const e = entry(id);
     return { id, name: e.name, color: colorHex(e.color), hero: e.hero, bot: !!e.bot, hp: run.hp[id], conn: e.on !== false };
   });
-  app.tramo = genTramo(run.seed, run.n);
+  app.tramo = genTramo(run.seed, run.c, run.k, run.force || {}); // los forzados (URL, goto) solo valen para este tramo
+  run.force = null;
   app.lv = buildLevel(app.tramo);
-  app.field = flowField(app.lv);
+  app.fields = botFields(app.lv);
   app.sim = createSim(app.lv, app.roster);
   app.botMem = new Map(app.roster.map((r, i) => [r.id, newBotMemory(i)]));
   app.guestIn.clear();
   app.netFx = [];
   app.endT = null;
   app.phase = 'play';
-  app.runInfo = { n: run.n, gems: run.gems };
+  app.runInfo = { c: run.c, k: run.k, gems: run.gems };
   if (app.online) { app.conn.send({ m: startMsg() }); publishLobby(); }
   enterPlay();
 }
@@ -386,14 +406,13 @@ function enterPlay() {
   R.setLevel(app.lv);
   overlay('pause', false);
   setScreen('play');
-  $('tramolabel').textContent = `TRAMO ${app.runInfo.n + 1}`;
-  if (app.runInfo.n === 0) {
+  $('tramolabel').textContent = tramoLabel(app.tramo);
+  if (app.tramo.c === 0 && app.tramo.k === 0) {
     $('hint').classList.remove('hidden');
     setTimeout(() => $('hint').classList.add('hidden'), 7000);
   }
 }
 
-const botP = (p) => ({ x: p.x, y: p.y, grounded: p.grounded, ammo: p.ammo, ko: p.ko, trapped: p.trapped >= 0, idx: p.idx });
 function applyBot(p, view, mem) {
   const o = botThink(view, view.players[p.idx], mem, STEP);
   p.input.tilt = o.tilt;
@@ -403,14 +422,14 @@ function applyBot(p, view, mem) {
 
 function feedInputs(sim) {
   let bv = null;
-  const botView = () => (bv ||= { lv: app.lv, field: app.field, t: sim.t, players: sim.players.map(botP), creatures: sim.creatures });
+  const view = () => (bv ||= botView(sim, app.fields));
   for (const p of sim.players) {
     if (p.id === app.myId) {
       const evs = takeEvents();
-      if (app.auto) applyBot(p, botView(), app.autoMem);
+      if (app.auto) applyBot(p, view(), app.autoMem);
       else { p.input.tilt = readTilt(); p.input.hold = input.hold; }
       p.events.push(...evs);
-    } else if (p.bot) applyBot(p, botView(), app.botMem.get(p.id));
+    } else if (p.bot) applyBot(p, view(), app.botMem.get(p.id));
     else {
       const gi = app.guestIn.get(p.id);
       if (gi) { p.input.tilt = gi.x; p.input.hold = gi.h; }
@@ -460,12 +479,16 @@ function hostEndTramo() {
     run.names[p.id] = { name: p.name, color: p.color };
   }
   for (const p of sim.players) run.hp[p.id] = p.ko ? 0 : p.hp;
+  const tr = app.tramo;
   const res = {
-    t: 'res', result: won ? 'won' : 'wiped', n: run.n, gems: sim.gems, runGems: run.gems,
+    t: 'res', result: won ? 'won' : 'wiped', c: tr.c, k: tr.k, kind: tr.kind, boss: tr.boss || null, mods: tr.mods, gems: sim.gems, runGems: run.gems,
     dur: Math.round(sim.t * 10) / 10, awards: computeAwards(players), players: players.length,
     stats: Object.fromEntries(players.map((p) => [p.id, roundStats(p.stats)])),
   };
-  if (won) run.n++;
+  if (won) { // tras el jefe, el ciclo siguiente
+    run.k++;
+    if (run.k > 4) { run.c++; run.k = 0; run.maxC = Math.max(run.maxC, run.c); }
+  }
   run.over = !won;
   app.phase = 'awards';
   app.lastRes = res;
@@ -483,7 +506,7 @@ function hostNext() {
 function hostRunEnd() {
   const run = app.run;
   const totals = Object.entries(run.stats).map(([id, stats]) => ({ id: +id, name: run.names[id].name, color: run.names[id].color, stats }));
-  const msg = { t: 'runend', gems: run.gems, tramos: run.cleared, dur: Math.round(run.t), awards: computeAwards(totals) };
+  const msg = { t: 'runend', gems: run.gems, tramos: run.cleared, ciclo: run.maxC + 1, dur: Math.round(run.t), awards: computeAwards(totals) };
   app.phase = 'runend';
   app.lastRunEnd = msg;
   if (app.online) { app.conn.send({ m: msg }); publishLobby(); }
@@ -544,6 +567,7 @@ function guestMessage(m) {
     case 'st':
       if (!app.lv || app.screen !== 'play') break;
       app.snaps.push(m, nowS());
+      applyDyn(app.lv, m.dy); // plataformas, entrada y piso del jefe
       if (m.fx) guestFx(m.fx);
       break;
     case 'res': app.lastRes = m; showAwards(m); break;
@@ -556,9 +580,9 @@ function guestMessage(m) {
 function guestStart(m) {
   app.tramo = m.tramo;
   app.lv = buildLevel(m.tramo);
-  app.field = flowField(app.lv);
+  app.fields = botFields(app.lv);
   app.roster = m.roster;
-  app.runInfo = { n: m.n, gems: m.runGems };
+  app.runInfo = { c: m.tramo.c, k: m.tramo.k, gems: m.runGems };
   app.snaps.clear();
   app.hurtAt.clear(); app.lastHp.clear();
   app.phase = 'play';
@@ -572,7 +596,7 @@ function guestFrame(dt, view) {
   if (!me) return; // mirando: entra en el próximo tramo
   let tilt = readTilt(), hold = input.hold;
   if (app.auto) {
-    const o = botThink({ ...view, field: app.field }, me, app.autoMem, dt);
+    const o = botThink({ ...view, ...app.fields }, me, app.autoMem, dt);
     tilt = o.tilt; hold = o.hold; evs.push(...o.events);
   }
   for (const e of evs) { app.conn.send({ t: 'ev', s: ++app.seq, e }); localFeedback(e, me, view); }
@@ -616,8 +640,19 @@ function simView(alpha) {
     })),
     creatures: sim.creatures.map((c) => ({
       kind: c.kind, alive: c.alive, x: lerp(c.px, c.x, alpha), y: lerp(c.py, c.y, alpha),
-      dir: c.dir, angry: c.angryT > 0, flash: c.flashT > 0,
+      dir: c.dir, angry: c.angryT > 0, flash: c.flashT > 0, aim: c.aimT > 0,
     })),
+    arrows: sim.arrows,
+    ...(sim.cam ? { chase: true, camY: lerp(sim.cam.py, sim.cam.y, alpha), chaseWarn: sim.cam.warn > 0 } : {}),
+    ...bossView(sim.boss, alpha),
+  };
+}
+function bossView(B, alpha) {
+  if (!B) return {};
+  return {
+    bossDead: B.dead,
+    boss: { x: lerp(B.px, B.x, alpha), y: lerp(B.py, B.y, alpha), hp: B.hp, max: B.max, state: B.state, dead: B.dead,
+      gateClosed: B.gateClosed, beams: B.beams.map((b) => b.y), stun: B.stunT > 0 },
   };
 }
 
@@ -642,7 +677,7 @@ function guestView(now) {
     app.lastHp.set(r.id, hp);
     players.push({
       id: r.id, idx: i, name: r.name, color: r.color, hero: r.hero, x, y, vx: s[2], vy: s[3], hp, ammo: s[5],
-      grounded: !!(fl & PF.grounded), anchored: !!(fl & PF.anchored), ko: !!(fl & PF.ko), trapped: !!(fl & PF.trapped),
+      grounded: !!(fl & PF.grounded), anchored: !!(fl & PF.anchored), ko: !!(fl & PF.ko), trapped: !!(fl & PF.trapped), diving: !!(fl & PF.diving),
       inv: !!(fl & PF.inv), stun: !!(fl & PF.stun), off: !!(fl & PF.off), left: !!(fl & PF.left),
       hurtAgo: now - (app.hurtAt.get(r.id) ?? -99),
     });
@@ -652,17 +687,29 @@ function guestView(now) {
     if (!cb) return { kind: c0.kind, alive: false };
     return {
       kind: c0.kind, alive: true, x: ca ? lerp(ca[0], cb[0], f) : cb[0], y: ca ? lerp(ca[1], cb[1], f) : cb[1],
-      dir: cb[2] & 1 ? -1 : 1, angry: !!(cb[2] & 2), flash: !!(cb[2] & 4),
+      dir: cb[2] & 1 ? -1 : 1, angry: !!(cb[2] & 2), flash: !!(cb[2] & 4), aim: !!(cb[2] & 8),
     };
   });
   const gemsTaken = new Uint8Array(app.lv.gems.length);
   for (const i of L.gm || []) gemsTaken[i] = 1;
   const focus = players.find((p) => !p.ko) || players[0];
-  return { lv: app.lv, t: lerp(a.T, b.T, f), meId: app.myId, gemsTaken, gems: L.g, players, creatures, focus };
+  const v = { lv: app.lv, t: lerp(a.T, b.T, f), meId: app.myId, gemsTaken, gems: L.g, players, creatures, focus };
+  // Derrumbe: la cámara compartida, interpolada como el resto
+  if (b.cy != null) Object.assign(v, { chase: true, camY: a.cy != null ? lerp(a.cy, b.cy, f) : b.cy, chaseWarn: !!b.cw });
+  // Flechas: extrapoladas desde el último estado
+  const age = Math.min(0.3, Math.max(0, now - L.recv));
+  v.arrows = (L.ar || []).map(([x, y, vx, vy]) => ({ x: x + vx * age, y: y + vy * age, vx, vy }));
+  if (b.b) {
+    const [bx, by, hp, max, st] = b.b, ab = a.b || b.b;
+    const state = BOSS_STATES[st] || 'idle';
+    v.bossDead = state === 'dead';
+    v.boss = { x: lerp(ab[0], bx, f), y: lerp(ab[1], by, f), hp, max, state, dead: state === 'dead', gateClosed: state !== 'wait', beams: b.bm || [], stun: false };
+  }
+  return v;
 }
 
 function demoView(dt) {
-  if (!app.demo) app.demo = { lv: buildLevel(genTramo(424242, 3)), camY: 0, t: 0 };
+  if (!app.demo) app.demo = { lv: buildLevel(genTramo(424242, 0, 3, { mods: [] })), camY: 0, t: 0 };
   const d = app.demo;
   d.t += dt;
   d.camY = (d.t * 12) % Math.max(1, d.lv.pxH - R.H);
@@ -677,8 +724,11 @@ const FX_SOUND = {
   shot: 'shot', empty: 'empty', jump: 'jump', hit: 'hit', ko: 'ko', tug: 'tug', trap: 'trap', free: 'free',
   stomp: 'stomp', land: 'land', bounce: 'bounce', kill: 'kill', chit: 'chit', plop: 'plop', heal: 'heal',
   angry: 'angry', ff: 'ff', anchor: 'anchor', fairypush: 'ff', won: 'won', wiped: 'wiped',
+  aim: 'aim', arrow: 'arrow', arrowbreak: 'arrowbreak', shake: 'shake', crumble: 'crumble', reform: 'reform',
+  chasewarn: 'rumble', chasego: 'rumble', gate: 'gate', beamwarn: 'beamwarn', beam: 'beam', zap: 'zap',
+  gaze: 'gaze', eyeopen: 'eyeopen', bosshit: 'bosshit', clank: 'clank', bossdie: 'bossdie',
 };
-const FX_VIBRATE = { hit: 90, ko: 250, trap: 60, land: 30, ff: 40, fairypush: 40, stomp: 20, bounce: 25 };
+const FX_VIBRATE = { hit: 90, ko: 250, trap: 60, land: 30, ff: 40, fairypush: 40, stomp: 20, bounce: 25, zap: 60, bosshit: 40 };
 
 function playFx(ev, view) {
   R.fx(ev, view);
@@ -688,7 +738,10 @@ function playFx(ev, view) {
   if (mine && FX_VIBRATE[ev.k]) vibrate(FX_VIBRATE[ev.k]);
   if (mine && ev.k === 'shot') vibrate(10);
   if (mine && ev.k === 'ko') toast('Fuera de combate', 2200);
-  if (ev.k === 'won') toast('¡Tramo superado!', 1400);
+  if (ev.k === 'won') toast(app.tramo?.kind === 'boss' ? '¡Ciclo superado!' : '¡Tramo superado!', 1400);
+  if (ev.k === 'chasewarn') toast('¡DERRUMBE! La cámara se suelta de ti', CFG.CHASE_WARN * 1000);
+  if (ev.k === 'gate') toast('¡EL OJO!', 1600);
+  if (ev.k === 'bossdie') toast('¡El Ojo vencido!', 2000);
   if (ev.k === 'wiped') toast('Cayeron todos…', 1400);
 }
 
@@ -697,8 +750,8 @@ function showAwards(res) {
   app.phase = 'awards';
   setScreen('awards');
   app.telAt = saveTel({
-    tramo: res.n, dur: res.dur, gems: res.gems, counters: res.stats, result: res.result,
-    players: res.players, role: app.role, rating: null,
+    tramo: res.c * 5 + res.k, c: res.c, k: res.k, kind: res.kind, mods: res.mods, dur: res.dur, gems: res.gems,
+    counters: res.stats, result: res.result, players: res.players, role: app.role, rating: null,
   });
   renderAwards(res, { isHost: app.role === 'host' }, { rate: (r) => rateTel(app.telAt, r) });
 }
@@ -847,7 +900,9 @@ window.__downcastle = {
     return {
       screen: app.screen, role: app.role, online: app.online, code: app.code, myId: app.myId, phase: app.phase,
       ready: app.ready, lobby: app.lobby.map((e) => ({ id: e.id, name: e.name, ready: e.ready, on: e.on, bot: !!e.bot, pending: !!e.pending })),
-      tramo: app.tramo && { seed: app.tramo.seed, n: app.tramo.n, chunks: app.tramo.chunks },
+      tramo: app.tramo && { seed: app.tramo.seed, c: app.tramo.c, k: app.tramo.k, kind: app.tramo.kind, mods: app.tramo.mods, chunks: app.tramo.chunks },
+      cam: app.sim?.cam ? Math.round(app.sim.cam.y) : (v?.camY != null ? Math.round(v.camY) : null),
+      boss: v?.boss ? { hp: v.boss.hp, state: v.boss.state, gate: v.boss.gateClosed } : null,
       status: app.sim?.status, t: app.sim?.t, gems: (app.run?.gems ?? app.runInfo.gems) + (v?.gems || 0),
       players: (v?.players || []).map((p) => ({ id: p.id, x: Math.round(p.x), y: Math.round(p.y), hp: p.hp, ko: p.ko, off: p.off })),
       res: app.lastRes && { result: app.lastRes.result, awards: app.lastRes.awards.map((a) => a.name) },
@@ -858,6 +913,14 @@ window.__downcastle = {
   auto(on = true) { app.auto = !!on; return app.auto; },
   /** Arranca la run sin esperar a que estén listos (anfitrión). */
   start() { if (app.role === 'host') startRun(); return this.state(); },
+  /** Salta al tramo k del ciclo c (k = 4 o { boss: true }: el jefe), con { mods } forzados. Anfitrión. */
+  goto(c = 0, k = 0, o = {}) {
+    if (app.role !== 'host') return 'solo el anfitrión';
+    const at = { c, k: o.boss ? 4 : k, force: { mods: o.mods, boss: !!o.boss, only: o.only } };
+    if (!app.run) startRun(at);
+    else { Object.assign(app.run, { c: at.c, k: at.k, force: at.force, over: false }); startTramo(); }
+    return this.state();
+  },
   next() { hostNext(); return this.state(); },
   toLobby() { if (app.role === 'host') hostToLobby(); },
   get app() { return app; },
@@ -875,6 +938,7 @@ async function boot() {
   $('loading').classList.add('hidden');
   requestAnimationFrame(loop);
   const sala = (params.get('sala') || '').toUpperCase();
+  if (params.get('ver') === 'bloques') { showBlockViewer(); return; }
   if (params.get('solo') === '1') startSolo(params.has('bots') ? +params.get('bots') : 2);
   else if (sala) joinRoom(sala);
   else toTitle();

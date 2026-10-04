@@ -10,8 +10,10 @@
    por Web Audio a un bus compartido (reverb por convolución + eco con realimentación).
    Si él no me oye, ni se le manda el micrófono (replaceTrack(null)): no hay renegociación.
 
-   Micrófono: getUserMedia → [compresor + ganancia de compensación si SETTINGS.micComp] →
-   MediaStreamDestination; esa pista única es la que se envía a todos. */
+   Micrófono: getUserMedia → [cadena «sonido crujiente» si SETTINGS.crunch] → MediaStreamDestination;
+   esa pista única es la que se envía a todos. El crujido es mala calidad a propósito: banda de
+   teléfono viejo, compresión a tope, saturación y un bitcrusher (pocos bits, muestreo bajo y
+   chasquidos sueltos), así que los demás te oyen como por una radio rota. */
 import { SETTINGS } from './config.js';
 import { audioCtx } from './audio.js';
 
@@ -59,16 +61,12 @@ export function createVoice(signal) {
         stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       } catch { return false; }
       const src = ac.createMediaStreamSource(stream);
-      const comp = ac.createDynamicsCompressor();
-      comp.threshold.value = -36; comp.knee.value = 6; comp.ratio.value = 12;
-      comp.attack.value = 0.003; comp.release.value = 0.2;
-      const makeup = ac.createGain(); makeup.gain.value = 2.6;
       const gain = ac.createGain();
       const dest = ac.createMediaStreamDestination();
-      comp.connect(makeup); makeup.connect(gain); gain.connect(dest);
-      V.mic = { stream, src, comp, makeup, gain, dest, track: dest.stream.getAudioTracks()[0], compOn: null };
+      gain.connect(dest);
+      V.mic = { stream, src, crunch: await crunchChain(ac, gain), gain, dest, track: dest.stream.getAudioTracks()[0], crunchOn: null };
     }
-    applyComp();
+    applyCrunch();
     V.micOn = true;
     for (const p of V.peers.values()) applyTrack(p);
     return true;
@@ -82,12 +80,12 @@ export function createVoice(signal) {
       V.mic = null;
     }
   }
-  function applyComp() {
+  function applyCrunch() {
     const m = V.mic;
-    if (!m || m.compOn === !!SETTINGS.micComp) return;
-    m.compOn = !!SETTINGS.micComp;
+    if (!m || m.crunchOn === !!SETTINGS.crunch) return;
+    m.crunchOn = !!SETTINGS.crunch;
     try { m.src.disconnect(); } catch { /* */ }
-    m.src.connect(m.compOn ? m.comp : m.gain);
+    m.src.connect(m.crunchOn ? m.crunch : m.gain);
   }
 
   /* ── Conexiones ── */
@@ -244,8 +242,8 @@ export function createVoice(signal) {
       }
     },
     async setMic(on) { if (on) return micStart(); micStop(); return false; },
-    /** Tras cambiar Ajustes (escuchar / comprimir) o con un gesto (autoplay). */
-    refresh() { applyComp(); for (const p of V.peers.values()) route(p); },
+    /** Tras cambiar Ajustes (escuchar / crujido) o con un gesto (autoplay). */
+    refresh() { applyCrunch(); for (const p of V.peers.values()) route(p); },
     reset() { for (const p of V.peers.values()) closePc(p); V.peers.clear(); V.myId = null; },
     /** Para depurar: energía de audio recibida y bytes enviados por compañero. */
     async stats() {
@@ -270,6 +268,79 @@ export function createVoice(signal) {
     },
   };
 }
+
+/* «Sonido crujiente»: devuelve el nodo de entrada de la cadena, que termina en `out`.
+   pasabanda 450–2400 Hz → compresor brutal → saturación → bitcrusher (worklet; sin él, solo
+   la saturación cuantizada). */
+export async function crunchChain(ac, out) {
+  const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 450; hp.Q.value = 0.9;
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400; lp.Q.value = 1.4;
+  const comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -42; comp.knee.value = 0; comp.ratio.value = 20;
+  comp.attack.value = 0.001; comp.release.value = 0.12;
+  const drive = ac.createGain(); drive.gain.value = 9;
+  const shaper = ac.createWaveShaper();
+  shaper.curve = crunchCurve(4096, 5);
+  shaper.oversample = 'none';
+  const post = ac.createGain(); post.gain.value = 0.5;
+  hp.connect(lp); lp.connect(comp); comp.connect(drive); drive.connect(shaper);
+  let last = shaper;
+  try {
+    if (!ac.audioWorklet) throw 0;
+    if (!crunchChain.loaded) {
+      const url = URL.createObjectURL(new Blob([CRUSHER], { type: 'application/javascript' }));
+      crunchChain.loaded = ac.audioWorklet.addModule(url);
+    }
+    await crunchChain.loaded;
+    const crush = new AudioWorkletNode(ac, 'crusher', { processorOptions: { rate: 5200, bits: 4, crackle: 0.0025 } });
+    shaper.connect(crush);
+    last = crush;
+  } catch { /* sin worklet: queda la saturación */ }
+  last.connect(post); post.connect(out);
+  return hp;
+}
+
+/* Saturación dura (tanh) cuantizada a `bits`: escalones audibles. */
+function crunchCurve(n, bits) {
+  const c = new Float32Array(n), q = 2 ** (bits - 1);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    c[i] = Math.round(Math.tanh(x * 2.5) * q) / q;
+  }
+  return c;
+}
+
+/* Bitcrusher: sostiene cada muestra (muestreo bajo), la cuantiza y, mientras hay voz, suelta
+   chasquidos al azar. */
+const CRUSHER = `
+class Crusher extends AudioWorkletProcessor {
+  constructor(o) {
+    super();
+    const p = o.processorOptions || {};
+    this.step = sampleRate / (p.rate || 5200);
+    this.q = 2 ** ((p.bits || 4) - 1);
+    this.crackle = p.crackle || 0;
+    this.ph = 0; this.hold = 0; this.env = 0;
+  }
+  process(inputs, outputs) {
+    const inp = inputs[0][0], out = outputs[0];
+    if (!out.length) return true;
+    for (let i = 0; i < out[0].length; i++) {
+      const x = inp ? inp[i] : 0;
+      this.env = Math.max(Math.abs(x), this.env * 0.9995);
+      if (++this.ph >= this.step) {
+        this.ph -= this.step;
+        let h = Math.round(x * this.q) / this.q;
+        if (this.env > 0.05 && Math.random() < this.crackle) h = (Math.random() < 0.5 ? -1 : 1) * 0.9;
+        this.hold = h;
+      }
+      for (let ch = 0; ch < out.length; ch++) out[ch][i] = this.hold;
+    }
+    return true;
+  }
+}
+registerProcessor('crusher', Crusher);
+`;
 
 /* Respuesta al impulso de una caverna: primeras reflexiones dispersas + cola de ruido que
    decae y se oscurece. Estéreo levemente decorrelado. */

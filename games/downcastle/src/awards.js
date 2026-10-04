@@ -8,6 +8,7 @@ export const AWARDS = [
   { id: 'tiron', name: 'Tirón Traicionero', icon: '🪢', stat: 'traitorTugs', min: 1, fmt: (v) => `${v} tirones que terminaron en daño` },
   { id: 'salva', name: 'Salvavidas', icon: '🛟', stat: 'rescues', min: 1, fmt: (v) => `${v} rescates` },
   { id: 'hadas', name: 'Domador de Hadas', icon: '🧚', stat: 'angryFairies', min: 1, fmt: (v) => `${v} hadas enojadas` },
+  { id: 'gracia', name: 'Golpe de Gracia', icon: '👁️', stat: 'bossFinal', min: 1, fmt: () => 'el golpe final a El Ojo' },
   { id: 'peso', name: 'Peso Muerto', icon: '💀', stat: 'koT', min: 12, fmt: (v) => `${v.toFixed(1)} s fuera de combate` },
 ];
 
