@@ -222,3 +222,6 @@ select {
 .account { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid #3a2416; padding-top: 12px; }
 .account .joinrow input { letter-spacing: 0; text-transform: none; font-weight: 400; text-align: left; min-width: 0; }
 #btn-acc-google { width: 100%; }
+.acc-who { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 0; text-align: center; }
+#acc-who { color: var(--gold); font-size: 16px; word-break: break-all; }
+.acct-line { margin: 0; font-size: 13px; color: var(--gold); text-align: center; word-break: break-all; }
