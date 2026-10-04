@@ -1,7 +1,7 @@
 # Game Sandbox
 
 Espacio para experimentar con jueguitos web. Vite multi-página: cada juego vive en
-`games/<nombre>/` y sus assets en `public/<nombre>/`.
+`games/<nombre>/` y sus assets en `public/<nombre>/`. Para probarlo en web entrar a [https://alex-alas.github.io/game-sandbox/](https://alex-alas.github.io/game-sandbox/)
 
 ```bash
 npm install
