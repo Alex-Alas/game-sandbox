@@ -11,6 +11,12 @@ export const THIN = 30;     // grosor de un anillo fino
 export const DT = 1 / 120;  // paso fijo
 export const ROCE_ANG = 0.12; // rad: a cuánto del borde del muro cuenta como roce
 export const COMBO_T = 3;   // s sin roce ni fragmento y el combo se pierde
+// SALTO: cruza por el centro al lado opuesto. Durante el vuelo no hay colisión ni giro.
+export const FLIP_T = 0.09;   // s de vuelo
+export const FLIP_CD = 1.5;   // s de recarga (un ¡POR UN PELO! la devuelve entera)
+export const FLIP_BUF = 0.15; // s que se recuerda un pedido hecho antes de tiempo
+export const ESCAPE_T = 0.16; // s: saltar con el muro de frente a menos de esto es ¡ESCAPE!
+export const PELO_T = 0.06;   // …y a menos de esto, ¡POR UN PELO!
 
 export const STAGES = [
   { t: 0, name: 'PUNTO', hue: 190 },

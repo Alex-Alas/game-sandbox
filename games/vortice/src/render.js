@@ -1,6 +1,6 @@
 // VÓRTICE — dibujo en Canvas 2D. Todo el mundo vive en un hexágono: un radio r «de esquina»
 // se dibuja con hexR (distancia real según el ángulo), así muro, jugador y colisión coinciden.
-import { SIDES, SEG, TAU, P, PSIZE, CENTER, STAGES, COMBO_T } from './const.js';
+import { SIDES, SEG, TAU, P, PSIZE, CENTER, STAGES, COMBO_T, FLIP_T, FLIP_CD } from './const.js';
 import { multOf } from './sim.js';
 
 const COS30 = Math.cos(SEG / 2);
@@ -14,6 +14,7 @@ export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
   let W = 0, H = 0, dpr = 1;
   const parts = [], pops = [], trail = [];
+  const zips = [], ghosts = [], waves = []; // SALTO: estelas por el centro, imágenes residuales, ondas
   let hue = STAGES[0].hue;
 
   function resize() {
@@ -36,9 +37,30 @@ export function createRenderer(canvas) {
       parts.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life: life * (0.5 + Math.random() * 0.7), max: life, color, size: size * (0.5 + Math.random()) });
     }
   }
+  // SALTO: imagen residual donde estaba y estela recta hasta el lado opuesto
+  function salto(from, to, color) {
+    ghosts.push({ a: from, life: 0.35, color });
+    zips.push({ from, to, life: 0.3 + FLIP_T, color });
+    burst(from, P + PSIZE / 2, 10, color, 200, 0.35, 3);
+    trail.length = 0;
+  }
+  // Onda hexagonal al aterrizar (tier 1–2 = escape: más ondas y más grandes)
+  function wave(a, color, tier = 0) {
+    for (let i = 0; i <= tier; i++) waves.push({ t: -i * 0.07, life: 0.45 + tier * 0.15, color, w: 3 + tier * 2 });
+    burst(a, P + PSIZE / 2, 8 + tier * 6, color, 240, 0.4, 3);
+  }
   function pop(text, color, big = 1) {
     const lane = pops.filter((q) => q.t < 0.5).length % 4;
     pops.push({ text, color, t: 0, big, dx: (Math.random() - 0.5) * 30, dy: lane * 26 });
+  }
+
+  // Avance del vuelo del SALTO (0 → 1), suavizado
+  const flyK = (s) => { const k = Math.min(1, 1 - s.flipT / FLIP_T); return k * k * (3 - 2 * k); };
+  // Contorno del triángulo del jugador en el ángulo a, escalado desde su centro
+  function triPath(a, sc = 1) {
+    const [cx, cy] = pt(a, P + PSIZE / 2);
+    const q = [pt(a, P + PSIZE + 2), pt(a - 0.13, P - 1), pt(a + 0.13, P - 1)].map(([x, y]) => [cx + (x - cx) * sc, cy + (y - cy) * sc]);
+    ctx.beginPath(); ctx.moveTo(q[0][0], q[0][1]); ctx.lineTo(q[1][0], q[1][1]); ctx.lineTo(q[2][0], q[2][1]); ctx.closePath();
   }
 
   function draw(v) {
@@ -119,10 +141,49 @@ export function createRenderer(canvas) {
     ctx.beginPath();
     for (let k = 0; k <= SIDES; k++) { const [x, y] = pt(k * SEG, cr); k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
     ctx.fill(); ctx.stroke();
+    // núcleo del SALTO: se llena mientras recarga y late cuando está listo
+    const col = skinColor(v.skin, t);
+    {
+      const ready = s.flipCd <= 0, k = ready ? 1 : 1 - s.flipCd / FLIP_CD;
+      const ir = cr * 0.62 * (ready ? 1 + Math.sin(t * 8) * 0.06 + pulse * 0.1 : k);
+      ctx.globalAlpha = ready ? 0.85 : 0.35;
+      ctx.fillStyle = ready ? col : `hsl(${h},70%,60%)`;
+      ctx.beginPath();
+      for (let k2 = 0; k2 <= SIDES; k2++) { const [x, y] = pt(k2 * SEG, ir); k2 ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // estelas del SALTO (recta por el centro) e imágenes residuales
+    for (let i = zips.length - 1; i >= 0; i--) {
+      const z = zips[i]; z.life -= v.dt;
+      if (z.life <= 0) { zips.splice(i, 1); continue; }
+      const [x0, y0] = pt(z.from, P + PSIZE / 2), [x1, y1] = pt(z.to, P + PSIZE / 2);
+      // mientras vuela, la estela llega solo hasta el jugador
+      const k = s.flipT > 0 && i === zips.length - 1 ? flyK(s) : 1;
+      const ex = x0 + (x1 - x0) * k, ey = y0 + (y1 - y0) * k;
+      const a = Math.min(1, z.life / 0.3);
+      const g = ctx.createLinearGradient(x0, y0, ex, ey);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(1, z.color);
+      ctx.lineCap = 'round';
+      ctx.globalAlpha = a; ctx.strokeStyle = g; ctx.lineWidth = 3 + 9 * a;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.globalAlpha = a * 0.9; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(ex, ey); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    for (let i = ghosts.length - 1; i >= 0; i--) {
+      const g = ghosts[i]; g.life -= v.dt;
+      if (g.life <= 0) { ghosts.splice(i, 1); continue; }
+      const k = 1 - g.life / 0.35;
+      ctx.globalAlpha = (1 - k) * 0.8; ctx.strokeStyle = g.color; ctx.lineWidth = 2;
+      triPath(g.a, 1 + k * 1.6); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
 
     // estela + jugador
-    const col = skinColor(v.skin, t);
-    if (!s.dead || v.slow) {
+    if (s.flipT > 0) trail.length = 0;
+    else if (!s.dead || v.slow) {
       trail.unshift(s.a);
       const len = [0, 6, 14, 28][v.skin.trail] || 0;
       if (trail.length > len) trail.length = len;
@@ -140,7 +201,16 @@ export function createRenderer(canvas) {
         ctx.globalAlpha = 1;
       }
     }
-    if (!s.dead && !(s.inv > 0 && Math.floor(t * 20) % 2)) {
+    if (!s.dead && s.flipT > 0) {
+      // en vuelo: el triángulo cruza por el centro, estirado en la dirección del salto
+      const k = flyK(s);
+      const [x0, y0] = pt(s.flipFrom, P + PSIZE / 2), [x1, y1] = pt(s.a, P + PSIZE / 2);
+      const x = x0 + (x1 - x0) * k, y = y0 + (y1 - y0) * k, ang = Math.atan2(y1 - y0, x1 - x0);
+      ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+      ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-22, -6); ctx.lineTo(-22, 6); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else if (!s.dead && !(s.inv > 0 && Math.floor(t * 20) % 2)) {
       const a = s.a;
       const tip = pt(a, P + PSIZE + 2), b0 = pt(a - 0.13, P - 1), b1 = pt(a + 0.13, P - 1);
       const tri = () => { ctx.beginPath(); ctx.moveTo(tip[0], tip[1]); ctx.lineTo(b0[0], b0[1]); ctx.lineTo(b1[0], b1[1]); ctx.closePath(); };
@@ -159,6 +229,17 @@ export function createRenderer(canvas) {
       p.x += p.vx * v.dt; p.y += p.vy * v.dt; p.vx *= 0.96; p.vy *= 0.96;
       ctx.globalAlpha = Math.min(1, p.life / p.max * 1.5);
       ctx.fillStyle = p.color; ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    // ondas de aterrizaje: hexágonos que se abren desde la órbita
+    for (let i = waves.length - 1; i >= 0; i--) {
+      const w = waves[i]; w.t += v.dt;
+      if (w.t >= w.life) { waves.splice(i, 1); continue; }
+      if (w.t < 0) continue;
+      const k = w.t / w.life, r = P + PSIZE / 2 + (1 - Math.pow(1 - k, 2)) * 260;
+      ctx.globalAlpha = 1 - k; ctx.strokeStyle = w.color; ctx.lineWidth = w.w * (1 - k * 0.6);
+      ctx.beginPath();
+      for (let k2 = 0; k2 <= SIDES; k2++) { const [x, y] = pt(k2 * SEG, r); k2 ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+      ctx.stroke();
     }
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -246,5 +327,5 @@ export function createRenderer(canvas) {
   }
 
   resize();
-  return { draw, resize, burst, pop, clear: () => { parts.length = 0; pops.length = 0; trail.length = 0; }, get size() { return [W, H]; } };
+  return { draw, resize, burst, pop, salto, wave, clear: () => { parts.length = 0; pops.length = 0; trail.length = 0; zips.length = 0; ghosts.length = 0; waves.length = 0; }, get size() { return [W, H]; } };
 }

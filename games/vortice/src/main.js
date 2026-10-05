@@ -1,7 +1,7 @@
 // VÓRTICE — flujo (título → partida → muerte → revivir/resultados → reintentar), bucle,
 // entrada, efectos de pantalla y progreso. `window.__vortice` para depurar.
-import { createSim, step, botDir, revive, sideOf } from './sim.js';
-import { DT, STAGES, P, PSIZE, stageAt } from './const.js';
+import { createSim, step, botDir, revive, sideOf, requestFlip } from './sim.js';
+import { DT, STAGES, P, PSIZE, ESCAPE_T, PELO_T, stageAt } from './const.js';
 import { createRenderer } from './render.js';
 import { createAudio } from './audio.js';
 import * as M from './meta.js';
@@ -32,19 +32,24 @@ const buzz = (ms) => { if (save.settings.shake && navigator.vibrate) try { navig
 const show = (id) => { for (const s of document.querySelectorAll('.screen')) s.classList.toggle('hidden', s.id !== id); };
 
 // ── entrada ──
-const keys = { l: false, r: false };
-const touches = new Map();
+// Teclado: ←/→ o A/D giran; espacio, ↑/↓ o W/S saltan. Ratón: clic izquierdo/derecho gira
+// (sin importar dónde), rueda o clic medio saltan. Táctil: mitad izquierda/derecha gira y
+// deslizar en vertical salta.
+const keys = { l: false, r: false }, mouse = { l: false, r: false };
+const touches = new Map(); // pointerId → { side, x, y, t }
 function inputDir() {
-  let l = keys.l, r = keys.r;
-  for (const side of touches.values()) { if (side < 0) l = true; else r = true; }
+  let l = keys.l || mouse.l, r = keys.r || mouse.r;
+  for (const p of touches.values()) { if (p.side < 0) l = true; else if (p.side > 0) r = true; }
   return (r ? 1 : 0) - (l ? 1 : 0);
 }
-const KL = ['ArrowLeft', 'KeyA'], KR = ['ArrowRight', 'KeyD'];
+const flip = () => { if (state === 'play') requestFlip(sim); };
+const KL = ['ArrowLeft', 'KeyA'], KR = ['ArrowRight', 'KeyD'], KF = ['Space', 'ArrowUp', 'ArrowDown', 'KeyW', 'KeyS'];
 addEventListener('keydown', (e) => {
   if (KL.includes(e.code)) keys.l = true;
   if (KR.includes(e.code)) keys.r = true;
   if (e.repeat) return;
-  if (state === 'over' && stateT > 0.45 && (KL.includes(e.code) || KR.includes(e.code) || e.code === 'Space' || e.code === 'Enter')) retry();
+  if (state === 'play' && KF.includes(e.code)) flip();
+  else if (state === 'over' && stateT > 0.45 && (KL.includes(e.code) || KR.includes(e.code) || e.code === 'Space' || e.code === 'Enter')) retry();
   else if (state === 'revive' && (e.code === 'Space' || e.code === 'Enter')) doRevive();
   else if (state === 'revive' && (e.code === 'Escape' || KL.includes(e.code) || KR.includes(e.code))) finish();
   else if (state === 'title' && (e.code === 'Space' || e.code === 'Enter')) startRun('normal');
@@ -55,19 +60,49 @@ addEventListener('keyup', (e) => {
   if (KL.includes(e.code)) keys.l = false;
   if (KR.includes(e.code)) keys.r = false;
 });
-addEventListener('blur', () => { keys.l = keys.r = false; touches.clear(); });
+addEventListener('blur', () => { keys.l = keys.r = mouse.l = mouse.r = false; mbtn = 0; touches.clear(); });
 const onCanvas = (e) => !e.target.closest('button, input, label, .panel, .modal .box, a');
+const halfOf = (x) => (x < innerWidth / 2 ? -1 : 1);
+// Ratón: todo sale de `buttons` (con un botón ya apretado, el segundo llega como pointermove)
+let mbtn = 0, swallowMouse = false; // el clic que reintenta no debe quedar girando
+function mouseButtons(e) {
+  const b = state === 'play' && !swallowMouse ? e.buttons : 0;
+  if (b & 4 && !(mbtn & 4)) flip(); // clic medio
+  mbtn = b; mouse.l = !!(b & 1); mouse.r = !!(b & 2);
+  if (!e.buttons) swallowMouse = false;
+}
 addEventListener('pointerdown', (e) => {
   A.init();
-  if (state === 'play') { touches.set(e.pointerId, e.clientX < innerWidth / 2 ? -1 : 1); return; }
+  if (state === 'play') {
+    if (e.pointerType === 'mouse') mouseButtons(e);
+    else touches.set(e.pointerId, { side: halfOf(e.clientX), x: e.clientX, y: e.clientY, t: performance.now() });
+    return;
+  }
   if (!onCanvas(e)) return;
-  if (state === 'over' && stateT > 0.45) retry();
+  if (state === 'over' && stateT > 0.45) { retry(); if (e.pointerType === 'mouse') swallowMouse = true; }
   else if (state === 'revive') finish();
 });
-const lift = (e) => touches.delete(e.pointerId);
+const lift = (e) => { if (e.pointerType === 'mouse') mouseButtons(e); else touches.delete(e.pointerId); };
 addEventListener('pointerup', lift);
 addEventListener('pointercancel', lift);
-addEventListener('pointermove', (e) => { if (touches.has(e.pointerId)) touches.set(e.pointerId, e.clientX < innerWidth / 2 ? -1 : 1); });
+addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'mouse') return mouseButtons(e);
+  const p = touches.get(e.pointerId);
+  if (!p) return;
+  const dx = e.clientX - p.x, dy = e.clientY - p.y;
+  if (p.side && Math.abs(dy) >= 34 && Math.abs(dy) > Math.abs(dx) * 1.3 && performance.now() - p.t < 320) {
+    p.side = 0; flip(); // deslizar = SALTO; ese dedo deja de girar hasta soltarlo
+  } else if (p.side) p.side = halfOf(e.clientX);
+});
+addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); }); // sin autoscroll
+let lastWheel = 0; // la inercia del trackpad manda una ráfaga: solo cuenta un gesto nuevo
+addEventListener('wheel', (e) => {
+  if (state !== 'play') return;
+  e.preventDefault();
+  const now = performance.now();
+  if (now - lastWheel > 250) flip();
+  lastWheel = now;
+}, { passive: false });
 addEventListener('contextmenu', (e) => e.preventDefault());
 addEventListener('resize', () => R.resize());
 
@@ -85,18 +120,23 @@ function startRun(m) {
   show(null); document.body.classList.add('playing');
   A.mode('play'); A.stage(0); A.say(m === 'hiper' ? 'Hiper' : 'Comienza');
   fx.flash = 0.35; fx.zoom = 1.25;
+  if (!save.tips.salto) {
+    save.tips.salto = true; M.persist(save);
+    toast(matchMedia('(pointer: coarse)').matches ? '💫 NUEVO: <b>deslizá ↕</b> para SALTAR al lado opuesto' : '💫 NUEVO: <b>espacio</b> o <b>rueda</b> para SALTAR al lado opuesto', 'lv');
+  }
 }
 const retry = () => startRun(mode);
 
 const runStats = () => ({
   mode, time: sim.t, score: sim.score, roces: sim.roces, casis: sim.casis, shards: sim.shardsGot,
-  maxCombo: sim.maxCombo, fevers: sim.fevers, runs: 1,
+  maxCombo: sim.maxCombo, fevers: sim.fevers, escapes: sim.escapes, pelos: sim.pelos, runs: 1,
 });
 
 function handleEvents() {
   const evs = sim.events; sim.events = [];
-  if (state !== 'play') return;
   const col = skin().color.startsWith('#') ? skin().color : '#fff';
+  if (state === 'title') { for (const e of evs) if (e.type === 'salto') R.salto(e.from, e.to, col); return; }
+  if (state !== 'play') return;
   for (const e of evs) {
     if (e.type === 'roce') {
       A.roce(e.combo, e.casi);
@@ -118,6 +158,24 @@ function handleEvents() {
       A.fx('fever'); A.fever(true); A.say('¡Fiebre!');
       R.pop('¡FIEBRE! ×2', '#ff2f5b', 2);
       fx.flash = 0.4; fx.zoom = 1.12; buzz([20, 40, 20]);
+    } else if (e.type === 'salto') {
+      R.salto(e.from, e.to, col);
+      A.salto(e.tti < ESCAPE_T);
+      fx.shake = Math.max(fx.shake, 4); fx.zoom = Math.max(fx.zoom, 1.04); buzz(8);
+      // con la muerte encima, el vuelo se ve en cámara lenta
+      if (e.tti < ESCAPE_T) { fx.slow = e.tti < PELO_T ? 0.2 : 0.35; fx.slowT = 0.22; }
+    } else if (e.type === 'llegada') {
+      R.wave(sim.a, e.tier === 2 ? '#ffe36b' : e.tier ? '#47f3ff' : col, e.tier);
+      if (!e.tier) continue;
+      const pelo = e.tier === 2;
+      A.escape(pelo, e.combo);
+      R.pop(pelo ? `¡POR UN PELO! +${fmtN(e.pts)}` : `¡ESCAPE! +${fmtN(e.pts)}`, pelo ? '#ffe36b' : '#47f3ff', pelo ? 1.6 : 0.9);
+      R.burst(sim.a, P + PSIZE, pelo ? 36 : 16, pelo ? '#ffe36b' : '#47f3ff', 320, 0.7, 4);
+      fx.shake = Math.max(fx.shake, pelo ? 14 : 7); fx.zoom = pelo ? 1.14 : 1.08;
+      fx.flash = Math.max(fx.flash, pelo ? 0.35 : 0.15);
+      if (pelo) { fx.slow = 0.3; fx.slowT = 0.3; A.say('¡Por un pelo!'); buzz([15, 30, 40]); } else buzz(15);
+    } else if (e.type === 'listo') {
+      A.fx('ready');
     } else if (e.type === 'combo-lost') {
       A.fx('lost'); R.pop(`combo ${e.combo} perdido`, 'rgba(255,255,255,.6)', 0.3);
     } else if (e.type === 'dead') die();
@@ -331,9 +389,26 @@ $('btn-skins').onclick = () => { A.init(); A.fx('click'); renderSkins(); show('s
 $('btn-settings').onclick = () => {
   A.init(); A.fx('click'); show('settings');
   for (const i of document.querySelectorAll('[data-opt]')) i.checked = save.settings[i.dataset.opt];
-  const s = save.stats;
-  $('stats').innerHTML = `Partidas: <b>${s.runs}</b> · Tiempo total: <b>${Math.round(s.time)} s</b><br>Roces: <b>${s.roces}</b> · ¡CASI!: <b>${s.casis}</b> · Fragmentos: <b>${s.shards}</b><br>FIEBRES: <b>${s.fevers}</b> · Cofres: <b>${s.chests}</b> · Misiones: <b>${save.done}</b>`;
+  renderStats();
 };
+// Estadísticas con nodos y textContent: los valores vienen de localStorage
+function renderStats() {
+  const s = save.stats, box = $('stats');
+  const rows = [
+    [['Partidas', s.runs], ['Tiempo total', `${Math.round(s.time)} s`]],
+    [['Roces', s.roces], ['¡CASI!', s.casis], ['Fragmentos', s.shards]],
+    [['Escapes', s.escapes], ['¡POR UN PELO!', s.pelos]],
+    [['FIEBRES', s.fevers], ['Cofres', s.chests], ['Misiones', save.done]],
+  ];
+  box.replaceChildren();
+  rows.forEach((row, i) => {
+    if (i) box.append(document.createElement('br'));
+    row.forEach(([k, val], j) => {
+      const b = document.createElement('b'); b.textContent = String(val);
+      box.append(`${j ? ' · ' : ''}${k}: `, b);
+    });
+  });
+}
 for (const i of document.querySelectorAll('[data-opt]')) {
   i.onchange = () => { save.settings[i.dataset.opt] = i.checked; if (i.dataset.opt in A.opt) A.setOpt(i.dataset.opt, i.checked); M.persist(save); };
 }
@@ -348,7 +423,7 @@ function frame(now) {
     acc += dt * fx.slow;
     while (acc >= DT) {
       acc -= DT;
-      step(sim, state === 'title' ? botDir(sim) : inputDir());
+      step(sim, state === 'title' ? botDir(sim, true) : inputDir());
       handleEvents();
       if (state !== 'play' && state !== 'title') break;
     }
@@ -396,7 +471,9 @@ window.__vortice = {
   sim: () => sim, save, state: () => state, start: startRun, A,
   // simula `seg` segundos sin rAF (con el piloto automático si bot)
   advance(seg, bot = true) {
-    for (let i = 0; i < seg / DT && state === 'play'; i++) { step(sim, bot ? botDir(sim) : inputDir()); handleEvents(); }
+    for (let i = 0; i < seg / DT && state === 'play'; i++) { step(sim, bot ? botDir(sim, true) : inputDir()); handleEvents(); }
   },
   side: () => sideOf(sim.a),
+  flip,
+  input: () => ({ dir: inputDir(), keys: { ...keys }, mouse: { ...mouse }, touches: [...touches.values()] }),
 };

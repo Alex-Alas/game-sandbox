@@ -2,7 +2,12 @@
 // El jugador gira sobre el hexágono de radio P; los muros son tramos de anillo (un lado
 // cada uno) que caen hacia el centro. Chocar de frente mata; de costado, frena.
 // La rotación del mundo es solo visual: colisiones en el marco del mundo sin rotar.
-import { SIDES, SEG, TAU, P, PSIZE, CENTER, SPAWN, THIN, DT, ROCE_ANG, COMBO_T, MODES, stageAt } from './const.js';
+// SALTO (`requestFlip`): cruza por el centro al lado opuesto en FLIP_T, sin colisión en el
+// vuelo; saltar con el muro de frente a punto de pegar paga ¡ESCAPE! / ¡POR UN PELO!.
+import {
+  SIDES, SEG, TAU, P, PSIZE, CENTER, SPAWN, THIN, DT, ROCE_ANG, COMBO_T, MODES, stageAt,
+  FLIP_T, FLIP_CD, FLIP_BUF, ESCAPE_T, PELO_T,
+} from './const.js';
 import { nextPattern } from './patterns.js';
 
 export function mulberry32(a) {
@@ -36,6 +41,7 @@ export function createSim({ seed = 1, mode = 'normal' } = {}) {
     score: 0, combo: 0, comboT: 0, maxCombo: 0, roces: 0, shardsGot: 0,
     events: [], pv: params(MODES[mode].off), patterns: 0,
     fever: false, fevers: 0, casis: 0, inv: 0, revives: 0,
+    flipT: 0, flipCd: 0, flipBuf: 0, flipFrom: 0, flipTti: 99, flips: 0, escapes: 0, pelos: 0,
   };
   return s;
 }
@@ -90,6 +96,35 @@ function addCombo(s, n) {
   if (!s.fever && s.combo >= FEVER_AT) { s.fever = true; s.fevers++; s.events.push({ type: 'fever' }); }
 }
 
+// Pide un SALTO; si está recargando, se recuerda FLIP_BUF s
+export function requestFlip(s) { s.flipBuf = FLIP_BUF; }
+
+// Segundos hasta que el muro más cercano del lado actual pegue de frente (99 = ninguno)
+function threat(s) {
+  const side = sideOf(s.a);
+  let tti = 99;
+  for (const w of s.walls) if (w.side === side && w.r + w.th > P) tti = Math.min(tti, Math.max(0, (w.r - P - PSIZE) / s.pv.v));
+  return tti;
+}
+
+function startFlip(s) {
+  s.flipTti = s.inv > 0 ? 99 : threat(s); // invulnerable no hay de qué escapar
+  s.flipFrom = s.a; s.a = mod(s.a + Math.PI, TAU); // mismo lugar dentro del lado de enfrente
+  s.flipT = FLIP_T; s.flipCd = FLIP_CD; s.flipBuf = 0; s.flips++;
+  s.events.push({ type: 'salto', from: s.flipFrom, to: s.a, tti: s.flipTti });
+}
+
+// Al aterrizar vivo: recompensa si el muro del lado de partida estaba por pegar
+function land(s) {
+  const tti = s.flipTti;
+  if (tti >= ESCAPE_T) { s.events.push({ type: 'llegada', tier: 0 }); return; }
+  const pelo = tti < PELO_T;
+  addCombo(s, pelo ? 3 : 2); s.escapes++;
+  if (pelo) { s.pelos++; s.flipCd = 0; }
+  const pts = (pelo ? 200 : 60) * mult(s) * s.scoreMul; s.score += pts;
+  s.events.push({ type: 'llegada', tier: pelo ? 2 : 1, pts, tti, combo: s.combo });
+}
+
 // Revivir: limpia los muros cercanos y da un respiro sin colisión
 export function revive(s) {
   s.dead = false; s.inv = 1.6; s.revives++;
@@ -113,8 +148,16 @@ export function step(s, dir) {
   s.spin = Math.max(0, s.spin - DT * 1.8);
   s.rot += s.rotDir * pv.rot * (1 + s.spin * 2.2) * DT;
 
+  // SALTO: recarga, pedido recordado y vuelo
+  if (s.flipCd > 0) { s.flipCd -= DT; if (s.flipCd <= 0) s.events.push({ type: 'listo' }); }
+  if (s.flipBuf > 0) s.flipBuf -= DT;
+  let landed = false;
+  if (s.flipT > 0) { s.flipT -= DT; if (s.flipT <= 0) { s.flipT = 0; landed = true; } }
+  else if (s.flipBuf > 0 && s.flipCd <= 0) startFlip(s);
+  const flying = s.flipT > 0;
+
   // Jugador: girar, salvo que el lado de al lado tenga un muro a su altura
-  if (dir) {
+  if (dir && !flying) {
     const side = sideOf(s.a);
     const na = s.a + dir * pv.w * DT;
     const ns = sideOf(na);
@@ -132,6 +175,7 @@ export function step(s, dir) {
   for (const w of s.walls) {
     w.r -= dv;
     if (overlaps(w)) {
+      if (flying) continue; // en el vuelo no hay colisión ni roce
       if (w.side === side) { if (s.inv <= 0) s.dead = true; }
       else if (w.side === (side + 1) % SIDES) w.minD = Math.min(w.minD, SEG - local);
       else if (w.side === (side + SIDES - 1) % SIDES) w.minD = Math.min(w.minD, local);
@@ -151,7 +195,7 @@ export function step(s, dir) {
   for (let i = s.shards.length - 1; i >= 0; i--) {
     const f = s.shards[i];
     f.r -= dv;
-    if (f.side === side && Math.abs(f.r - (P + PSIZE / 2)) < 14) {
+    if (!flying && f.side === side && Math.abs(f.r - (P + PSIZE / 2)) < 14) {
       s.shards.splice(i, 1); addCombo(s, 2); s.shardsGot++;
       const pts = 100 * mult(s) * s.scoreMul; s.score += pts;
       s.events.push({ type: 'shard', pts, side, combo: s.combo });
@@ -159,6 +203,7 @@ export function step(s, dir) {
   }
 
   if (s.dead) { s.events.push({ type: 'dead' }); return; }
+  if (landed) land(s);
 
   // Combo, puntos por tiempo y etapa
   if (s.comboT > 0) {
@@ -177,8 +222,10 @@ export function step(s, dir) {
 }
 
 // Piloto automático: elige el lado al que se llega a tiempo y que queda libre más tiempo.
-// Sirve de bot para pruebas y de fondo animado en el título.
-export function botDir(s) {
+// Sirve de bot para pruebas y de fondo animado en el título. Con `flip`, también salta
+// (llama a requestFlip) cuando el lado opuesto es claramente mejor.
+export function botDir(s, flip = false) {
+  if (s.flipT > 0) return 0;
   const pv = s.pv, tau = SEG / pv.w, cur = sideOf(s.a), local = s.a - cur * SEG;
   // ventanas bloqueadas por lado, en segundos desde ahora
   const win = Array.from({ length: SIDES }, () => []);
@@ -212,6 +259,13 @@ export function botDir(s) {
       const sh = s.shards.some((f) => f.side === k && f.r > P) ? 0.05 : 0;
       const sc = Math.min(c, 3) - n * 0.03 + sh;
       if (sc > best.score) best = { score: sc, dir: n === 0 ? 0 : dir, n };
+    }
+  }
+  if (flip && s.flipCd <= 0) {
+    const k = mod(cur + 3, SIDES);
+    if (freeAt(k, FLIP_T - 0.02, FLIP_T + 0.08)) {
+      const sc = Math.min(clearance(k, FLIP_T), 3);
+      if (sc > best.score + 0.4 || (best.score < 0.2 && sc > best.score)) { requestFlip(s); return 0; }
     }
   }
   // ya en el lado elegido: centrarse un poco

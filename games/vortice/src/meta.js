@@ -29,6 +29,8 @@ const MT = [
   { id: 'surv', text: (n) => `Sobreviví ${n} s en una partida`, run: (r) => r.time, vals: [12, 18, 25, 32, 40, 50, 60, 75, 90, 120] },
   { id: 'roces', text: (n) => `Hacé ${n} roces en una partida`, run: (r) => r.roces, vals: [4, 8, 12, 18, 25, 35, 50] },
   { id: 'casis', text: (n) => `Hacé ${n} ¡CASI! en una partida`, run: (r) => r.casis, vals: [1, 2, 4, 6, 9, 12] },
+  { id: 'escapes', text: (n) => `Escapá al límite con el SALTO ${n} ${n > 1 ? 'veces' : 'vez'} en una partida`, run: (r) => r.escapes, vals: [1, 2, 3, 5, 7, 10] },
+  { id: 'pelos', text: (n) => `Hacé ${n} ¡POR UN PELO! en total`, total: 'pelos', vals: [1, 3, 6, 10, 18] },
   { id: 'shards', text: (n) => `Juntá ${n} fragmentos en una partida`, run: (r) => r.shards, vals: [1, 3, 5, 7, 10, 14] },
   { id: 'shardsT', text: (n) => `Juntá ${n} fragmentos en total`, total: 'shards', vals: [8, 20, 40, 80, 150] },
   { id: 'score', text: (n) => `Hacé ${n} puntos en una partida`, run: (r) => r.score, vals: [250, 500, 900, 1600, 3000, 6000, 12000] },
@@ -49,8 +51,8 @@ function fresh() {
     best: { normal: { time: 0, score: 0 }, hiper: { time: 0, score: 0 }, diario: { time: 0, score: 0 } },
     daily: { date: '', best: 0, time: 0 }, streak: { last: '', n: 0, max: 0 }, freeRevive: '',
     unlocked: { hiper: false }, chest: { t: 0, ready: 0 }, missions: [], done: 0,
-    stats: { runs: 0, time: 0, shards: 0, roces: 0, fevers: 0, casis: 0, chests: 0 },
-    settings: { music: true, sfx: true, voice: true, shake: true },
+    stats: { runs: 0, time: 0, shards: 0, roces: 0, fevers: 0, casis: 0, chests: 0, escapes: 0, pelos: 0 },
+    settings: { music: true, sfx: true, voice: true, shake: true }, tips: {},
   };
 }
 
@@ -58,7 +60,7 @@ export function load() {
   let s = fresh();
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (raw && raw.v === 1) s = { ...s, ...raw, stats: { ...s.stats, ...raw.stats }, best: { ...s.best, ...raw.best }, settings: { ...s.settings, ...raw.settings } };
+    if (raw && raw.v === 1) s = { ...s, ...raw, stats: { ...s.stats, ...raw.stats }, best: { ...s.best, ...raw.best }, settings: { ...s.settings, ...raw.settings }, tips: { ...raw.tips } };
   } catch { /* sin almacenamiento */ }
   while (s.missions.length < 3) s.missions.push(newMission(s));
   return s;
@@ -125,7 +127,7 @@ export function useRevive(s, nth) {
 }
 export const reviveCost = (s, nth) => (nth === 0 && hasFreeRevive(s) ? 0 : REVIVE_BASE << nth);
 
-// Fin de partida: récords, chispas, XP, cofres. r = { mode, time, score, roces, casis, shards, maxCombo, fevers }
+// Fin de partida: récords, chispas, XP, cofres. r = { mode, time, score, roces, casis, shards, maxCombo, fevers, escapes, pelos }
 export function finishRun(s, r, coinMul = 1) {
   const res = { coins: Math.floor((r.score / 12) * coinMul), xp: Math.floor(r.time * 2 + r.score / 60), levels: [], record: false, prevBest: { ...s.best[r.mode] }, unlocks: [] };
   const b = s.best[r.mode];
@@ -139,6 +141,7 @@ export function finishRun(s, r, coinMul = 1) {
   s.chispas += res.coins;
   const st = s.stats;
   st.runs++; st.time += r.time; st.shards += r.shards; st.roces += r.roces; st.fevers += r.fevers; st.casis += r.casis;
+  st.escapes += r.escapes || 0; st.pelos += r.pelos || 0;
   res.levels = addXp(s, res.xp);
   s.chest.t += r.time;
   while (s.chest.t >= CHEST_EVERY && s.chest.ready < CHEST_MAX) { s.chest.t -= CHEST_EVERY; s.chest.ready++; }
