@@ -389,9 +389,26 @@ $('btn-skins').onclick = () => { A.init(); A.fx('click'); renderSkins(); show('s
 $('btn-settings').onclick = () => {
   A.init(); A.fx('click'); show('settings');
   for (const i of document.querySelectorAll('[data-opt]')) i.checked = save.settings[i.dataset.opt];
-  const s = save.stats;
-  $('stats').innerHTML = `Partidas: <b>${s.runs}</b> · Tiempo total: <b>${Math.round(s.time)} s</b><br>Roces: <b>${s.roces}</b> · ¡CASI!: <b>${s.casis}</b> · Fragmentos: <b>${s.shards}</b><br>Escapes: <b>${s.escapes}</b> · ¡POR UN PELO!: <b>${s.pelos}</b><br>FIEBRES: <b>${s.fevers}</b> · Cofres: <b>${s.chests}</b> · Misiones: <b>${save.done}</b>`;
+  renderStats();
 };
+// Estadísticas con nodos y textContent: los valores vienen de localStorage
+function renderStats() {
+  const s = save.stats, box = $('stats');
+  const rows = [
+    [['Partidas', s.runs], ['Tiempo total', `${Math.round(s.time)} s`]],
+    [['Roces', s.roces], ['¡CASI!', s.casis], ['Fragmentos', s.shards]],
+    [['Escapes', s.escapes], ['¡POR UN PELO!', s.pelos]],
+    [['FIEBRES', s.fevers], ['Cofres', s.chests], ['Misiones', save.done]],
+  ];
+  box.replaceChildren();
+  rows.forEach((row, i) => {
+    if (i) box.append(document.createElement('br'));
+    row.forEach(([k, val], j) => {
+      const b = document.createElement('b'); b.textContent = String(val);
+      box.append(`${j ? ' · ' : ''}${k}: `, b);
+    });
+  });
+}
 for (const i of document.querySelectorAll('[data-opt]')) {
   i.onchange = () => { save.settings[i.dataset.opt] = i.checked; if (i.dataset.opt in A.opt) A.setOpt(i.dataset.opt, i.checked); M.persist(save); };
 }
