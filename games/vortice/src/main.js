@@ -2,6 +2,7 @@
 // entrada, efectos de pantalla y progreso. `window.__vortice` para depurar.
 import { createSim, step, botDir, revive, sideOf, requestFlip } from './sim.js';
 import { DT, STAGES, P, PSIZE, ESCAPE_T, PELO_T, stageAt } from './const.js';
+import { createBar, barReset, barTrack, barDir, barFlip, barLayout, inBarZone, barU } from './bar.js';
 import { createRenderer } from './render.js';
 import { createAudio } from './audio.js';
 import * as M from './meta.js';
@@ -37,14 +38,24 @@ const buzz = (ms) => { if (save.settings.shake && navigator.vibrate) try { navig
 const show = (id) => { for (const s of document.querySelectorAll('.screen')) s.classList.toggle('hidden', s.id !== id); };
 
 // ── entrada ──
-// Teclado: ←/→ o A/D giran; espacio, ↑/↓ o W/S saltan. Ratón: clic izquierdo/derecho gira
-// (sin importar dónde), rueda o clic medio saltan. Táctil: mitad izquierda/derecha gira y
-// deslizar en vertical salta.
+// Teclado: ←/→ o A/D giran; espacio, ↑/↓ o W/S saltan; F pantalla completa. Ratón: clic
+// izquierdo/derecho gira (sin importar dónde), rueda o clic medio saltan. Táctil, control
+// CLÁSICO: mitad izquierda/derecha gira; BARRA (bar.js): arrastrar en la barra de abajo
+// marca a qué lado ir. En los dos, deslizar en vertical salta.
 const keys = { l: false, r: false }, mouse = { l: false, r: false };
-const touches = new Map(); // pointerId → { side, x, y, t }
+// pointerId → { kind: 'half' | 'bar' | 'swipe', side, u, x, y, t }. `side` 0 = ya no gira
+const touches = new Map();
+const bar = createBar();
+const barOn = () => save.settings.control === 'barra';
+let barL = barLayout(innerWidth, innerHeight, save.settings.hand);
 function inputDir() {
-  let l = keys.l || mouse.l, r = keys.r || mouse.r;
-  for (const p of touches.values()) { if (p.side < 0) l = true; else if (p.side > 0) r = true; }
+  let l = keys.l || mouse.l, r = keys.r || mouse.r, b = null;
+  for (const p of touches.values()) {
+    if (!p.side) continue;
+    if (p.kind === 'bar') b = p;
+    else if (p.side < 0) l = true; else if (p.side > 0) r = true;
+  }
+  if (!l && !r && b) return barDir(bar, b.u, sim.pv.w);
   return (r ? 1 : 0) - (l ? 1 : 0);
 }
 const flip = () => { if (state === 'play') requestFlip(sim); };
@@ -53,6 +64,7 @@ addEventListener('keydown', (e) => {
   if (KL.includes(e.code)) keys.l = true;
   if (KR.includes(e.code)) keys.r = true;
   if (e.repeat) return;
+  if (e.code === 'KeyF') return toggleFS();
   if (caseOpen()) {
     if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') { e.preventDefault(); caseClose(); }
     return;
@@ -83,25 +95,31 @@ function mouseButtons(e) {
 addEventListener('pointerdown', (e) => {
   A.init();
   if (state === 'play') {
-    if (e.pointerType === 'mouse') mouseButtons(e);
-    else touches.set(e.pointerId, { side: halfOf(e.clientX), x: e.clientX, y: e.clientY, t: performance.now() });
+    const p = { kind: 'half', side: halfOf(e.clientX), u: 0, x: e.clientX, y: e.clientY, t: performance.now() };
+    if (barOn() && inBarZone(barL, e.clientX, e.clientY)) { p.kind = 'bar'; p.side = 1; p.u = barU(barL, e.clientX); }
+    else if (e.pointerType === 'mouse') return mouseButtons(e);
+    else if (barOn()) { p.kind = 'swipe'; p.side = 0; } // fuera de la barra solo se salta
+    touches.set(e.pointerId, p);
     return;
   }
   if (!onCanvas(e) || caseOpen()) return;
   if (state === 'over' && stateT > 0.45) { retry(); if (e.pointerType === 'mouse') swallowMouse = true; }
   else if (state === 'revive') finish();
 });
-const lift = (e) => { if (e.pointerType === 'mouse') mouseButtons(e); else touches.delete(e.pointerId); };
+const lift = (e) => {
+  if (touches.delete(e.pointerId) && e.pointerType === 'mouse') return; // arrastre de barra con ratón
+  if (e.pointerType === 'mouse') mouseButtons(e);
+};
 addEventListener('pointerup', lift);
 addEventListener('pointercancel', lift);
 addEventListener('pointermove', (e) => {
-  if (e.pointerType === 'mouse') return mouseButtons(e);
   const p = touches.get(e.pointerId);
-  if (!p) return;
+  if (!p) return e.pointerType === 'mouse' ? mouseButtons(e) : undefined;
   const dx = e.clientX - p.x, dy = e.clientY - p.y;
-  if (p.side && Math.abs(dy) >= 34 && Math.abs(dy) > Math.abs(dx) * 1.3 && performance.now() - p.t < 320) {
-    p.side = 0; flip(); // deslizar = SALTO; ese dedo deja de girar hasta soltarlo
-  } else if (p.side) p.side = halfOf(e.clientX);
+  if ((p.side || p.kind === 'swipe') && Math.abs(dy) >= 34 && Math.abs(dy) > Math.abs(dx) * 1.3 && performance.now() - p.t < 320) {
+    p.side = 0; p.kind = 'swipe'; p.t = -1e9; flip(); // deslizar = SALTO; ese dedo deja de girar hasta soltarlo
+  } else if (p.kind === 'bar') p.u = barU(barL, e.clientX);
+  else if (p.side) p.side = halfOf(e.clientX);
 });
 addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); }); // sin autoscroll
 let lastWheel = 0; // la inercia del trackpad manda una ráfaga: solo cuenta un gesto nuevo
@@ -113,12 +131,37 @@ addEventListener('wheel', (e) => {
   lastWheel = now;
 }, { passive: false });
 addEventListener('contextmenu', (e) => e.preventDefault());
-addEventListener('resize', () => R.resize());
+addEventListener('resize', () => { R.resize(); barL = barLayout(innerWidth, innerHeight, save.settings.hand); });
+
+// ── pantalla completa (botón ⛶ en los menús, F, o al jugar si está en Ajustes) ──
+const fsEl = document.documentElement;
+const fsReq = fsEl.requestFullscreen || fsEl.webkitRequestFullscreen;
+const fsExit = document.exitFullscreen || document.webkitExitFullscreen;
+const fsOn = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+const standalone = matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone;
+function toggleFS(want = !fsOn()) {
+  if (want === fsOn()) return;
+  if (!want) { try { fsExit.call(document)?.catch?.(() => {}); } catch { /* */ } return; }
+  if (!fsReq) {
+    if (!standalone) toast('En iPhone: <b>Compartir → Agregar a inicio</b> para jugar en pantalla completa');
+    return;
+  }
+  try { fsReq.call(fsEl, { navigationUI: 'hide' })?.catch?.(() => {}); } catch { /* */ }
+}
+function fsRefresh() {
+  document.body.classList.toggle('fs', fsOn());
+  $('btn-fs').classList.toggle('hidden', !!standalone && !fsReq);
+  $('btn-fs-set').textContent = fsOn() ? 'SALIR DE PANTALLA COMPLETA' : 'PANTALLA COMPLETA';
+}
+for (const ev of ['fullscreenchange', 'webkitfullscreenchange']) document.addEventListener(ev, fsRefresh);
+$('btn-fs').onclick = () => { A.init(); A.fx('click'); toggleFS(); };
+$('btn-fs-set').onclick = () => { A.fx('click'); toggleFS(); };
 
 // ── partida ──
 function startRun(m) {
   A.init();
   if (m === 'hiper' && !save.unlocked.hiper) { toast('🔒 HIPER: llegá a 30 s en NORMAL o a nivel 6'); A.fx('lost'); return; }
+  if (save.settings.fsAuto) toggleFS(true);
   hot = state === 'over' && clock < hotUntil ? Math.min(HOT_MAX, hot + 1) : 0;
   if (hot) toast(`🔥 EN LLAMAS ×${hotMul().toFixed(1).replace('.', ',')} ✦`, 'hot');
   mode = m;
@@ -126,12 +169,17 @@ function startRun(m) {
   state = 'play'; stateT = 0; acc = 0; R.clear();
   revivesUsed = 0; recordBeaten = false; wasFever = false; missionT = 0;
   bestAtStart = { ...save.best[m] };
+  barReset(bar, sim.a); bar.anim = null; touches.clear(); stageLeft = 99;
   show(null); document.body.classList.add('playing');
+  document.body.classList.toggle('barra', barOn());
   A.mode('play'); A.stage(0); A.say(m === 'hiper' ? 'Hiper' : 'Comienza');
   fx.flash = 0.35; fx.zoom = 1.25;
   if (!save.tips.salto) {
     save.tips.salto = true; M.persist(save);
     toast(matchMedia('(pointer: coarse)').matches ? '💫 NUEVO: <b>deslizá ↕</b> para SALTAR al lado opuesto' : '💫 NUEVO: <b>espacio</b> o <b>rueda</b> para SALTAR al lado opuesto', 'lv');
+  } else if (barOn() && !save.tips.barra) {
+    save.tips.barra = true; M.persist(save);
+    toast('🎚 BARRA: <b>tocá una sección</b> para ir a ese lado · el centro es donde estás · <b>deslizá ↕</b> para SALTAR y recentrar', 'lv');
   }
 }
 const retry = () => startRun(mode);
@@ -169,6 +217,9 @@ function handleEvents() {
       fx.flash = 0.4; fx.zoom = 1.12; buzz([20, 40, 20]);
     } else if (e.type === 'salto') {
       R.salto(e.from, e.to, col);
+      // la barra se recentra: los dedos que la usaban tienen que volver a tocar
+      barFlip(bar, e.from, e.to);
+      for (const p of touches.values()) if (p.kind === 'bar') p.side = 0;
       A.salto(e.tti < ESCAPE_T);
       fx.shake = Math.max(fx.shake, 4); fx.zoom = Math.max(fx.zoom, 1.04); buzz(8);
       // con la muerte encima, el vuelo se ve en cámara lenta
@@ -223,6 +274,7 @@ function doRevive() {
   if (!M.useRevive(save, revivesUsed)) return finish();
   revivesUsed++;
   revive(sim); sim.events = [];
+  barReset(bar, sim.a); touches.clear();
   state = 'play'; stateT = 0; show(null); refreshCoins();
   A.mode('play'); A.stage(sim.stage); A.fx('revive');
   fx.flash = 0.5; fx.zoom = 1.2;
@@ -341,7 +393,7 @@ function refreshTitle() {
 function toTitle() {
   state = 'title'; sim = attract(); R.clear();
   document.body.classList.remove('playing');
-  show('title'); refreshTitle(); A.mode('title');
+  show('title'); refreshTitle(); refreshHint(); A.mode('title');
 }
 
 function renderSkins() {
@@ -449,8 +501,29 @@ $('btn-skins').onclick = () => { A.init(); A.fx('click'); renderSkins(); show('s
 $('btn-settings').onclick = () => {
   A.init(); A.fx('click'); show('settings');
   for (const i of document.querySelectorAll('[data-opt]')) i.checked = save.settings[i.dataset.opt];
+  renderSegs(); fsRefresh();
   renderStats();
 };
+// Opciones de varias: botones con data-v dentro de un .seg[data-set]
+function renderSegs() {
+  for (const g of document.querySelectorAll('[data-set]')) {
+    for (const b of g.querySelectorAll('[data-v]')) b.classList.toggle('on', save.settings[g.dataset.set] === b.dataset.v);
+  }
+  $('o-hand').classList.toggle('hidden', !barOn());
+}
+for (const g of document.querySelectorAll('[data-set]')) {
+  g.onclick = (e) => {
+    const b = e.target.closest('[data-v]'); if (!b) return;
+    save.settings[g.dataset.set] = b.dataset.v; M.persist(save); A.fx('click');
+    barL = barLayout(innerWidth, innerHeight, save.settings.hand);
+    renderSegs(); refreshHint();
+  };
+}
+function refreshHint() {
+  $('hint-touch').innerHTML = barOn()
+    ? 'en el teléfono: <b>arrastrá en la barra</b> de abajo (cada sección es un lado) · <b>deslizá ↕</b> para SALTAR'
+    : 'en el teléfono: tocá a la izquierda o a la derecha · <b>deslizá ↕</b> para SALTAR';
+}
 // Estadísticas con nodos y textContent: los valores vienen de localStorage
 function renderStats() {
   const s = save.stats, box = $('stats');
@@ -475,6 +548,8 @@ for (const i of document.querySelectorAll('[data-opt]')) {
 for (const b of document.querySelectorAll('[data-close]')) b.onclick = () => { A.fx('click'); toTitle(); };
 
 // ── bucle ──
+let stageLeft = 99;
+const barTarget = () => { for (const p of touches.values()) if (p.kind === 'bar' && p.side) return p.u; return null; };
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt; stateT += dt;
   if (fx.slowT > 0) fx.slowT -= dt; else fx.slow = 1;
@@ -485,10 +560,15 @@ function frame(now) {
       acc -= DT;
       step(sim, state === 'title' ? botDir(sim, true) : inputDir());
       handleEvents();
+      barTrack(bar, sim.a);
       if (state !== 'play' && state !== 'title') break;
     }
     if (state === 'title' && sim.dead) sim = attract();
     if (state === 'play') {
+      // cuenta regresiva a la próxima etapa: 3, 2, 1
+      const nxt = STAGES[sim.stage + 1], left = nxt ? Math.ceil(nxt.t - sim.t) : 99;
+      if (left < stageLeft && left <= 3 && left >= 1) A.fx('tick');
+      stageLeft = left;
       missionT -= dt;
       if (missionT <= 0) { missionT = 0.3; announce(M.checkMissions(save, runStats())); }
     }
@@ -517,13 +597,14 @@ function frame(now) {
     best: state === 'play' ? bestAtStart.time : 0, bestScore: state === 'play' ? bestAtStart.score : 0,
     hudOn: state !== 'title', dim: state === 'title' ? 0.35 : state === 'over' || state === 'revive' ? 0.3 : 0,
     slow: state === 'dying',
+    bar: barOn() && (state === 'play' || state === 'dying') ? { L: barL, b: bar, target: barTarget() } : null,
   });
   requestAnimationFrame(frame);
 }
 
 // primera visita del día: premio por racha apenas se abre
 const bonus = M.dailyLogin(save);
-toTitle();
+toTitle(); fsRefresh();
 if (bonus) setTimeout(() => toast(`🔥 Racha de ${save.streak.n} ${save.streak.n === 1 ? 'día' : 'días'} · <b>+${bonus} ✦</b>`), 400);
 requestAnimationFrame(frame);
 
@@ -531,8 +612,10 @@ window.__vortice = {
   sim: () => sim, save, state: () => state, start: startRun, A,
   // simula `seg` segundos sin rAF (con el piloto automático si bot)
   advance(seg, bot = true) {
-    for (let i = 0; i < seg / DT && state === 'play'; i++) { step(sim, bot ? botDir(sim, true) : inputDir()); handleEvents(); }
+    for (let i = 0; i < seg / DT && state === 'play'; i++) { step(sim, bot ? botDir(sim, true) : inputDir()); handleEvents(); barTrack(bar, sim.a); }
   },
+  bar: () => ({ ...bar, L: barL, target: barTarget() }),
+  fs: toggleFS,
   side: () => sideOf(sim.a),
   flip,
   input: () => ({ dir: inputDir(), keys: { ...keys }, mouse: { ...mouse }, touches: [...touches.values()] }),
