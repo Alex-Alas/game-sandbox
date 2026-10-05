@@ -140,6 +140,25 @@ export function createAudio() {
       osc('sine', hz(base), t, 0.25, 0.25, sfx); osc('sine', hz(base + 7), t + 0.06, 0.3, 0.2, sfx);
       osc('triangle', hz(base + 12), t + 0.12, 0.4, 0.12, sfx);
     },
+    // SALTO: barrido de ruido y tono hacia arriba; con la muerte encima, más grave y tenso
+    salto(danger) {
+      if (!ctx) return; const t = now();
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      src.buffer = noiseBuf; f.type = 'bandpass'; f.Q.value = 2;
+      f.frequency.setValueAtTime(500, t); f.frequency.exponentialRampToValueAtTime(5000, t + 0.14);
+      env(g, t, 0.004, 0.45, 0.16); src.connect(f).connect(g).connect(sfx);
+      src.start(t, Math.random() * 0.5); src.stop(t + 0.25);
+      const o = ctx.createOscillator(), og = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(danger ? 140 : 260, t); o.frequency.exponentialRampToValueAtTime(danger ? 700 : 1300, t + 0.12);
+      env(og, t, 0.004, 0.22, 0.14); o.connect(og).connect(sfx); o.start(t); o.stop(t + 0.2);
+    },
+    // ¡ESCAPE! / ¡POR UN PELO!: acorde que sube con el combo, con brillo en el pelo
+    escape(pelo, combo = 0) {
+      if (!ctx) return; const t = now();
+      const base = 67 + PENTA[combo % PENTA.length];
+      [0, 7, 12].concat(pelo ? [19, 24] : []).forEach((n, i) => osc(pelo ? 'sawtooth' : 'square', hz(base + n), t + i * 0.035, 0.22, pelo ? 0.09 : 0.08, sfx));
+      if (pelo) { noise(t, 0.35, 0.3, 'highpass', 6000, sfx); osc('sine', hz(base + 36), t + 0.15, 0.5, 0.12, sfx); }
+    },
     stageUp() {
       if (!ctx) return; const t = now();
       noise(t, 0.6, 0.3, 'bandpass', 900, sfx, 0.5);
@@ -161,6 +180,8 @@ export function createAudio() {
         osc('square', 330, t, 0.08, 0.1, sfx); osc('square', 220, t + 0.08, 0.15, 0.1, sfx);
       } else if (kind === 'click') {
         osc('square', 880, t, 0.03, 0.08, sfx);
+      } else if (kind === 'ready') {
+        osc('sine', 1760, t, 0.05, 0.05, sfx); osc('sine', 2637, t + 0.04, 0.06, 0.04, sfx);
       } else if (kind === 'coin') {
         osc('square', 1320 + Math.random() * 200, t, 0.05, 0.06, sfx);
       } else if (kind === 'mission') {
