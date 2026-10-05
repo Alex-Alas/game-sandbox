@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#05070d" />
+<title>VÓRTICE</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Cpolygon points=%2216,2 28,9 28,23 16,30 4,23 4,9%22 fill=%22none%22 stroke=%22%2347f3ff%22 stroke-width=%223%22/%3E%3Cpolygon points=%2216,11 20,19 12,19%22 fill=%22%23fff%22/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="toasts"></div>
+
+<section id="title" class="screen">
+  <div class="topbar">
+    <div class="lvl"><b id="t-level">1</b><div class="xpbar"><i id="t-xp"></i></div></div>
+    <div class="streak" id="t-streak"></div>
+    <div class="coins"><span>✦</span><b id="t-coins">0</b></div>
+  </div>
+  <h1 class="logo" data-text="VÓRTICE">VÓRTICE</h1>
+  <p class="tag">No dejes que el hexágono te trague</p>
+  <div class="modes">
+    <button class="mode" data-mode="normal"><b>NORMAL</b><small id="best-normal"></small></button>
+    <button class="mode" data-mode="hiper"><b>HIPER</b><small id="best-hiper"></small></button>
+    <button class="mode" data-mode="diario"><b>DIARIO</b><small id="best-diario"></small></button>
+  </div>
+  <div class="panel">
+    <h3>MISIONES</h3>
+    <ul id="t-missions" class="missions"></ul>
+  </div>
+  <div class="row">
+    <button id="btn-chest" class="chest">🎁 <span id="t-chest"></span></button>
+    <button id="btn-skins">SKINS</button>
+    <button id="btn-settings">AJUSTES</button>
+  </div>
+  <p class="hint"><b>← →</b> o <b>A D</b> · en el teléfono, tocá a la izquierda o a la derecha</p>
+  <a class="back" href="../../">← sandbox</a>
+</section>
+
+<section id="over" class="screen hidden">
+  <div id="o-revive" class="revive hidden">
+    <button id="btn-revive"><span id="o-revive-txt">REVIVIR</span><i id="o-revive-bar"></i></button>
+  </div>
+  <div id="o-main">
+    <div id="o-badge" class="badge hidden">★ NUEVO RÉCORD ★</div>
+    <div class="otime"><b id="o-time">0,00</b><span id="o-stage"></span></div>
+    <div id="o-next" class="onext"></div>
+    <div class="ostats">
+      <div><small>PUNTOS</small><b id="o-score">0</b></div>
+      <div><small>RÉCORD</small><b id="o-best">0</b></div>
+      <div><small>ROCES</small><b id="o-roces">0</b></div>
+      <div><small>COMBO</small><b id="o-combo">0</b></div>
+    </div>
+    <div class="earn"><span>+<b id="o-coins">0</b> ✦</span><span class="lv">NIVEL <b id="o-level">1</b><span class="xpbar"><i id="o-xp"></i></span></span></div>
+    <div id="o-unlocks" class="unlocks"></div>
+    <ul id="o-missions" class="missions"></ul>
+    <div class="chestrow"><button id="o-chest" class="chest">🎁 ABRIR COFRE</button><div id="o-chestbar" class="chestbar"><i></i><span></span></div></div>
+    <div id="o-hot" class="hot"><span id="o-hot-txt"></span><i id="o-hot-bar"></i></div>
+    <button id="btn-retry" class="big">REINTENTAR</button>
+    <div class="row"><button id="btn-menu">MENÚ</button></div>
+    <p class="hint">Espacio, ← → o tocá la pantalla para reintentar</p>
+  </div>
+</section>
+
+<section id="skins" class="screen hidden">
+  <div class="topbar"><button class="close" data-close>←</button><div class="coins"><span>✦</span><b class="coins-v">0</b></div></div>
+  <h2>SKINS</h2>
+  <div id="skin-grid" class="grid"></div>
+</section>
+
+<section id="settings" class="screen hidden">
+  <div class="topbar"><button class="close" data-close>←</button></div>
+  <h2>AJUSTES</h2>
+  <div class="opts">
+    <label><input type="checkbox" data-opt="music" /> Música</label>
+    <label><input type="checkbox" data-opt="sfx" /> Efectos</label>
+    <label><input type="checkbox" data-opt="voice" /> Voz del locutor</label>
+    <label><input type="checkbox" data-opt="shake" /> Temblor y vibración</label>
+  </div>
+  <div id="stats" class="statsbox"></div>
+</section>
+
+<div id="chestmodal" class="modal hidden">
+  <div class="box">
+    <div id="cm-roll" class="roll">?</div>
+    <div id="cm-tier" class="tier"></div>
+    <button id="cm-ok">¡BIEN!</button>
+  </div>
+</div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

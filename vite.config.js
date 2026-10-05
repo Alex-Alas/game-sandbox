@@ -16,6 +16,7 @@ export default defineConfig({
         hub: resolve(import.meta.dirname, 'index.html'),
         elytra: resolve(import.meta.dirname, 'games/elytra/index.html'),
         downcastle: resolve(import.meta.dirname, 'games/downcastle/index.html'),
+        vortice: resolve(import.meta.dirname, 'games/vortice/index.html'),
       },
     },
   },

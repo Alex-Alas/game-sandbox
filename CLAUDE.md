@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm install
-npm run dev      # Vite en :5173 (hub en / ; ELYTRA en /games/elytra/ ; DOWNCASTLE en /games/downcastle/)
+npm run dev      # Vite en :5173 (hub en / ; ELYTRA en /games/elytra/ ; DOWNCASTLE en /games/downcastle/ ; VÓRTICE en /games/vortice/)
 npm run build    # salida en dist/
 ```
 
@@ -14,7 +14,7 @@ No hay linter ni tests. Se verifica en el navegador con el dev server (`.claude/
 
 ## Arquitectura
 
-Vite multi-página: cada juego vive en `games/<nombre>/` y sus assets en `public/<nombre>/`. Un juego nuevo se registra en `build.rollupOptions.input` de [vite.config.js](vite.config.js) y en el hub `index.html`. ELYTRA usa Three.js + Rapier (`@dimforge/rapier3d-compat`, WASM incrustado); DOWNCASTLE, Canvas 2D sin dependencias de motor. Los comentarios y textos de UI están en español.
+Vite multi-página: cada juego vive en `games/<nombre>/` y sus assets en `public/<nombre>/`. Un juego nuevo se registra en `build.rollupOptions.input` de [vite.config.js](vite.config.js) y en el hub `index.html`. ELYTRA usa Three.js + Rapier (`@dimforge/rapier3d-compat`, WASM incrustado); DOWNCASTLE y VÓRTICE, Canvas 2D sin dependencias de motor. Los comentarios y textos de UI están en español.
 
 ### ELYTRA (`games/elytra/src/`)
 
@@ -63,3 +63,15 @@ Friendslop vertical para teléfono, de 2 a 4 jugadores por internet, atados por 
 - Cuentas: Supabase `downcastle` (`mkohmjfzuyxtpccvckub`; URL y clave publicable en `SUPA` de `config.js`, esquema con RLS en `server/supabase/001_profiles.sql`). `cloud.js` importa supabase-js bajo demanda (solo con sesión o al iniciar sesión), flujo implícito; enlace mágico, y Google aparece solo si el proveedor está habilitado. Nada del juego depende de la nube.
 - F1 verificado con `playwright-core` + el Chromium de `%LOCALAPPDATA%\ms-playwright` en Windows: anfitrión + invitado, la cámara del derrumbe coincide (≤ 1 px tras interpolar) y la sala del jefe se cierra y abre igual en los dos. Con el dev server ocupado por otra sesión, `PORT=<n> npm run dev` (vite.config lee `PORT`).
 - Verificado con Playwright global (`/opt/node22/lib/node_modules/playwright`, Chromium en `/opt/pw-browsers`) contra `npm run dev`: 2–4 contextos 390×844 con `hasTouch` (crear/unirse, tramo con `auto(true)`, premios, recarga = reconexión, unirse a mitad, salida del anfitrión) y gestos con CDP `Input.dispatchTouchEvent`.
+
+### VÓRTICE (`games/vortice/`)
+
+Arcade de una mano estilo Super Hexagon, diseñado alrededor del «una más»: partidas de segundos y reintento instantáneo (tocar, espacio o ←/→ en la pantalla final).
+
+- `sim.js` es pura (corre en Node) a 120 Hz: el jugador gira sobre el hexágono de radio `P`; los muros son tramos de un lado que caen al centro. Radios «de esquina»: `render.js → hexR` los dibuja sobre el hexágono, así colisión y dibujo coinciden. Chocar de frente mata; de costado, frena. La rotación del mundo (`s.rot`) es solo visual.
+- `patterns.js`: patrones como anillos `{ open, dur? }`; `spawnPattern` los coloca con la separación mínima (`shift` = máx. lados a recorrer × τ + margen) para que siempre sean pasables. Dificultad en `params(t + MODES[mode].off)`.
+- Puntos: tiempo × multiplicador; roce (muro que pasa a < `ROCE_ANG` del borde) y ¡CASI! (al ras, ×3 y cámara lenta); fragmentos; FIEBRE con combo ≥ `FEVER_AT` (×2 hasta perder el combo). `revive(s)` limpia muros cercanos y da invulnerabilidad.
+- `botDir(s)`: piloto automático (fondo del título y pruebas). `node games/vortice/tools/simrun.mjs [--semillas N --max S]`: el bot debe sobrevivir ~3 min de media en todos los modos (si muere temprano, un patrón quedó injusto).
+- `meta.js` (localStorage `vortice.save`): chispas ✦, nivel/XP, 3 misiones (pagan al instante en plena partida), cofres cada `CHEST_EVERY` s de juego con premio al azar, racha diaria (bono al abrir), revivir (1 gratis por día, luego 40 ✦ duplicando), skins (compra, logros o solo cofre), HIPER se desbloquea con 30 s en NORMAL o nivel 6, DIARIO usa `dailySeed()`. EN LLAMAS (`main.js`): reintentar antes de 8 s suma ×0,1 a las chispas (tope ×2).
+- `audio.js`: música procedural por pasos que suma capas por etapa y FIEBRE; `pulse()` hace latir la imagen con el bombo; voz con speechSynthesis.
+- `window.__vortice`: `start(modo)`, `advance(seg, bot)`, `sim()`, `save`, `state()`.
