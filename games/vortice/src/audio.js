@@ -1,13 +1,17 @@
 // VÓRTICE — audio procedural con Web Audio (sin archivos): música por pasos que suma capas
 // con la intensidad, efectos y voz (speechSynthesis) para anunciar etapas.
 // `pulse()` da el golpe del bombo (1 → 0) para que la imagen lata a tiempo.
+// La voz del sistema no pasa por Web Audio: lo épico sale de acompañarla. `say(texto, nivel)`
+// dispara al empezar a hablar (`onstart`) un golpe de cine con reverb (1: impacto; 2: + metales;
+// 3: + coro y público), baja la música mientras habla y repite la última palabra como eco
+// de estadio. `onVoice(nivel)` avisa ese instante para sacudir la imagen.
 
 const PROG = [[45, 0], [41, 1], [48, 1], [43, 1]]; // La m, Fa, Do, Sol: [raíz MIDI, 1 = mayor]
 const PENTA = [0, 3, 5, 7, 10, 12, 15, 17];
 const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
 export function createAudio() {
-  let ctx = null, master, music, sfx, lp, noiseBuf;
+  let ctx = null, master, music, sfx, lp, noiseBuf, epic;
   const st = { bpm: 128, step: 0, next: 0, on: false, intensity: 0, kicks: [], timer: 0, fever: false, bar: 0 };
   const opt = { music: true, sfx: true, voice: true };
 
@@ -24,6 +28,13 @@ export function createAudio() {
     music = ctx.createGain(); music.gain.value = opt.music ? 0.55 : 0;
     music.connect(lp).connect(master);
     sfx = ctx.createGain(); sfx.gain.value = opt.sfx ? 0.7 : 0; sfx.connect(master);
+    // bus del locutor: seco + sala grande (respuesta al impulso de ruido que decae), ambos por sfx
+    epic = ctx.createGain(); epic.gain.value = 0.9; epic.connect(sfx);
+    const verb = ctx.createConvolver(), wet = ctx.createGain();
+    const len = Math.floor(ctx.sampleRate * 2.8), ir = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2); }
+    verb.buffer = ir; wet.gain.value = 0.55;
+    epic.connect(verb).connect(wet).connect(sfx);
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -80,6 +91,58 @@ export function createAudio() {
     }
   }
 
+  // ── locutor ──
+  function stinger(lvl) {
+    if (!ctx) return; const t = now();
+    // impacto: bombo sub que cae, golpe de ruido grave y un chasquido agudo
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(lvl >= 2 ? 95 : 120, t); o.frequency.exponentialRampToValueAtTime(30, t + 0.8);
+    env(g, t, 0.003, 0.95, 0.8 + lvl * 0.35); o.connect(g).connect(epic); o.start(t); o.stop(t + 2);
+    noise(t, 0.45, 0.55, 'lowpass', 500, epic);
+    noise(t, 0.18, 0.22, 'highpass', 3500, epic);
+    if (lvl >= 2) {
+      // metales: quinta abierta en sierras desafinadas con un filtro que abre y cierra
+      const f = ctx.createBiquadFilter(), bg = ctx.createGain();
+      f.type = 'lowpass'; f.Q.value = 3;
+      f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(2600, t + 0.08); f.frequency.exponentialRampToValueAtTime(700, t + 1.4);
+      env(bg, t, 0.02, 0.16, 1.6); f.connect(bg).connect(epic);
+      for (const m of [33, 45, 52, 57]) for (const d of [-9, 9]) {
+        const b = ctx.createOscillator(); b.type = 'sawtooth'; b.frequency.value = hz(m); b.detune.value = d;
+        b.connect(f); b.start(t); b.stop(t + 1.8);
+      }
+    }
+    if (lvl >= 3) {
+      // coro «aah»: voces con vibrato por dos formantes, y el público que se levanta
+      const fa = ctx.createBiquadFilter(), fb = ctx.createBiquadFilter(), cg = ctx.createGain();
+      fa.type = fb.type = 'bandpass'; fa.frequency.value = 750; fb.frequency.value = 1150; fa.Q.value = fb.Q.value = 6;
+      cg.gain.setValueAtTime(0.0001, t); cg.gain.exponentialRampToValueAtTime(0.5, t + 0.35); cg.gain.setTargetAtTime(0.0001, t + 1.2, 0.5);
+      fa.connect(cg); fb.connect(cg); cg.connect(epic);
+      const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 5.2; lg.gain.value = 9; lfo.connect(lg);
+      for (const m of [57, 60, 64, 69, 72]) for (const d of [-12, 0, 12]) {
+        const v = ctx.createOscillator(); v.type = 'sawtooth'; v.frequency.value = hz(m); v.detune.value = d; lg.connect(v.detune);
+        v.connect(fa); v.connect(fb); v.start(t); v.stop(t + 3.5);
+      }
+      lfo.start(t); lfo.stop(t + 3.5);
+      const crowd = ctx.createBufferSource(), cf = ctx.createBiquadFilter(), cw = ctx.createGain();
+      crowd.buffer = noiseBuf; crowd.loop = true; cf.type = 'bandpass'; cf.frequency.value = 1100; cf.Q.value = 0.6;
+      cw.gain.setValueAtTime(0.0001, t); cw.gain.exponentialRampToValueAtTime(0.35, t + 0.5); cw.gain.setTargetAtTime(0.0001, t + 1.1, 0.6);
+      crowd.connect(cf).connect(cw).connect(epic); crowd.start(t); crowd.stop(t + 4);
+    }
+  }
+  // la música se corre mientras habla el locutor
+  function duck(on) {
+    if (!ctx) return;
+    ramp(music.gain, opt.music ? (on ? 0.2 : 0.55) : 0, on ? 0.03 : 0.4);
+  }
+  let voices = [], duckT = 0, hitT = 0;
+  function pickVoice() {
+    const es = speechSynthesis.getVoices().filter((v) => /^es/i.test(v.lang));
+    // las voces graves de hombre suenan más a tráiler; si no hay, la de España, si no cualquiera
+    voices = es.filter((v) => /pablo|jorge|diego|enrique|juan|carlos|alvaro|álvaro|raul|raúl|male|hombre/i.test(v.name))
+      .concat(es.filter((v) => v.lang === 'es-ES'), es);
+  }
+  if (window.speechSynthesis) { pickVoice(); speechSynthesis.addEventListener?.('voiceschanged', pickVoice); }
+
   function schedule() {
     if (!ctx || !st.on) return;
     const ahead = ctx.currentTime + 0.12;
@@ -91,7 +154,7 @@ export function createAudio() {
     }
   }
 
-  const now = () => (ctx ? ctx.currentTime : 0);
+  function now() { return ctx ? ctx.currentTime : 0; }
   const ramp = (p, v, tau = 0.15) => { if (ctx) { p.cancelScheduledValues(now()); p.setTargetAtTime(v, now(), tau); } };
 
   const api = {
@@ -195,19 +258,58 @@ export function createAudio() {
       } else if (kind === 'chest') {
         noise(t, 0.4, 0.4, 'highpass', 4000, sfx);
         [72, 79, 84, 88, 91, 96].forEach((m, i) => osc('sine', hz(m), t + i * 0.05, 0.5, 0.15, sfx));
+      } else if (kind === 'tick') {
+        // carta que pasa por el marcador del cofre
+        osc('square', 2400 + Math.random() * 300, t, 0.012, 0.05, sfx, 0.001);
+        noise(t, 0.02, 0.12, 'bandpass', 3200, sfx, 4);
+      } else if (kind === 'unlock') {
+        noise(t, 0.06, 0.4, 'bandpass', 1200, sfx, 2); noise(t + 0.09, 0.08, 0.35, 'bandpass', 800, sfx, 2);
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(120, t + 0.1); o.frequency.exponentialRampToValueAtTime(900, t + 0.5);
+        env(g, t + 0.1, 0.05, 0.08, 0.4); o.connect(g).connect(sfx); o.start(t + 0.1); o.stop(t + 0.7);
       } else if (kind === 'revive') {
         const o = ctx.createOscillator(), g = ctx.createGain();
         o.type = 'triangle'; o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(880, t + 0.4);
         env(g, t, 0.02, 0.3, 0.45); o.connect(g).connect(sfx); o.start(t); o.stop(t + 0.5);
       }
     },
-    say(text) {
+    // Tensión mientras gira el cofre: un zumbido que sube de tono durante `dur` s; devuelve el corte
+    spin(dur) {
+      if (!ctx) return () => {};
+      const t = now(), o = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(55, t); o.frequency.exponentialRampToValueAtTime(220, t + dur);
+      f.type = 'lowpass'; f.frequency.setValueAtTime(200, t); f.frequency.exponentialRampToValueAtTime(1800, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.07, t + dur * 0.9);
+      o.connect(f).connect(g).connect(sfx); o.start(t); o.stop(t + dur + 0.1);
+      return () => { try { g.gain.cancelScheduledValues(now()); g.gain.setTargetAtTime(0.0001, now(), 0.03); o.stop(now() + 0.2); } catch { /* ya paró */ } };
+    },
+    stinger,
+    onVoice: null,
+    // nivel 1: anuncio; 2: momento grande (eco); 3: épico (más grave y lento, doble eco)
+    say(text, lvl = 1) {
       if (!opt.voice || !window.speechSynthesis) return;
       try {
         speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(text);
-        u.lang = 'es-ES'; u.rate = 1.05; u.pitch = 0.6; u.volume = 0.9;
+        clearTimeout(hitT); clearTimeout(duckT);
+        const mk = (txt, vol, k) => {
+          const u = new SpeechSynthesisUtterance(txt);
+          u.lang = 'es-ES'; if (voices[0]) u.voice = voices[0];
+          u.rate = (lvl >= 3 ? 0.88 : lvl >= 2 ? 0.95 : 1.02) * (k ? 1.15 : 1);
+          u.pitch = (lvl >= 3 ? 0.45 : 0.55) - k * 0.05; u.volume = vol;
+          return u;
+        };
+        const u = mk(text, 1, 0);
+        let hit = false;
+        const go = () => { if (hit) return; hit = true; clearTimeout(hitT); stinger(lvl); duck(true); api.onVoice?.(lvl); };
+        u.onstart = go; hitT = setTimeout(go, 400); // por si el motor no avisa onstart
         speechSynthesis.speak(u);
+        let tail = u;
+        // eco de estadio: la última palabra, más baja y rápida
+        const word = text.replace(/[¡!¿?.]/g, '').trim().split(/\s+/).pop();
+        for (let k = 1; k < lvl && word; k++) { tail = mk(word.toLowerCase(), k === 1 ? 0.4 : 0.15, k); speechSynthesis.speak(tail); }
+        const end = () => { clearTimeout(duckT); duck(false); };
+        tail.onend = end; tail.onerror = end;
+        duckT = setTimeout(end, 2600 + lvl * 900);
       } catch { /* sin voz */ }
     },
   };
