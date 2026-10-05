@@ -127,14 +127,47 @@ h2 { letter-spacing: 6px; font-size: 28px; }
 @keyframes tout { to { transform: translateY(-10px); opacity: 0; } }
 body.playing #toasts { top: auto; bottom: max(70px, env(safe-area-inset-bottom)); }
 
-/* cofre */
-.modal { position: fixed; inset: 0; background: rgba(0,0,0,.8); display: flex; align-items: center; justify-content: center; z-index: 30; }
-.modal .box { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 30px; }
-.roll { font-size: clamp(48px, 16vw, 90px); font-weight: 900; color: var(--gold); text-shadow: 0 0 30px rgba(255,210,63,.7); min-height: 1.2em; }
-.roll.shake { animation: rshake .08s infinite; }
-@keyframes rshake { 50% { transform: translate(3px,-2px) rotate(2deg); } }
-.tier { font-weight: 900; letter-spacing: 6px; font-size: 20px; min-height: 1.4em; }
-.tier.COMÚN { color: #cfd8e3; } .tier.RARO { color: #47a8ff; } .tier.ÉPICO { color: #c56bff; } .tier.LEGENDARIO { color: #ff9a3c; } .tier.JACKPOT { color: var(--gold); animation: hue 1s linear infinite; }
-#cm-ok { visibility: hidden; }
+/* cofre: tira estilo caja de CS:GO. Rarezas: --r de cada carta */
+.modal { position: fixed; inset: 0; background: rgba(2,4,9,.93); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; z-index: 30; overflow: hidden; }
+.modal .box { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 30px 0; }
+.r-COMÚN { --r: #b0c3d9; } .r-RARO { --r: #4b69ff; } .r-ÉPICO { --r: #d32ce6; } .r-LEGENDARIO { --r: #eb4b4b; } .r-JACKPOT { --r: #e4ae39; }
+.case { position: relative; isolation: isolate; width: min(100vw, 680px); }
+.case::before { content: ""; position: absolute; left: 50%; top: 50%; width: 160vmax; height: 160vmax; margin: -80vmax 0 0 -80vmax; z-index: -1; pointer-events: none;
+  background: repeating-conic-gradient(var(--r, #fff) 0 5deg, transparent 5deg 15deg); opacity: 0; transition: opacity .6s;
+  -webkit-mask: radial-gradient(circle, #000 0, transparent 45%); mask: radial-gradient(circle, #000 0, transparent 45%); }
+.case.won::before { opacity: .14; animation: rays 14s linear infinite; }
+@keyframes rays { to { transform: rotate(360deg); } }
+.casetitle { font-size: 13px; letter-spacing: 6px; color: var(--gold); }
+.reel { position: relative; width: min(94vw, 640px); height: 138px; overflow: hidden; border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.09)); border: 1px solid rgba(255,255,255,.12);
+  -webkit-mask: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent); mask: linear-gradient(90deg, transparent, #000 14%, #000 86%, transparent); }
+.strip { position: absolute; left: 0; top: 10px; display: flex; gap: 8px; will-change: transform; }
+.card { flex: 0 0 96px; height: 116px; border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  background: linear-gradient(180deg, #1a2030 0%, #1a2030 45%, color-mix(in srgb, var(--r) 38%, #1a2030) 100%);
+  border-bottom: 5px solid var(--r); font-weight: 900; transition: opacity .4s, transform .4s, box-shadow .4s; }
+.card .ic { font-size: 30px; line-height: 1; color: var(--gold); filter: drop-shadow(0 0 8px rgba(255,210,63,.6)); }
+.card .sw { width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-bottom: 26px solid var(--c); filter: drop-shadow(0 0 8px var(--c)); }
+.card .sw.glitch { filter: drop-shadow(2px 0 0 #ff2f5b) drop-shadow(-2px 0 0 #2ff3ff); }
+.card b { font-size: 15px; letter-spacing: 1px; }
+.card small { font-size: 9px; letter-spacing: 2px; color: var(--r); }
+.reel.done .card { opacity: .3; }
+.reel.done .card.win { opacity: 1; transform: scale(1.06); box-shadow: 0 0 26px var(--r), inset 0 0 18px color-mix(in srgb, var(--r) 50%, transparent); }
+.marker { position: absolute; left: 50%; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--gold); box-shadow: 0 0 12px var(--gold); z-index: 1; }
+.marker::before, .marker::after { content: ""; position: absolute; left: 50%; margin-left: -8px; border: 8px solid transparent; }
+.marker::before { top: 0; border-top-color: var(--gold); }
+.marker::after { bottom: 0; border-bottom-color: var(--gold); }
+.marker.tk { animation: tk .07s; }
+@keyframes tk { 50% { transform: scaleX(1.8); } }
+.prize { display: flex; flex-direction: column; align-items: center; gap: 4px; min-height: 92px; justify-content: center; opacity: 0; transform: scale(.6); }
+.case.won .prize { opacity: 1; transform: none; transition: transform .45s cubic-bezier(.2,1.6,.4,1), opacity .2s; }
+.roll { font-size: clamp(40px, 13vw, 70px); font-weight: 900; color: var(--r, var(--gold)); text-shadow: 0 0 30px var(--r, rgba(255,210,63,.7)); line-height: 1.1; }
+.tier { font-weight: 900; letter-spacing: 6px; font-size: 20px; color: var(--r); }
+.tier.JACKPOT, .case.won.r-JACKPOT .roll { animation: hue 1s linear infinite; }
+.case.won.r-LEGENDARIO .prize, .case.won.r-JACKPOT .prize { animation: bump .5s 2 .45s; }
+.cmbtns { visibility: hidden; }
+.case.won .cmbtns { visibility: visible; }
+.case.won #cm-skip { visibility: hidden; }
+.flashw { position: fixed; inset: 0; background: var(--r, #fff); pointer-events: none; z-index: 31; animation: flashw .6s forwards; }
+@keyframes flashw { from { opacity: .55; } to { opacity: 0; } }
 
 @media (max-height: 700px) { .logo { margin-top: 0; } .screen { gap: 10px; } }

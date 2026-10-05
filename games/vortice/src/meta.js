@@ -156,20 +156,32 @@ export function finishRun(s, r, coinMul = 1) {
 }
 
 // Cofre: premio al azar (refuerzo de razón variable)
+export const TIERS = ['COMÚN', 'RARO', 'ÉPICO', 'LEGENDARIO', 'JACKPOT'];
+const rnd = (a, n) => a + Math.floor(Math.random() * n);
+const coinsOf = { 'COMÚN': () => rnd(60, 90), 'RARO': () => rnd(200, 200), 'ÉPICO': () => rnd(500, 400), 'JACKPOT': () => 3000 };
+const chestSkins = SKINS.filter((k) => k.chest);
+
 export function openChest(s) {
   if (!s.chest.ready) return null;
   s.chest.ready--; s.stats.chests++;
   const x = Math.random();
   let prize;
-  const rare = SKINS.filter((k) => k.chest && !s.owned.includes(k.id));
-  if (x < 0.01) prize = { coins: 3000, tier: 'JACKPOT' };
+  const rare = chestSkins.filter((k) => !s.owned.includes(k.id));
+  if (x < 0.01) prize = { coins: coinsOf.JACKPOT(), tier: 'JACKPOT' };
   else if (x < 0.05 && rare.length) { const k = rare[Math.floor(Math.random() * rare.length)]; s.owned.push(k.id); prize = { skin: k, tier: 'LEGENDARIO' }; }
-  else if (x < 0.15) prize = { coins: 500 + Math.floor(Math.random() * 400), tier: 'ÉPICO' };
-  else if (x < 0.4) prize = { coins: 200 + Math.floor(Math.random() * 200), tier: 'RARO' };
-  else prize = { coins: 60 + Math.floor(Math.random() * 90), tier: 'COMÚN' };
+  else if (x < 0.15) prize = { coins: coinsOf['ÉPICO'](), tier: 'ÉPICO' };
+  else if (x < 0.4) prize = { coins: coinsOf.RARO(), tier: 'RARO' };
+  else prize = { coins: coinsOf['COMÚN'](), tier: 'COMÚN' };
   if (prize.coins) s.chispas += prize.coins;
   persist(s);
   return prize;
+}
+
+// Relleno de la tira del cofre (solo se ve, no se paga): un poco más generoso que el sorteo real
+export function chestDecoy(tier) {
+  if (!tier) { const x = Math.random(); tier = x < 0.02 ? 'JACKPOT' : x < 0.08 ? 'LEGENDARIO' : x < 0.22 ? 'ÉPICO' : x < 0.5 ? 'RARO' : 'COMÚN'; }
+  if (tier === 'LEGENDARIO') return { skin: chestSkins[Math.floor(Math.random() * chestSkins.length)], tier };
+  return { coins: coinsOf[tier](), tier };
 }
 
 export function buySkin(s, id) {

@@ -17,6 +17,11 @@ let mode = 'normal';
 let sim = attract();
 let acc = 0, last = performance.now(), clock = 0;
 const fx = { shake: 0, flash: 0, zoom: 1, slow: 1, slowT: 0 };
+// el golpe del locutor también se ve: sacudón y zoom justo cuando empieza a hablar
+A.onVoice = (lvl) => {
+  if (state !== 'play' || lvl < 2) return;
+  fx.shake = Math.max(fx.shake, 6 + lvl * 4); fx.zoom = Math.max(fx.zoom, 1.03 + lvl * 0.03); fx.flash = Math.max(fx.flash, 0.1 * lvl);
+};
 let revivesUsed = 0, bestAtStart = { time: 0, score: 0 }, recordBeaten = false, wasFever = false;
 let missionT = 0, stateT = 0, reviveT = 0;
 // EN LLAMAS: reintentar enseguida multiplica las chispas de la próxima partida
@@ -48,6 +53,10 @@ addEventListener('keydown', (e) => {
   if (KL.includes(e.code)) keys.l = true;
   if (KR.includes(e.code)) keys.r = true;
   if (e.repeat) return;
+  if (caseOpen()) {
+    if (e.code === 'Space' || e.code === 'Enter' || e.code === 'Escape') { e.preventDefault(); caseClose(); }
+    return;
+  }
   if (state === 'play' && KF.includes(e.code)) flip();
   else if (state === 'over' && stateT > 0.45 && (KL.includes(e.code) || KR.includes(e.code) || e.code === 'Space' || e.code === 'Enter')) retry();
   else if (state === 'revive' && (e.code === 'Space' || e.code === 'Enter')) doRevive();
@@ -78,7 +87,7 @@ addEventListener('pointerdown', (e) => {
     else touches.set(e.pointerId, { side: halfOf(e.clientX), x: e.clientX, y: e.clientY, t: performance.now() });
     return;
   }
-  if (!onCanvas(e)) return;
+  if (!onCanvas(e) || caseOpen()) return;
   if (state === 'over' && stateT > 0.45) { retry(); if (e.pointerType === 'mouse') swallowMouse = true; }
   else if (state === 'revive') finish();
 });
@@ -151,11 +160,11 @@ function handleEvents() {
       fx.zoom = 1.05; buzz(10);
     } else if (e.type === 'stage') {
       const st = STAGES[e.stage];
-      A.stageUp(); A.stage(e.stage); A.say(st.name.toLowerCase());
+      A.stageUp(); A.stage(e.stage); A.say(st.name.toLowerCase(), e.stage >= 5 ? 3 : 2);
       R.pop(st.name, '#ffffff', 2.2);
       fx.flash = 0.6; fx.zoom = 1.18; fx.shake = 10; buzz(40);
     } else if (e.type === 'fever') {
-      A.fx('fever'); A.fever(true); A.say('¡Fiebre!');
+      A.fx('fever'); A.fever(true); A.say('¡Fiebre!', 2);
       R.pop('¡FIEBRE! ×2', '#ff2f5b', 2);
       fx.flash = 0.4; fx.zoom = 1.12; buzz([20, 40, 20]);
     } else if (e.type === 'salto') {
@@ -173,7 +182,7 @@ function handleEvents() {
       R.burst(sim.a, P + PSIZE, pelo ? 36 : 16, pelo ? '#ffe36b' : '#47f3ff', 320, 0.7, 4);
       fx.shake = Math.max(fx.shake, pelo ? 14 : 7); fx.zoom = pelo ? 1.14 : 1.08;
       fx.flash = Math.max(fx.flash, pelo ? 0.35 : 0.15);
-      if (pelo) { fx.slow = 0.3; fx.slowT = 0.3; A.say('¡Por un pelo!'); buzz([15, 30, 40]); } else buzz(15);
+      if (pelo) { fx.slow = 0.3; fx.slowT = 0.3; A.say('¡Por un pelo!', 2); buzz([15, 30, 40]); } else buzz(15);
     } else if (e.type === 'listo') {
       A.fx('ready');
     } else if (e.type === 'combo-lost') {
@@ -183,7 +192,7 @@ function handleEvents() {
   if (wasFever && !sim.fever) A.fever(false);
   wasFever = sim.fever;
   if (!recordBeaten && bestAtStart.score > 0 && sim.score > bestAtStart.score) {
-    recordBeaten = true; A.fx('record'); A.say('¡Nuevo récord!');
+    recordBeaten = true; A.fx('record'); A.say('¡Nuevo récord!', 3);
     R.pop('★ NUEVO RÉCORD ★', '#ffd23f', 1.8);
     for (let i = 0; i < 6; i++) R.burst(Math.random() * 6.28, 120 + Math.random() * 200, 14, `hsl(${i * 60},100%,65%)`, 260, 1, 4);
   }
@@ -256,7 +265,7 @@ function finish() {
   requestAnimationFrame(() => { $('o-xp').style.width = `${(save.xp / M.xpNeed(save.level)) * 100}%`; });
   for (const l of res.levels) { toast(`⬆ NIVEL ${l} · <b>+${40 + 15 * l} ✦</b>`, 'lv'); A.fx('level'); }
   $('o-unlocks').innerHTML = res.unlocks.map((u) => `<div>🔓 ${u}</div>`).join('');
-  if (res.unlocks.length) A.say('Desbloqueado');
+  if (res.unlocks.length) A.say('Desbloqueado', 2);
   renderMissions($('o-missions'));
   renderChest();
   refreshCoins();
@@ -355,29 +364,80 @@ $('skin-grid').addEventListener('click', (e) => {
   renderSkins();
 });
 
+// Cofre al estilo caja de CS:GO: una tira de premios pasa bajo el marcador, frena y cae en el
+// premio (que ya se pagó en M.openChest). Tocar o espacio salta al final.
+const CARD_W = 104, CARDS = 52, WIN_AT = 44, SPIN_T = 5.6;
+const LVL = { 'COMÚN': 0, 'RARO': 1, 'ÉPICO': 2, 'LEGENDARIO': 3, 'JACKPOT': 3 };
+const prizeLabel = (p) => (p.skin ? p.skin.name : `✦ ${fmtN(p.coins)}`);
+function cardHtml(p, win) {
+  const k = p.skin, c = k && (k.color === 'glitch' ? '#e8fffe' : k.color);
+  const ic = k ? `<div class="sw ${k.color === 'glitch' ? 'glitch' : ''}" style="--c:${c}"></div>` : '<div class="ic">✦</div>';
+  return `<div class="card r-${p.tier}${win ? ' win' : ''}">${ic}<b>${k ? k.name : fmtN(p.coins)}</b><small>${p.tier}</small></div>`;
+}
+let caseRun = null; // { t0, x0, x1, idx, stop, done, prize }
 function openChest() {
+  if (caseRun && !caseRun.done) return;
   const prize = M.openChest(save);
   if (!prize) return;
-  const modal = $('chestmodal'), roll = $('cm-roll'), tier = $('cm-tier'), ok = $('cm-ok');
-  modal.classList.remove('hidden'); ok.style.visibility = 'hidden'; tier.textContent = ''; tier.className = 'tier';
-  roll.classList.add('shake');
-  let n = 0;
-  const spin = () => {
-    n++;
-    roll.textContent = `✦ ${[60, 120, 250, 400, 700, 900, 3000][Math.floor(Math.random() * 7)]}`;
-    A.fx('coin');
-    if (n < 20) setTimeout(spin, 30 + n * n * 0.45);
-    else {
-      roll.classList.remove('shake');
-      roll.textContent = prize.skin ? `🎨 ${prize.skin.name}` : `✦ ${fmtN(prize.coins)}`;
-      tier.textContent = prize.tier; tier.classList.add(prize.tier);
-      A.fx('chest'); if (prize.tier !== 'COMÚN') { A.fx('record'); A.say(prize.tier.toLowerCase()); }
-      ok.style.visibility = 'visible'; refreshCoins();
-    }
-  };
-  spin();
+  A.init();
+  const modal = $('chestmodal'), box = $('cm-box'), strip = $('cm-strip'), reel = strip.parentElement;
+  const items = Array.from({ length: CARDS }, () => M.chestDecoy());
+  items[WIN_AT] = prize;
+  // a veces el de al lado es de lo mejor: el «casi» también se ve
+  if (LVL[prize.tier] < 2 && Math.random() < 0.4) items[WIN_AT + (Math.random() < 0.5 ? -1 : 1)] = M.chestDecoy(Math.random() < 0.3 ? 'JACKPOT' : 'LEGENDARIO');
+  strip.innerHTML = items.map((p, i) => cardHtml(p, i === WIN_AT)).join('');
+  modal.classList.remove('hidden');
+  box.className = 'box case'; reel.classList.remove('done');
+  $('cm-roll').textContent = ''; $('cm-tier').textContent = '';
+  // el marcador cae en cualquier punto de la carta ganadora (sin tocar los bordes)
+  const mid = reel.clientWidth / 2, off = (Math.random() - 0.5) * (CARD_W - 8) * 0.86;
+  const x0 = mid - CARD_W * (2 + Math.random()), x1 = mid - (WIN_AT * CARD_W + 48 + off);
+  strip.style.transform = `translateX(${x0}px)`;
+  A.fx('unlock');
+  caseRun = { t0: performance.now() + 250, x0, x1, mid, idx: -1, done: false, prize, stop: A.spin(SPIN_T + 0.25) };
+  requestAnimationFrame(caseFrame);
 }
-$('cm-ok').onclick = () => { $('chestmodal').classList.add('hidden'); A.fx('click'); renderChest(); if (state === 'title') refreshTitle(); };
+function caseFrame() {
+  const c = caseRun; if (!c || c.done) return;
+  const k = Math.max(0, Math.min(1, (performance.now() - c.t0) / 1000 / SPIN_T));
+  const x = c.x0 + (c.x1 - c.x0) * (1 - Math.pow(1 - k, 4));
+  $('cm-strip').style.transform = `translateX(${x}px)`;
+  const idx = Math.floor((c.mid - x + 4) / CARD_W); // +4: el hueco entre cartas
+  if (idx !== c.idx) {
+    c.idx = idx;
+    if (k > 0) { A.fx('tick'); const m = document.querySelector('#chestmodal .marker'); m.classList.remove('tk'); void m.offsetWidth; m.classList.add('tk'); }
+  }
+  if (k >= 1) caseReveal(); else requestAnimationFrame(caseFrame);
+}
+function caseSkip() {
+  const c = caseRun; if (!c || c.done) return;
+  c.t0 = performance.now() - SPIN_T * 1000; caseFrame();
+}
+function caseReveal() {
+  const c = caseRun; c.done = true; c.stop();
+  const p = c.prize, lvl = LVL[p.tier];
+  $('cm-strip').style.transform = `translateX(${c.x1}px)`;
+  $('cm-strip').parentElement.classList.add('done');
+  $('cm-box').className = `box case won r-${p.tier}`;
+  $('cm-roll').textContent = prizeLabel(p);
+  $('cm-tier').textContent = p.tier;
+  $('cm-again').classList.toggle('hidden', !save.chest.ready);
+  $('cm-again').textContent = `ABRIR OTRO${save.chest.ready > 1 ? ` (${save.chest.ready})` : ''}`;
+  const f = document.createElement('div'); f.className = `flashw r-${p.tier}`;
+  document.body.appendChild(f); setTimeout(() => f.remove(), 700);
+  A.fx('chest');
+  if (lvl) { A.fx('record'); A.say(p.tier.toLowerCase(), lvl); } else A.stinger(1);
+  buzz(lvl >= 3 ? [30, 40, 30, 40, 80] : lvl ? [20, 30, 40] : 25);
+  refreshCoins();
+}
+const caseOpen = () => !$('chestmodal').classList.contains('hidden');
+function caseClose() {
+  if (caseRun && !caseRun.done) return caseSkip();
+  $('chestmodal').classList.add('hidden'); A.fx('click'); renderChest(); if (state === 'title') refreshTitle();
+}
+$('chestmodal').addEventListener('pointerdown', (e) => { if (!e.target.closest('button')) caseSkip(); });
+$('cm-ok').onclick = caseClose;
+$('cm-again').onclick = () => { A.fx('click'); openChest(); };
 $('btn-chest').onclick = () => { A.init(); openChest(); };
 $('o-chest').onclick = () => openChest();
 
