@@ -2,7 +2,7 @@
 // entrada, efectos de pantalla y progreso. `window.__vortice` para depurar.
 import { createSim, step, botDir, revive, sideOf, requestFlip } from './sim.js';
 import { DT, STAGES, P, PSIZE, ESCAPE_T, PELO_T, stageAt } from './const.js';
-import { createBar, barReset, barTrack, barDir, barFlip, barLayout, inBarZone, barU, jumpLayout, inJump } from './bar.js';
+import { createBar, barReset, barTrack, barScroll, barGoal, barDir, barFlip, barLayout, inBarZone, barU, jumpLayout, inJump, SIZE_MIN, SIZE_MAX } from './bar.js';
 import { createRenderer } from './render.js';
 import { createAudio } from './audio.js';
 import * as M from './meta.js';
@@ -11,7 +11,7 @@ const $ = (id) => document.getElementById(id);
 const R = createRenderer($('game'));
 const A = createAudio();
 const save = M.load();
-for (const k of ['music', 'sfx', 'voice']) A.opt[k] = save.settings[k];
+for (const k of ['music', 'sfx', 'voice', 'voiceName']) A.opt[k] = save.settings[k];
 
 let state = 'title'; // title | play | dying | revive | over
 let mode = 'normal';
@@ -41,26 +41,35 @@ const show = (id) => { for (const s of document.querySelectorAll('.screen')) s.c
 // Teclado: ←/→ o A/D giran; espacio, ↑/↓ o W/S saltan; F pantalla completa. Ratón: clic
 // izquierdo/derecho gira (sin importar dónde), rueda o clic medio saltan. Táctil, control
 // CLÁSICO: mitad izquierda/derecha gira; BARRA (bar.js): arrastrar en la barra de abajo
-// marca a qué lado ir. En los dos, deslizar en vertical salta.
+// marca a qué lado ir (y en las puntas corre la banda). En los dos, deslizar en vertical salta.
 const keys = { l: false, r: false }, mouse = { l: false, r: false };
-// pointerId → { kind: 'half' | 'bar' | 'swipe', side, u, x, y, t }. `side` 0 = ya no gira
+// pointerId → { kind: 'half' | 'bar' | 'swipe', side, u, x, y, t }. `side` 0 = ya no gira;
+// u: en la barra, lados desde su centro (el objetivo en la banda es bar.view + u)
 const touches = new Map();
 const bar = createBar();
 const barOn = () => save.settings.control === 'barra';
-let barL = barLayout(innerWidth, innerHeight, save.settings.hand);
+const layout = () => barLayout(innerWidth, innerHeight, save.settings.hand, save.settings.barSize, save.settings.jumpSize);
+let barL = layout();
+const barFinger = () => { for (const p of touches.values()) if (p.kind === 'bar' && p.side) return p; return null; };
 function inputDir() {
-  let l = keys.l || mouse.l, r = keys.r || mouse.r, b = null;
+  let l = keys.l || mouse.l, r = keys.r || mouse.r;
   for (const p of touches.values()) {
-    if (!p.side) continue;
-    if (p.kind === 'bar') b = p;
-    else if (p.side < 0) l = true; else if (p.side > 0) r = true;
+    if (!p.side || p.kind === 'bar') continue;
+    if (p.side < 0) l = true; else if (p.side > 0) r = true;
   }
-  if (!l && !r && b) return barDir(bar, b.u, sim.pv.w);
+  const b = barFinger();
+  if (!l && !r && b) return barDir(bar, barGoal(bar, b.u), sim.pv.w);
   return (r ? 1 : 0) - (l ? 1 : 0);
+}
+// Un paso de la partida con la entrada (la banda de la barra se corre antes de leerla)
+function playStep(dir = null) {
+  if (dir === null) { const b = barFinger(); barScroll(bar, b && b.u, sim.pv.w); dir = inputDir(); }
+  step(sim, dir); handleEvents(); barTrack(bar, sim.a);
 }
 const flip = () => { if (state === 'play') requestFlip(sim); };
 const KL = ['ArrowLeft', 'KeyA'], KR = ['ArrowRight', 'KeyD'], KF = ['Space', 'ArrowUp', 'ArrowDown', 'KeyW', 'KeyS'];
 addEventListener('keydown', (e) => {
+  if (e.target.closest?.('input, select')) return; // escribiendo en Ajustes
   if (KL.includes(e.code)) keys.l = true;
   if (KR.includes(e.code)) keys.r = true;
   if (e.repeat) return;
@@ -82,11 +91,11 @@ addEventListener('keyup', (e) => {
   if (KR.includes(e.code)) keys.r = false;
 });
 addEventListener('blur', () => { keys.l = keys.r = mouse.l = mouse.r = false; mbtn = 0; touches.clear(); });
-const onCanvas = (e) => !e.target.closest('button, input, label, .panel, .modal .box, a');
+const onCanvas = (e) => !e.target.closest('button, input, select, label, .panel, .modal .box, a');
 const halfOf = (x) => (x < innerWidth / 2 ? -1 : 1);
 // Botón SALTO (bar.js → jumpLayout): solo en táctil; el dedo que lo toca no gira
 let touchUI = matchMedia('(pointer: coarse)').matches;
-const jumpL = () => jumpLayout(innerWidth, innerHeight, barOn() ? barL : null);
+const jumpL = () => jumpLayout(innerWidth, innerHeight, barOn() ? barL : null, save.settings.jumpSize);
 let jumpT = 0; // destello al tocarlo
 // Ratón: todo sale de `buttons` (con un botón ya apretado, el segundo llega como pointermove)
 let mbtn = 0, swallowMouse = false; // el clic que reintenta no debe quedar girando
@@ -137,7 +146,7 @@ addEventListener('wheel', (e) => {
   lastWheel = now;
 }, { passive: false });
 addEventListener('contextmenu', (e) => e.preventDefault());
-addEventListener('resize', () => { R.resize(); barL = barLayout(innerWidth, innerHeight, save.settings.hand); });
+addEventListener('resize', () => { R.resize(); relayout(); });
 
 // ── pantalla completa (botón ⛶ en los menús, F, o al jugar si está en Ajustes) ──
 const fsEl = document.documentElement;
@@ -175,7 +184,7 @@ function startRun(m) {
   state = 'play'; stateT = 0; acc = 0; R.clear();
   revivesUsed = 0; recordBeaten = false; wasFever = false; missionT = 0;
   bestAtStart = { ...save.best[m] };
-  barReset(bar, sim.a); bar.anim = null; touches.clear(); stageLeft = 99;
+  barReset(bar, sim.a); bar.anim = null; touches.clear(); stageLeft = 99; relayout();
   show(null); document.body.classList.add('playing');
   document.body.classList.toggle('barra', barOn());
   document.body.classList.toggle('touchui', touchUI);
@@ -512,8 +521,8 @@ $('btn-skins').onclick = () => { A.init(); A.fx('click'); renderSkins(); show('s
 $('btn-settings').onclick = () => {
   A.init(); A.fx('click'); show('settings');
   for (const i of document.querySelectorAll('[data-opt]')) i.checked = save.settings[i.dataset.opt];
-  renderSegs(); fsRefresh();
-  renderStats();
+  renderSegs(); renderSizes(); fsRefresh();
+  renderStats(); renderVoice();
 };
 // Opciones de varias: botones con data-v dentro de un .seg[data-set]
 function renderSegs() {
@@ -526,10 +535,68 @@ for (const g of document.querySelectorAll('[data-set]')) {
   g.onclick = (e) => {
     const b = e.target.closest('[data-v]'); if (!b) return;
     save.settings[g.dataset.set] = b.dataset.v; M.persist(save); A.fx('click');
-    barL = barLayout(innerWidth, innerHeight, save.settings.hand);
-    renderSegs(); refreshHint();
+    relayout(); renderSegs(); refreshHint();
   };
 }
+// Tamaño del botón SALTO y de la barra: deslizador + caja numérica (%), sincronizados.
+// Mientras se ajusta, Ajustes se aclara para ver la vista previa en su lugar real.
+const pvBar = createBar();
+function relayout() {
+  barL = layout();
+  const J = jumpL(), top = barOn() ? Math.min(barL.by - barL.R, barL.y - 42 - barL.h) : J.y - J.r;
+  document.body.style.setProperty('--ui-b', `${Math.round(innerHeight - top + 12)}px`);
+}
+const clampSize = (v) => Math.round(Math.max(SIZE_MIN, Math.min(SIZE_MAX, +v || 100)));
+function renderSizes() {
+  for (const i of document.querySelectorAll('[data-size]')) {
+    i.min = SIZE_MIN; i.max = SIZE_MAX;
+    if (document.activeElement !== i || i.type === 'range') i.value = save.settings[i.dataset.size];
+  }
+}
+let sizingT = 0;
+function sizing(on) {
+  clearTimeout(sizingT);
+  $('settings').classList.toggle('sizing', on);
+  if (on) sizingT = setTimeout(() => sizing(false), 1600);
+}
+for (const i of document.querySelectorAll('[data-size]')) {
+  const set = (commit) => {
+    const raw = i.value;
+    if (i.type === 'number' && !commit && (raw === '' || +raw < SIZE_MIN)) return; // a medio escribir
+    save.settings[i.dataset.size] = clampSize(raw); M.persist(save);
+    relayout(); renderSizes(); sizing(true);
+    if (commit) i.value = save.settings[i.dataset.size];
+  };
+  i.addEventListener('input', () => set(false));
+  i.addEventListener('change', () => set(true));
+  i.addEventListener('pointerdown', () => sizing(true));
+}
+for (const b of document.querySelectorAll('[data-reset]')) {
+  b.onclick = () => { save.settings[b.dataset.reset] = 100; M.persist(save); A.fx('click'); relayout(); renderSizes(); sizing(true); };
+}
+// Locutor: elegir voz (Automática = la mejor local en español), probarla y ver si anda
+function renderVoice() {
+  const sel = $('voice-pick'), list = A.voices();
+  sel.replaceChildren(new Option('Automática', ''));
+  for (const v of list) sel.add(new Option(`${v.name} · ${v.lang}${v.local ? '' : ' · en línea'}${v.bad ? ' ⚠' : ''}`, v.name));
+  sel.value = list.some((v) => v.name === save.settings.voiceName) ? save.settings.voiceName : '';
+  const i = A.voiceInfo(), st = $('voice-st');
+  let txt;
+  if (!i.supported) txt = 'Este navegador no tiene voz: suena solo el golpe del locutor.';
+  else if (i.err) txt = `⚠ La voz falló (${i.err}). Probá otra o «Automática».`;
+  else if (!list.length) txt = 'No hay voces en español instaladas: se usa la del sistema.';
+  else txt = i.ok ? `Funcionando · ${i.name}` : `Usará: ${i.using || 'la del sistema'}`;
+  st.textContent = txt; st.classList.toggle('bad', !!i.err || !i.supported);
+}
+A.onVoices(() => { if (!$('settings').classList.contains('hidden')) renderVoice(); });
+$('voice-pick').onchange = (e) => { save.settings.voiceName = e.target.value; A.pickVoice(e.target.value); M.persist(save); renderVoice(); };
+$('btn-voice-test').onclick = () => {
+  A.init();
+  const was = A.opt.voice; A.opt.voice = true; // probar aunque esté apagada
+  A.say('¡Hexágono!', 2); A.opt.voice = was;
+  $('voice-st').textContent = '…'; $('voice-st').classList.remove('bad');
+  setTimeout(renderVoice, 1200); setTimeout(renderVoice, 3400);
+};
 function refreshHint() {
   $('hint-touch').innerHTML = barOn()
     ? 'en el teléfono: <b>arrastrá en la barra</b> de abajo (cada sección es un lado) · botón <b>SALTO</b> o <b>deslizá ↕</b> para SALTAR'
@@ -560,7 +627,7 @@ for (const b of document.querySelectorAll('[data-close]')) b.onclick = () => { A
 
 // ── bucle ──
 let stageLeft = 99;
-const barTarget = () => { for (const p of touches.values()) if (p.kind === 'bar' && p.side) return p.u; return null; };
+const barTarget = () => { const p = barFinger(); return p ? bar.view + p.u : null; };
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt; stateT += dt;
   if (fx.slowT > 0) fx.slowT -= dt; else fx.slow = 1;
@@ -569,9 +636,7 @@ function frame(now) {
     acc += dt * fx.slow;
     while (acc >= DT) {
       acc -= DT;
-      step(sim, state === 'title' ? botDir(sim, true) : inputDir());
-      handleEvents();
-      barTrack(bar, sim.a);
+      playStep(state === 'title' ? botDir(sim, true) : null);
       if (state !== 'play' && state !== 'title') break;
     }
     if (state === 'title' && sim.dead) sim = attract();
@@ -602,6 +667,9 @@ function frame(now) {
   fx.flash = Math.max(0, fx.flash - dt * 2.5);
   jumpT = Math.max(0, jumpT - dt * 4);
   fx.zoom += (1 - fx.zoom) * Math.min(1, dt * 6);
+  // vista previa de tamaños en Ajustes: barra y botón SALTO donde quedan en la partida
+  const preview = state === 'title' && !$('settings').classList.contains('hidden');
+  if (preview) barReset(pvBar, sim.a);
 
   R.draw({
     sim, skin: skin(), time: clock, dt, pulse: A.pulse(), fever: sim.fever && state === 'play',
@@ -609,15 +677,15 @@ function frame(now) {
     best: state === 'play' ? bestAtStart.time : 0, bestScore: state === 'play' ? bestAtStart.score : 0,
     hudOn: state !== 'title', dim: state === 'title' ? 0.35 : state === 'over' || state === 'revive' ? 0.3 : 0,
     slow: state === 'dying',
-    jump: touchUI && state === 'play' ? { ...jumpL(), t: jumpT } : null,
-    bar: barOn() && (state === 'play' || state === 'dying') ? { L: barL, b: bar, target: barTarget() } : null,
+    jump: (touchUI && state === 'play') || preview ? { ...jumpL(), t: jumpT } : null,
+    bar: barOn() && (state === 'play' || state === 'dying' || preview) ? { L: barL, b: preview ? pvBar : bar, target: preview ? null : barTarget() } : null,
   });
   requestAnimationFrame(frame);
 }
 
 // primera visita del día: premio por racha apenas se abre
 const bonus = M.dailyLogin(save);
-toTitle(); fsRefresh();
+relayout(); toTitle(); fsRefresh();
 if (bonus) setTimeout(() => toast(`🔥 Racha de ${save.streak.n} ${save.streak.n === 1 ? 'día' : 'días'} · <b>+${bonus} ✦</b>`), 400);
 requestAnimationFrame(frame);
 
@@ -625,9 +693,10 @@ window.__vortice = {
   sim: () => sim, save, state: () => state, start: startRun, A,
   // simula `seg` segundos sin rAF (con el piloto automático si bot)
   advance(seg, bot = true) {
-    for (let i = 0; i < seg / DT && state === 'play'; i++) { step(sim, bot ? botDir(sim, true) : inputDir()); handleEvents(); barTrack(bar, sim.a); }
+    for (let i = 0; i < seg / DT && state === 'play'; i++) playStep(bot ? botDir(sim, true) : null);
   },
   bar: () => ({ ...bar, L: barL, target: barTarget() }),
+  jumpL,
   fs: toggleFS,
   side: () => sideOf(sim.a),
   flip,

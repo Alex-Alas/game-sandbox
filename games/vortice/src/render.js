@@ -392,25 +392,27 @@ export function createRenderer(canvas) {
     ctx.fillText(txt, cx, y + hh + 5);
   }
 
-  // ── control de BARRA: una sección por lado; al SALTAR se cierra en hexágono ──
+  // ── control de BARRA: una banda de secciones (una por lado) que se corre en las puntas;
+  // al SALTAR se cierra en hexágono ──
   function drawBar(v, h, col) {
     const { L, b, target } = v.bar, s = v.sim;
     const tilt = 0.86 + Math.sin(s.t * 0.7) * 0.06;
-    let k = 0, ref = b.ref, pos = b.pos, cross = -1;
+    let k = 0, ref = b.ref, pos = b.pos, view = b.view, cross = -1;
     const an = b.anim;
     if (an) {
       an.t += v.dt;
       if (an.t >= MORPH_T) b.anim = null;
-      else if (an.t < MORPH.in) { k = ease(an.t / MORPH.in); ref = an.fromRef; pos = an.fromPos; }
+      else if (an.t < MORPH.in) { k = ease(an.t / MORPH.in); ref = an.fromRef; pos = an.fromPos; view = an.fromView; }
       else if (an.t < MORPH.in + MORPH.cross) { k = 1; cross = (an.t - MORPH.in) / MORPH.cross; }
       else k = ease(1 - (an.t - MORPH.in - MORPH.cross) / MORPH.out);
     }
     // el hexágono copia la orientación del de la arena (giro e inclinación)
     const R = L.R, hx = L.cx, hy = L.by;
     const hexAt = (a) => { const d = hexR(a, R), g = a + s.rot; return [hx + Math.cos(g) * d, hy + Math.sin(g) * d * tilt]; };
+    // u: posición en la banda (lados desde el centro de `ref`); en la barra se ve corrida en `view`
     const at = (u) => {
-      const [qx, qy] = hexAt((ref + 0.5 + u) * SEG);
-      return [L.cx + u * L.sw + (qx - L.cx - u * L.sw) * k, L.y + (qy - L.y) * k];
+      const [qx, qy] = hexAt((ref + 0.5 + u) * SEG), bx = L.cx + (u - view) * L.sw;
+      return [bx + (qx - bx) * k, L.y + (qy - L.y) * k];
     };
     // peligro por lado: qué tan pronto pega el muro más cercano
     const danger = new Array(SIDES).fill(0);
@@ -420,26 +422,45 @@ export function createRenderer(canvas) {
       danger[w.side] = Math.max(danger[w.side], 1 - tti / 0.45);
     }
     const lw = L.h + (7 - L.h) * k;
+    const lo = view - BAR_HALF, hi = view + BAR_HALF;
+    // la banda se desvanece en las puntas (sigue más allá); cerrada en hexágono, entera
+    const fade = (u) => Math.min(1, Math.min(u - lo, hi - u) / 0.55) * (1 - k) + k;
     ctx.save();
     ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
-    for (let j = -3; j <= 3; j++) {
+    const N = 8;
+    for (let j = Math.floor(lo + 0.5); j <= Math.ceil(hi - 0.5); j++) {
       const side = (((ref + j) % SIDES) + SIDES) % SIDES;
-      const u0 = Math.max(-BAR_HALF, j - 0.5) + 0.04, u1 = Math.min(BAR_HALF, j + 0.5) - 0.04;
-      ctx.beginPath();
-      for (let q = 0; q <= 8; q++) { const [x, y] = at(u0 + (u1 - u0) * q / 8); q ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+      const u0 = Math.max(lo, j - 0.5) + 0.04, u1 = Math.min(hi, j + 0.5) - 0.04;
+      if (u1 <= u0) continue;
       ctx.lineWidth = lw;
-      ctx.strokeStyle = `hsla(${h},55%,${side & 1 ? 36 : 18}%,.92)`; ctx.stroke();
-      if (danger[side] > 0) { ctx.globalAlpha = danger[side] * 0.55; ctx.strokeStyle = `hsl(${h},95%,65%)`; ctx.stroke(); ctx.globalAlpha = 1; }
-      if (j === 0 && k < 1) { // la sección del medio = el lado de partida
-        ctx.globalAlpha = 1 - k; ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,.55)';
+      // entera si no toca el desvanecido de las puntas; si no, en trozos con su opacidad
+      const n = fade(u0) >= 1 && fade(u1) >= 1 ? 1 : N;
+      for (let q = 0; q < n; q++) {
+        const a = u0 + (u1 - u0) * q / n, c = u0 + (u1 - u0) * (q + 1) / n, al = n > 1 ? fade((a + c) / 2) : 1;
+        ctx.beginPath();
+        for (let z = 0; z <= 4; z++) { const [x, y] = at(a + (c - a) * z / 4); z ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+        ctx.globalAlpha = al * 0.92; ctx.strokeStyle = `hsl(${h},55%,${side & 1 ? 36 : 18}%)`; ctx.stroke();
+        if (danger[side] > 0) { ctx.globalAlpha = al * danger[side] * 0.55; ctx.strokeStyle = `hsl(${h},95%,65%)`; ctx.stroke(); }
+      }
+      ctx.globalAlpha = 1;
+      if (j === 0 && k < 1) { // la sección `ref` = el lado de partida
+        ctx.globalAlpha = (1 - k) * fade((u0 + u1) / 2); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,.55)';
         const [x0, y0] = at(u0), [x1] = at(u1);
         ctx.strokeRect(x0, y0 - lw / 2 - 3, x1 - x0, lw + 6); ctx.globalAlpha = 1;
       }
     }
-    // topes en las puntas
+    // puntas: chevrones hacia afuera (la banda sigue); se encienden y corren al desplazarse
     if (k < 1) {
-      ctx.globalAlpha = 1 - k; ctx.fillStyle = 'rgba(255,255,255,.8)';
-      for (const e of [-1, 1]) { const [x, y] = at(e * BAR_HALF); ctx.fillRect(x - 2 + e * 3, y - lw / 2 - 6, 4, lw + 12); }
+      const ch = lw * 0.45 + 4;
+      for (const e of [-1, 1]) {
+        const on = Math.max(0, b.scroll * e), x = L.cx + e * (BAR_HALF * L.sw + 10);
+        ctx.strokeStyle = on ? '#fff' : 'rgba(255,255,255,.45)'; ctx.lineWidth = 2.5; ctx.lineJoin = 'miter';
+        for (let i = 0; i < 2; i++) {
+          const ph = on ? ((v.time * 3) % 1) * 6 : 0, cx = x + e * (i * 7 + ph);
+          ctx.globalAlpha = (1 - k) * (on ? 0.4 + 0.6 * on : 0.6) * (i ? 0.55 : 1);
+          ctx.beginPath(); ctx.moveTo(cx - e * ch * 0.45, L.y - ch / 2); ctx.lineTo(cx, L.y); ctx.lineTo(cx - e * ch * 0.45, L.y + ch / 2); ctx.stroke();
+        }
+      }
       ctx.globalAlpha = 1;
     }
     // objetivo del dedo

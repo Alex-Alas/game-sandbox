@@ -126,8 +126,7 @@ h2 { letter-spacing: 6px; font-size: 28px; }
 @keyframes tin { from { transform: translateY(-20px) scale(.8); opacity: 0; } }
 @keyframes tout { to { transform: translateY(-10px); opacity: 0; } }
 body.playing #toasts { top: auto; bottom: max(70px, env(safe-area-inset-bottom)); }
-body.playing.touchui #toasts { bottom: 140px; }
-body.playing.barra #toasts { bottom: 200px; }
+body.playing.touchui #toasts, body.playing.barra #toasts { bottom: var(--ui-b, 140px); }
 
 /* pantalla completa: botón flotante en todos los menús (en partida se usa F) */
 .fsbtn { position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); z-index: 25;
@@ -188,3 +187,22 @@ body.playing .fsbtn { display: none; }
 @keyframes flashw { from { opacity: .55; } to { opacity: 0; } }
 
 @media (max-height: 700px) { .logo { margin-top: 0; } .screen { gap: 10px; } }
+
+/* ajustes: tamaños (deslizador + caja) y locutor */
+.size { display: grid; grid-template-columns: 92px 1fr 64px auto auto; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
+.size input[type=range] { width: 100%; accent-color: var(--cy); touch-action: none; height: 28px; }
+.size input[type=number] { width: 64px; font: inherit; font-weight: 800; color: var(--fg); background: var(--panel); border: 1px solid rgba(255,255,255,.25);
+  border-radius: 8px; padding: 6px 4px; text-align: center; -moz-appearance: textfield; }
+.size input[type=number]::-webkit-inner-spin-button { opacity: .5; }
+.size em { font-style: normal; color: var(--dim); }
+.size button { padding: 4px 9px; letter-spacing: 0; }
+/* al ajustar, el resto se aparta para ver la barra y el botón en su lugar real */
+#settings { transition: background .2s; }
+#settings > *, #settings .setgrp > *, #o-hand > * { transition: opacity .2s; }
+#settings.sizing { background: rgba(5,7,13,.15); }
+#settings.sizing > :not(.setgrp), #settings.sizing .setgrp > :not(.size):not(#o-hand), #settings.sizing #o-hand > :not(.size) { opacity: .08; }
+.voicebox { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.voicebox select { flex: 1; min-width: 0; font: inherit; color: var(--fg); background: var(--panel); border: 1px solid rgba(255,255,255,.25); border-radius: 8px; padding: 8px; }
+.voicebox button { padding: 8px 12px; letter-spacing: 1px; }
+.vstat { font-size: 12px; color: var(--dim); max-width: 320px; margin-top: -6px; }
+.vstat.bad { color: #ffb36b; }

@@ -52,7 +52,7 @@ function fresh() {
     daily: { date: '', best: 0, time: 0 }, streak: { last: '', n: 0, max: 0 }, freeRevive: '',
     unlocked: { hiper: false }, chest: { t: 0, ready: 0 }, missions: [], done: 0,
     stats: { runs: 0, time: 0, shards: 0, roces: 0, fevers: 0, casis: 0, chests: 0, escapes: 0, pelos: 0 },
-    settings: { music: true, sfx: true, voice: true, shake: true, fsAuto: false, control: 'clasico', hand: 'der' }, tips: {},
+    settings: { music: true, sfx: true, voice: true, voiceName: '', shake: true, fsAuto: false, control: 'clasico', hand: 'der', jumpSize: 100, barSize: 100 }, tips: {},
   };
 }
 
