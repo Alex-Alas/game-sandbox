@@ -2,7 +2,7 @@
 // entrada, efectos de pantalla y progreso. `window.__vortice` para depurar.
 import { createSim, step, botDir, revive, sideOf, requestFlip } from './sim.js';
 import { DT, STAGES, P, PSIZE, ESCAPE_T, PELO_T, stageAt } from './const.js';
-import { createBar, barReset, barTrack, barDir, barFlip, barLayout, inBarZone, barU } from './bar.js';
+import { createBar, barReset, barTrack, barDir, barFlip, barLayout, inBarZone, barU, jumpLayout, inJump } from './bar.js';
 import { createRenderer } from './render.js';
 import { createAudio } from './audio.js';
 import * as M from './meta.js';
@@ -84,6 +84,10 @@ addEventListener('keyup', (e) => {
 addEventListener('blur', () => { keys.l = keys.r = mouse.l = mouse.r = false; mbtn = 0; touches.clear(); });
 const onCanvas = (e) => !e.target.closest('button, input, label, .panel, .modal .box, a');
 const halfOf = (x) => (x < innerWidth / 2 ? -1 : 1);
+// Botón SALTO (bar.js → jumpLayout): solo en táctil; el dedo que lo toca no gira
+let touchUI = matchMedia('(pointer: coarse)').matches;
+const jumpL = () => jumpLayout(innerWidth, innerHeight, barOn() ? barL : null);
+let jumpT = 0; // destello al tocarlo
 // Ratón: todo sale de `buttons` (con un botón ya apretado, el segundo llega como pointermove)
 let mbtn = 0, swallowMouse = false; // el clic que reintenta no debe quedar girando
 function mouseButtons(e) {
@@ -96,7 +100,9 @@ addEventListener('pointerdown', (e) => {
   A.init();
   if (state === 'play') {
     const p = { kind: 'half', side: halfOf(e.clientX), u: 0, x: e.clientX, y: e.clientY, t: performance.now() };
-    if (barOn() && inBarZone(barL, e.clientX, e.clientY)) { p.kind = 'bar'; p.side = 1; p.u = barU(barL, e.clientX); }
+    if (e.pointerType !== 'mouse') touchUI = true;
+    if (e.pointerType !== 'mouse' && inJump(jumpL(), e.clientX, e.clientY)) { p.kind = 'swipe'; p.side = 0; p.t = -1e9; jumpT = 1; flip(); }
+    else if (barOn() && inBarZone(barL, e.clientX, e.clientY)) { p.kind = 'bar'; p.side = 1; p.u = barU(barL, e.clientX); }
     else if (e.pointerType === 'mouse') return mouseButtons(e);
     else if (barOn()) { p.kind = 'swipe'; p.side = 0; } // fuera de la barra solo se salta
     touches.set(e.pointerId, p);
@@ -172,14 +178,19 @@ function startRun(m) {
   barReset(bar, sim.a); bar.anim = null; touches.clear(); stageLeft = 99;
   show(null); document.body.classList.add('playing');
   document.body.classList.toggle('barra', barOn());
+  document.body.classList.toggle('touchui', touchUI);
   A.mode('play'); A.stage(0); A.say(m === 'hiper' ? 'Hiper' : 'Comienza');
   fx.flash = 0.35; fx.zoom = 1.25;
   if (!save.tips.salto) {
     save.tips.salto = true; M.persist(save);
-    toast(matchMedia('(pointer: coarse)').matches ? '💫 NUEVO: <b>deslizá ↕</b> para SALTAR al lado opuesto' : '💫 NUEVO: <b>espacio</b> o <b>rueda</b> para SALTAR al lado opuesto', 'lv');
+    save.tips.boton = true;
+    toast(touchUI ? '💫 NUEVO: tocá el botón <b>SALTO</b> o <b>deslizá ↕</b> para SALTAR al lado opuesto' : '💫 NUEVO: <b>espacio</b> o <b>rueda</b> para SALTAR al lado opuesto', 'lv');
+  } else if (touchUI && !save.tips.boton) {
+    save.tips.boton = true; M.persist(save);
+    toast('💫 NUEVO: botón <b>SALTO</b> abajo para saltar sin moverte', 'lv');
   } else if (barOn() && !save.tips.barra) {
     save.tips.barra = true; M.persist(save);
-    toast('🎚 BARRA: <b>tocá una sección</b> para ir a ese lado · el centro es donde estás · <b>deslizá ↕</b> para SALTAR y recentrar', 'lv');
+    toast('🎚 BARRA: <b>tocá una sección</b> para ir a ese lado · la del medio es donde estás · el botón <b>SALTO</b> la recentra', 'lv');
   }
 }
 const retry = () => startRun(mode);
@@ -521,8 +532,8 @@ for (const g of document.querySelectorAll('[data-set]')) {
 }
 function refreshHint() {
   $('hint-touch').innerHTML = barOn()
-    ? 'en el teléfono: <b>arrastrá en la barra</b> de abajo (cada sección es un lado) · <b>deslizá ↕</b> para SALTAR'
-    : 'en el teléfono: tocá a la izquierda o a la derecha · <b>deslizá ↕</b> para SALTAR';
+    ? 'en el teléfono: <b>arrastrá en la barra</b> de abajo (cada sección es un lado) · botón <b>SALTO</b> o <b>deslizá ↕</b> para SALTAR'
+    : 'en el teléfono: tocá a la izquierda o a la derecha · botón <b>SALTO</b> abajo o <b>deslizá ↕</b> para SALTAR';
 }
 // Estadísticas con nodos y textContent: los valores vienen de localStorage
 function renderStats() {
@@ -589,6 +600,7 @@ function frame(now) {
 
   fx.shake *= Math.pow(0.002, dt); if (fx.shake < 0.3) fx.shake = 0;
   fx.flash = Math.max(0, fx.flash - dt * 2.5);
+  jumpT = Math.max(0, jumpT - dt * 4);
   fx.zoom += (1 - fx.zoom) * Math.min(1, dt * 6);
 
   R.draw({
@@ -597,6 +609,7 @@ function frame(now) {
     best: state === 'play' ? bestAtStart.time : 0, bestScore: state === 'play' ? bestAtStart.score : 0,
     hudOn: state !== 'title', dim: state === 'title' ? 0.35 : state === 'over' || state === 'revive' ? 0.3 : 0,
     slow: state === 'dying',
+    jump: touchUI && state === 'play' ? { ...jumpL(), t: jumpT } : null,
     bar: barOn() && (state === 'play' || state === 'dying') ? { L: barL, b: bar, target: barTarget() } : null,
   });
   requestAnimationFrame(frame);

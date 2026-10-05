@@ -126,6 +126,7 @@ h2 { letter-spacing: 6px; font-size: 28px; }
 @keyframes tin { from { transform: translateY(-20px) scale(.8); opacity: 0; } }
 @keyframes tout { to { transform: translateY(-10px); opacity: 0; } }
 body.playing #toasts { top: auto; bottom: max(70px, env(safe-area-inset-bottom)); }
+body.playing.touchui #toasts { bottom: 140px; }
 body.playing.barra #toasts { bottom: 200px; }
 
 /* pantalla completa: botón flotante en todos los menús (en partida se usa F) */

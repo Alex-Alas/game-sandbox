@@ -52,12 +52,22 @@ export function barLayout(W, H, hand = 'der') {
   const land = W > H * 1.1;
   const L = land ? Math.min(W * 0.42, 420) : Math.min(W - 40, 460);
   const cx = land ? (hand === 'izq' ? 28 + L / 2 : W - 28 - L / 2) : W / 2;
-  const y = H - (land ? 46 : 68);
-  return { x0: cx - L / 2, x1: cx + L / 2, cx, y, h: land ? 18 : 22, sw: L / (2 * BAR_HALF) };
+  const y = H - (land ? 46 : 68), sw = L / (2 * BAR_HALF);
+  // R: radio del hexágono en que se cierra; su centro (by) es también el botón SALTO
+  const R = Math.min(sw * 1.05, 58);
+  return { x0: cx - L / 2, x1: cx + L / 2, cx, y, h: land ? 18 : 22, sw, R, by: y - R * 0.86 - 16 };
 }
 
+// Botón SALTO en táctil, cerca del pulgar: abajo al centro (CLÁSICO) o en el centro del
+// hexágono de la barra (BARRA). Salta al tocar, sin esperar a reconocer un gesto.
+export function jumpLayout(W, H, L = null) {
+  if (L) return { x: L.cx, y: L.by, r: L.R * 0.62 };
+  return { x: W / 2, y: H - (W > H * 1.1 ? 58 : 88), r: 34 };
+}
+export const inJump = (J, x, y) => Math.hypot(x - J.x, y - J.y) < J.r * 1.3;
+
 // ¿El toque cae en la zona de la barra? (más generosa que lo dibujado)
-export const inBarZone = (L, x, y) => x >= L.x0 - 30 && x <= L.x1 + 30 && y >= L.y - 64;
+export const inBarZone = (L, x, y) => x >= L.x0 - 30 && x <= L.x1 + 30 && y >= L.y - 64; // el botón SALTO se mira antes
 
 // Posición x en pantalla → objetivo en lados, con tope en las puntas
 export function barU(L, x) {

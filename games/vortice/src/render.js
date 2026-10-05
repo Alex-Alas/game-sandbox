@@ -278,7 +278,28 @@ export function createRenderer(canvas) {
     ctx.globalAlpha = 1;
 
     if (v.hudOn) hud(v, h);
+    if (v.jump) jumpBtn(v, h, col);
     if (v.bar) drawBar(v, h, col);
+  }
+
+  // Botón SALTO (táctil), en pantalla: hexágono que se llena con la recarga como el núcleo
+  function jumpBtn(v, h, col) {
+    const J = v.jump, s = v.sim, ready = s.flipCd <= 0, k = ready ? 1 : 1 - s.flipCd / FLIP_CD;
+    const hex = (r) => {
+      ctx.beginPath();
+      for (let i = 0; i <= SIDES; i++) { const a = i * SEG + SEG / 2; i ? ctx.lineTo(J.x + Math.cos(a) * r, J.y + Math.sin(a) * r) : ctx.moveTo(J.x + Math.cos(a) * r, J.y + Math.sin(a) * r); }
+    };
+    ctx.save();
+    hex(J.r); ctx.fillStyle = 'rgba(5,7,13,.6)'; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = ready ? col : 'rgba(255,255,255,.35)'; ctx.stroke();
+    hex(J.r * 0.82 * (ready ? 1 + Math.sin(v.time * 8) * 0.04 + v.pulse * 0.06 : k));
+    ctx.globalAlpha = ready ? 0.9 : 0.35; ctx.fillStyle = ready ? col : `hsl(${h},70%,60%)`; ctx.fill();
+    if (J.t > 0) { ctx.globalAlpha = J.t; ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; hex(J.r * (1.15 + (1 - J.t) * 0.35)); ctx.stroke(); }
+    ctx.globalAlpha = ready ? 1 : 0.6;
+    ctx.fillStyle = ready ? '#061018' : '#fff';
+    ctx.font = `900 ${Math.round(J.r * 0.36)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('SALTO', J.x, J.y + 1);
+    ctx.restore();
   }
 
   function hud(v, h) {
@@ -325,7 +346,7 @@ export function createRenderer(canvas) {
       const z = 1 + v.pulse * 0.15;
       ctx.font = `900 ${Math.round(big * 0.7 * z)}px system-ui, sans-serif`;
       ctx.fillStyle = `hsl(${(v.time * 400) % 360},100%,65%)`;
-      ctx.fillText('FIEBRE ×2', W / 2, v.bar ? v.bar.L.y - 130 - big * 0.8 : H - big * 1.4);
+      ctx.fillText('FIEBRE ×2', W / 2, v.bar ? v.bar.L.y - 130 - big * 0.8 : v.jump ? v.jump.y - v.jump.r - big * 1.1 : H - big * 1.4);
     }
     progress(v, big, pad);
     ctx.textBaseline = 'alphabetic';
@@ -385,7 +406,7 @@ export function createRenderer(canvas) {
       else k = ease(1 - (an.t - MORPH.in - MORPH.cross) / MORPH.out);
     }
     // el hexágono copia la orientación del de la arena (giro e inclinación)
-    const R = Math.min(L.sw * 1.05, 58), hx = L.cx, hy = L.y - R * tilt - 16;
+    const R = L.R, hx = L.cx, hy = L.by;
     const hexAt = (a) => { const d = hexR(a, R), g = a + s.rot; return [hx + Math.cos(g) * d, hy + Math.sin(g) * d * tilt]; };
     const at = (u) => {
       const [qx, qy] = hexAt((ref + 0.5 + u) * SEG);
