@@ -1,7 +1,8 @@
 // VÓRTICE — dibujo en Canvas 2D. Todo el mundo vive en un hexágono: un radio r «de esquina»
 // se dibuja con hexR (distancia real según el ángulo), así muro, jugador y colisión coinciden.
-import { SIDES, SEG, TAU, P, PSIZE, CENTER, STAGES, COMBO_T, FLIP_T, FLIP_CD } from './const.js';
+import { SIDES, SEG, TAU, P, PSIZE, CENTER, STAGES, COMBO_T, FLIP_T, FLIP_CD, stageAt } from './const.js';
 import { multOf } from './sim.js';
+import { BAR_HALF, MORPH, MORPH_T } from './bar.js';
 
 const COS30 = Math.cos(SEG / 2);
 const hexR = (a, r) => {
@@ -9,6 +10,13 @@ const hexR = (a, r) => {
   return (r * COS30) / Math.cos(l - SEG / 2);
 };
 const pt = (a, r) => { const d = hexR(a, r); return [Math.cos(a) * d, Math.sin(a) * d]; };
+const ease = (k) => k * k * (3 - 2 * k);
+const fmtS = (t) => t.toFixed(1).replace('.', ',');
+// Avance continuo por etapas (índice + fracción); la última se llena en 60 s
+function stageProg(t) {
+  const i = stageAt(t), a = STAGES[i], b = STAGES[i + 1];
+  return i + Math.min(1, (t - a.t) / (b ? b.t - a.t : 60));
+}
 
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d');
@@ -270,6 +278,28 @@ export function createRenderer(canvas) {
     ctx.globalAlpha = 1;
 
     if (v.hudOn) hud(v, h);
+    if (v.jump) jumpBtn(v, h, col);
+    if (v.bar) drawBar(v, h, col);
+  }
+
+  // Botón SALTO (táctil), en pantalla: hexágono que se llena con la recarga como el núcleo
+  function jumpBtn(v, h, col) {
+    const J = v.jump, s = v.sim, ready = s.flipCd <= 0, k = ready ? 1 : 1 - s.flipCd / FLIP_CD;
+    const hex = (r) => {
+      ctx.beginPath();
+      for (let i = 0; i <= SIDES; i++) { const a = i * SEG + SEG / 2; i ? ctx.lineTo(J.x + Math.cos(a) * r, J.y + Math.sin(a) * r) : ctx.moveTo(J.x + Math.cos(a) * r, J.y + Math.sin(a) * r); }
+    };
+    ctx.save();
+    hex(J.r); ctx.fillStyle = 'rgba(5,7,13,.6)'; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = ready ? col : 'rgba(255,255,255,.35)'; ctx.stroke();
+    hex(J.r * 0.82 * (ready ? 1 + Math.sin(v.time * 8) * 0.04 + v.pulse * 0.06 : k));
+    ctx.globalAlpha = ready ? 0.9 : 0.35; ctx.fillStyle = ready ? col : `hsl(${h},70%,60%)`; ctx.fill();
+    if (J.t > 0) { ctx.globalAlpha = J.t; ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; hex(J.r * (1.15 + (1 - J.t) * 0.35)); ctx.stroke(); }
+    ctx.globalAlpha = ready ? 1 : 0.6;
+    ctx.fillStyle = ready ? '#061018' : '#fff';
+    ctx.font = `900 ${Math.round(J.r * 0.36)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('SALTO', J.x, J.y + 1);
+    ctx.restore();
   }
 
   function hud(v, h) {
@@ -287,11 +317,6 @@ export function createRenderer(canvas) {
     ctx.font = `800 ${Math.round(big * 0.36)}px system-ui, sans-serif`;
     ctx.fillStyle = `hsl(${h},100%,75%)`;
     ctx.fillText(stg.name, pad, pad * 0.6 + big * 1.02);
-    if (nxt) {
-      const k = (s.t - stg.t) / (nxt.t - stg.t), bw = big * 4.6 - pad * 2;
-      ctx.fillStyle = 'rgba(255,255,255,.15)'; ctx.fillRect(pad, big * 1.62, bw, 4);
-      ctx.fillStyle = `hsl(${h},100%,70%)`; ctx.fillRect(pad, big * 1.62, bw * k, 4);
-    }
     // récord
     if (v.bestScore > 0) {
       ctx.font = `700 ${Math.round(big * 0.3)}px system-ui, sans-serif`;
@@ -321,9 +346,130 @@ export function createRenderer(canvas) {
       const z = 1 + v.pulse * 0.15;
       ctx.font = `900 ${Math.round(big * 0.7 * z)}px system-ui, sans-serif`;
       ctx.fillStyle = `hsl(${(v.time * 400) % 360},100%,65%)`;
-      ctx.fillText('FIEBRE ×2', W / 2, H - big * 1.4);
+      ctx.fillText('FIEBRE ×2', W / 2, v.bar ? v.bar.L.y - 130 - big * 0.8 : v.jump ? v.jump.y - v.jump.r - big * 1.1 : H - big * 1.4);
     }
+    progress(v, big, pad);
     ctx.textBaseline = 'alphabetic';
+  }
+
+  // Progreso de etapas: un tramo por etapa (los pasados llenos con su color, el actual
+  // llenándose), marca del récord y cuánto falta para la próxima. Los últimos 3 s laten.
+  function progress(v, big, pad) {
+    const s = v.sim, n = STAGES.length, gap = 3;
+    const y = Math.round(big * 2.38), hh = 6, x0 = pad, tw = W - pad * 2;
+    const sw = (tw - gap * (n - 1)) / n;
+    const xAt = (f) => x0 + Math.floor(f) * (sw + gap) + (f % 1) * sw;
+    const f = stageProg(s.t), cur = s.stage, nxt = STAGES[cur + 1];
+    const left = nxt ? nxt.t - s.t : 0, hot = nxt && left < 3;
+    for (let i = 0; i < n; i++) {
+      const x = x0 + i * (sw + gap), hue = STAGES[i].hue;
+      ctx.fillStyle = i === n - 1 ? 'rgba(255,255,255,.08)' : 'rgba(255,255,255,.14)';
+      ctx.fillRect(x, y, sw, hh);
+      if (i < cur) { ctx.fillStyle = `hsl(${hue},90%,62%)`; ctx.fillRect(x, y, sw, hh); }
+      else if (i === cur) {
+        const k = f - cur;
+        ctx.fillStyle = `hsl(${hue},100%,${hot ? 70 + 20 * Math.abs(Math.sin(v.time * 14)) : 66}%)`;
+        ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = hot ? 14 : 8;
+        ctx.fillRect(x, y - (hot ? 1 : 0), sw * k, hh + (hot ? 2 : 0));
+        ctx.shadowBlur = 0;
+      }
+    }
+    // récord de este modo: rayita dorada sobre la pista
+    if (v.best > 0) {
+      const bx = xAt(Math.min(n - 0.001, stageProg(v.best)));
+      ctx.fillStyle = s.t > v.best ? 'rgba(255,210,63,.45)' : '#ffd23f';
+      ctx.fillRect(bx - 1, y - 4, 2, hh + 8);
+    }
+    // texto bajo el tramo actual (sin salirse de la pantalla)
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const fs = Math.round(big * (hot ? 0.42 : 0.3));
+    ctx.font = `800 ${fs}px system-ui, sans-serif`;
+    const txt = nxt ? `${nxt.name} en ${fmtS(left)} s` : '∞ sin final';
+    const tw2 = ctx.measureText(txt).width / 2;
+    const cx = Math.max(x0 + tw2, Math.min(x0 + tw - tw2, x0 + cur * (sw + gap) + sw / 2));
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.65)'; ctx.strokeText(txt, cx, y + hh + 5);
+    ctx.fillStyle = hot ? '#fff' : `hsl(${nxt ? nxt.hue : STAGES[cur].hue},100%,78%)`;
+    ctx.fillText(txt, cx, y + hh + 5);
+  }
+
+  // ── control de BARRA: una sección por lado; al SALTAR se cierra en hexágono ──
+  function drawBar(v, h, col) {
+    const { L, b, target } = v.bar, s = v.sim;
+    const tilt = 0.86 + Math.sin(s.t * 0.7) * 0.06;
+    let k = 0, ref = b.ref, pos = b.pos, cross = -1;
+    const an = b.anim;
+    if (an) {
+      an.t += v.dt;
+      if (an.t >= MORPH_T) b.anim = null;
+      else if (an.t < MORPH.in) { k = ease(an.t / MORPH.in); ref = an.fromRef; pos = an.fromPos; }
+      else if (an.t < MORPH.in + MORPH.cross) { k = 1; cross = (an.t - MORPH.in) / MORPH.cross; }
+      else k = ease(1 - (an.t - MORPH.in - MORPH.cross) / MORPH.out);
+    }
+    // el hexágono copia la orientación del de la arena (giro e inclinación)
+    const R = L.R, hx = L.cx, hy = L.by;
+    const hexAt = (a) => { const d = hexR(a, R), g = a + s.rot; return [hx + Math.cos(g) * d, hy + Math.sin(g) * d * tilt]; };
+    const at = (u) => {
+      const [qx, qy] = hexAt((ref + 0.5 + u) * SEG);
+      return [L.cx + u * L.sw + (qx - L.cx - u * L.sw) * k, L.y + (qy - L.y) * k];
+    };
+    // peligro por lado: qué tan pronto pega el muro más cercano
+    const danger = new Array(SIDES).fill(0);
+    for (const w of s.walls) {
+      if (w.r + w.th <= P) continue;
+      const tti = Math.max(0, (w.r - P - PSIZE) / s.pv.v);
+      danger[w.side] = Math.max(danger[w.side], 1 - tti / 0.45);
+    }
+    const lw = L.h + (7 - L.h) * k;
+    ctx.save();
+    ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
+    for (let j = -3; j <= 3; j++) {
+      const side = (((ref + j) % SIDES) + SIDES) % SIDES;
+      const u0 = Math.max(-BAR_HALF, j - 0.5) + 0.04, u1 = Math.min(BAR_HALF, j + 0.5) - 0.04;
+      ctx.beginPath();
+      for (let q = 0; q <= 8; q++) { const [x, y] = at(u0 + (u1 - u0) * q / 8); q ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = `hsla(${h},55%,${side & 1 ? 36 : 18}%,.92)`; ctx.stroke();
+      if (danger[side] > 0) { ctx.globalAlpha = danger[side] * 0.55; ctx.strokeStyle = `hsl(${h},95%,65%)`; ctx.stroke(); ctx.globalAlpha = 1; }
+      if (j === 0 && k < 1) { // la sección del medio = el lado de partida
+        ctx.globalAlpha = 1 - k; ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,.55)';
+        const [x0, y0] = at(u0), [x1] = at(u1);
+        ctx.strokeRect(x0, y0 - lw / 2 - 3, x1 - x0, lw + 6); ctx.globalAlpha = 1;
+      }
+    }
+    // topes en las puntas
+    if (k < 1) {
+      ctx.globalAlpha = 1 - k; ctx.fillStyle = 'rgba(255,255,255,.8)';
+      for (const e of [-1, 1]) { const [x, y] = at(e * BAR_HALF); ctx.fillRect(x - 2 + e * 3, y - lw / 2 - 6, 4, lw + 12); }
+      ctx.globalAlpha = 1;
+    }
+    // objetivo del dedo
+    if (target != null && k < 0.5) {
+      const [x, y] = at(target);
+      ctx.globalAlpha = 1 - k * 2; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(x, y - lw / 2 - 2); ctx.lineTo(x, y + lw / 2 + 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x, y + lw / 2 + 9, 4, 0, TAU); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    // jugador: triángulo apuntando hacia afuera (arriba en la barra)
+    const tri = (x, y, nx, ny, sz) => {
+      ctx.beginPath(); ctx.moveTo(x + nx * sz, y + ny * sz);
+      ctx.lineTo(x - ny * sz * 0.7, y + nx * sz * 0.7); ctx.lineTo(x + ny * sz * 0.7, y - nx * sz * 0.7); ctx.closePath(); ctx.fill();
+    };
+    ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 12;
+    if (cross >= 0) {
+      // cruce por el centro del hexágono, como en la arena
+      const [x0, y0] = hexAt(an.fromA), [x1, y1] = hexAt(an.toA), e = ease(cross);
+      const x = x0 + (x1 - x0) * e, y = y0 + (y1 - y0) * e, d = Math.hypot(x1 - x0, y1 - y0) || 1;
+      ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.globalAlpha = 0.8;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x, y); ctx.stroke(); ctx.globalAlpha = 1;
+      tri(x, y, (x1 - x0) / d, (y1 - y0) / d, 9);
+    } else {
+      const [x, y] = at(pos), a = (ref + 0.5 + pos) * SEG + s.rot;
+      let nx = Math.cos(a) * k, ny = Math.sin(a) * tilt * k - (1 - k);
+      const d = Math.hypot(nx, ny) || 1; nx /= d; ny /= d;
+      tri(x + nx * (lw / 2 + 5), y + ny * (lw / 2 + 5), nx, ny, 9);
+    }
+    ctx.restore();
   }
 
   resize();
