@@ -81,6 +81,11 @@
     <label><input type="checkbox" data-opt="music" /> Música</label>
     <label><input type="checkbox" data-opt="sfx" /> Efectos</label>
     <label><input type="checkbox" data-opt="voice" /> Voz del locutor</label>
+    <div class="voicebox">
+      <select id="voice-pick" aria-label="Voz del locutor"></select>
+      <button id="btn-voice-test">PROBAR</button>
+    </div>
+    <p id="voice-st" class="vstat"></p>
     <label><input type="checkbox" data-opt="shake" /> Temblor y vibración</label>
     <label><input type="checkbox" data-opt="fsAuto" /> Pantalla completa al jugar</label>
   </div>
@@ -91,7 +96,10 @@
       <button data-v="clasico">CLÁSICO<small>tocá una mitad para girar</small></button>
       <button data-v="barra">BARRA<small>una mano: una sección por lado</small></button>
     </div>
+    <h3>TAMAÑO</h3>
+    <div class="size"><span>Botón SALTO</span><input type="range" step="5" data-size="jumpSize" /><input type="number" step="5" inputmode="numeric" data-size="jumpSize" /><em>%</em><button data-reset="jumpSize" title="Volver a 100 %">↺</button></div>
     <div id="o-hand">
+      <div class="size"><span>Barra</span><input type="range" step="5" data-size="barSize" /><input type="number" step="5" inputmode="numeric" data-size="barSize" /><em>%</em><button data-reset="barSize" title="Volver a 100 %">↺</button></div>
       <h3>BARRA CON EL TELÉFONO ACOSTADO</h3>
       <div class="seg" data-set="hand">
         <button data-v="izq">A LA IZQUIERDA</button>

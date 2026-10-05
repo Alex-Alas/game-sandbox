@@ -4,16 +4,18 @@
 // La voz del sistema no pasa por Web Audio: lo épico sale de acompañarla. `say(texto, nivel)`
 // dispara al empezar a hablar (`onstart`) un golpe de cine con reverb (1: impacto; 2: + metales;
 // 3: + coro y público), baja la música mientras habla y repite la última palabra como eco
-// de estadio. `onVoice(nivel)` avisa ese instante para sacudir la imagen.
+// de estadio. `onVoice(nivel)` avisa ese instante para sacudir la imagen. Sin voz (apagada o
+// sin motor) el golpe suena igual. La voz se elige sola (local antes que en línea) o a mano
+// (`opt.voiceName`); si una falla o no arranca, se descarta y se usa la siguiente (`voiceInfo()`).
 
 const PROG = [[45, 0], [41, 1], [48, 1], [43, 1]]; // La m, Fa, Do, Sol: [raíz MIDI, 1 = mayor]
 const PENTA = [0, 3, 5, 7, 10, 12, 15, 17];
 const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
 export function createAudio() {
-  let ctx = null, master, music, sfx, lp, noiseBuf, epic;
+  let ctx = null, master, music, sfx, lp, noiseBuf, epic, drive;
   const st = { bpm: 128, step: 0, next: 0, on: false, intensity: 0, kicks: [], timer: 0, fever: false, bar: 0 };
-  const opt = { music: true, sfx: true, voice: true };
+  const opt = { music: true, sfx: true, voice: true, voiceName: '' };
 
   function init() {
     if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
@@ -35,6 +37,12 @@ export function createAudio() {
     for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2); }
     verb.buffer = ir; wet.gain.value = 0.55;
     epic.connect(verb).connect(wet).connect(sfx);
+    // saturación: el golpe grave gana armónicos que sí salen por el parlante de un teléfono
+    drive = ctx.createWaveShaper();
+    const curve = new Float32Array(1024);
+    for (let i = 0; i < curve.length; i++) curve[i] = Math.tanh((i / 511.5 - 1) * 6);
+    drive.curve = curve; drive.oversample = '2x';
+    const dg = ctx.createGain(); dg.gain.value = 0.32; drive.connect(dg).connect(epic);
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -98,15 +106,22 @@ export function createAudio() {
     const o = ctx.createOscillator(), g = ctx.createGain();
     o.frequency.setValueAtTime(lvl >= 2 ? 95 : 120, t); o.frequency.exponentialRampToValueAtTime(30, t + 0.8);
     env(g, t, 0.003, 0.95, 0.8 + lvl * 0.35); o.connect(g).connect(epic); o.start(t); o.stop(t + 2);
+    // el mismo golpe, una octava y media arriba y saturado: el «cuerpo» que se oye en el teléfono
+    const b = ctx.createOscillator(), bg0 = ctx.createGain();
+    b.type = 'triangle'; b.frequency.setValueAtTime(lvl >= 2 ? 240 : 300, t); b.frequency.exponentialRampToValueAtTime(70, t + 0.5);
+    env(bg0, t, 0.002, 0.9, 0.45 + lvl * 0.15); b.connect(bg0).connect(drive); b.start(t); b.stop(t + 1.2);
     noise(t, 0.45, 0.55, 'lowpass', 500, epic);
+    noise(t, 0.3, 0.4, 'bandpass', 1400, drive, 0.8);
     noise(t, 0.18, 0.22, 'highpass', 3500, epic);
+    // platillo: brillo largo que se queda en la reverb
+    noise(t, 0.6 + lvl * 0.35, 0.16 + lvl * 0.05, 'highpass', 6500, epic);
     if (lvl >= 2) {
       // metales: quinta abierta en sierras desafinadas con un filtro que abre y cierra
       const f = ctx.createBiquadFilter(), bg = ctx.createGain();
       f.type = 'lowpass'; f.Q.value = 3;
       f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(2600, t + 0.08); f.frequency.exponentialRampToValueAtTime(700, t + 1.4);
       env(bg, t, 0.02, 0.16, 1.6); f.connect(bg).connect(epic);
-      for (const m of [33, 45, 52, 57]) for (const d of [-9, 9]) {
+      for (const m of [45, 52, 57, 64, 69]) for (const d of [-9, 9]) {
         const b = ctx.createOscillator(); b.type = 'sawtooth'; b.frequency.value = hz(m); b.detune.value = d;
         b.connect(f); b.start(t); b.stop(t + 1.8);
       }
@@ -134,14 +149,26 @@ export function createAudio() {
     if (!ctx) return;
     ramp(music.gain, opt.music ? (on ? 0.2 : 0.55) : 0, on ? 0.03 : 0.4);
   }
-  let voices = [], duckT = 0, hitT = 0;
+  // ── voz ──
+  const synth = window.speechSynthesis || null;
+  let voices = [], duckT = 0, hitT = 0, sayT = 0, dogT = 0;
+  const bad = new Set(); // voces que fallaron o no arrancaron en esta sesión
+  const vinfo = { name: '', ok: 0, err: '' };
+  const MALE = /pablo|jorge|diego|enrique|juan|carlos|alvaro|álvaro|raul|raúl|hombre|\bmale\b/i;
   function pickVoice() {
-    const es = speechSynthesis.getVoices().filter((v) => /^es/i.test(v.lang));
-    // las voces graves de hombre suenan más a tráiler; si no hay, la de España, si no cualquiera
-    voices = es.filter((v) => /pablo|jorge|diego|enrique|juan|carlos|alvaro|álvaro|raul|raúl|male|hombre/i.test(v.name))
-      .concat(es.filter((v) => v.lang === 'es-ES'), es);
+    if (!synth) return;
+    const es = synth.getVoices().filter((v) => /^es([-_]|$)/i.test(v.lang));
+    // las locales primero (las en línea fallan sin red o se cortan); entre ellas, las graves de
+    // hombre suenan más a tráiler, después la de España
+    const score = (v) => (v.localService ? 4 : 0) + (MALE.test(v.name) && !/female|mujer/i.test(v.name) ? 2 : 0) + (/^es[-_]ES/i.test(v.lang) ? 1 : 0);
+    voices = es.sort((a, b) => score(b) - score(a));
   }
-  if (window.speechSynthesis) { pickVoice(); speechSynthesis.addEventListener?.('voiceschanged', pickVoice); }
+  if (synth) { pickVoice(); synth.addEventListener?.('voiceschanged', pickVoice); }
+  // la elegida a mano si existe y no falló; si no, la mejor que no haya fallado; null = la del sistema
+  function voiceFor() {
+    const ok = voices.filter((v) => !bad.has(v.voiceURI));
+    return ok.find((v) => v.name === opt.voiceName) || ok[0] || null;
+  }
 
   function schedule() {
     if (!ctx || !st.on) return;
@@ -287,31 +314,58 @@ export function createAudio() {
     onVoice: null,
     // nivel 1: anuncio; 2: momento grande (eco); 3: épico (más grave y lento, doble eco)
     say(text, lvl = 1) {
-      if (!opt.voice || !window.speechSynthesis) return;
+      clearTimeout(hitT); clearTimeout(duckT); clearTimeout(sayT); clearTimeout(dogT);
+      let hit = false;
+      const go = () => { if (hit) return; hit = true; clearTimeout(hitT); stinger(lvl); duck(true); api.onVoice?.(lvl); };
+      const end = () => { clearTimeout(duckT); duck(false); };
+      if (!opt.voice || !synth) { go(); duckT = setTimeout(end, 500 + lvl * 300); return; }
       try {
-        speechSynthesis.cancel();
-        clearTimeout(hitT); clearTimeout(duckT);
+        // cancelar y hablar en el mismo instante pierde la frase en Chrome (Android sobre todo):
+        // solo se cancela si hay algo sonando, y se habla un momento después
+        const busy = synth.speaking || synth.pending;
+        if (busy) synth.cancel();
+        const v = voiceFor();
         const mk = (txt, vol, k) => {
           const u = new SpeechSynthesisUtterance(txt);
-          u.lang = 'es-ES'; if (voices[0]) u.voice = voices[0];
+          if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'es-ES';
           u.rate = (lvl >= 3 ? 0.88 : lvl >= 2 ? 0.95 : 1.02) * (k ? 1.15 : 1);
           u.pitch = (lvl >= 3 ? 0.45 : 0.55) - k * 0.05; u.volume = vol;
           return u;
         };
         const u = mk(text, 1, 0);
-        let hit = false;
-        const go = () => { if (hit) return; hit = true; clearTimeout(hitT); stinger(lvl); duck(true); api.onVoice?.(lvl); };
-        u.onstart = go; hitT = setTimeout(go, 400); // por si el motor no avisa onstart
-        speechSynthesis.speak(u);
-        let tail = u;
-        // eco de estadio: la última palabra, más baja y rápida
-        const word = text.replace(/[¡!¿?.]/g, '').trim().split(/\s+/).pop();
-        for (let k = 1; k < lvl && word; k++) { tail = mk(word.toLowerCase(), k === 1 ? 0.4 : 0.15, k); speechSynthesis.speak(tail); }
-        const end = () => { clearTimeout(duckT); duck(false); };
-        tail.onend = end; tail.onerror = end;
+        let started = false;
+        const fail = (why) => {
+          if (started) return;
+          clearTimeout(dogT); vinfo.err = why;
+          if (v) bad.add(v.voiceURI); // la próxima frase prueba con otra voz (o la del sistema)
+          try { synth.cancel(); } catch { /* */ }
+          end();
+        };
+        const ok = () => { if (started) return; started = true; clearTimeout(dogT); vinfo.name = v ? v.name : '(del sistema)'; vinfo.ok++; vinfo.err = ''; go(); };
+        u.addEventListener('start', ok); u.addEventListener('end', ok); // hay motores que no avisan el inicio
+        u.onerror = (e) => { if (e.error !== 'interrupted' && e.error !== 'canceled') fail(e.error || 'error'); };
+        hitT = setTimeout(go, 400); // por si el motor no avisa onstart (o no habla): el golpe va igual
+        const run = () => {
+          synth.resume?.(); // Chrome a veces deja la cola en pausa (pestaña en segundo plano)
+          synth.speak(u);
+          let tail = u;
+          // eco de estadio: la última palabra, más baja y rápida
+          const word = text.replace(/[¡!¿?.]/g, '').trim().split(/\s+/).pop();
+          for (let k = 1; k < lvl && word; k++) { tail = mk(word.toLowerCase(), k === 1 ? 0.4 : 0.15, k); synth.speak(tail); }
+          tail.onend = end; if (tail !== u) tail.onerror = end;
+          // si en 3 s no empezó (ni terminó) de hablar, la cola quedó trabada o la voz no anda
+          dogT = setTimeout(() => fail('no arrancó'), 3000);
+        };
+        if (busy) sayT = setTimeout(run, 70); else run();
         duckT = setTimeout(end, 2600 + lvl * 900);
-      } catch { /* sin voz */ }
+      } catch (e) { vinfo.err = String(e && e.message || e); go(); }
     },
+    // para Ajustes y depurar: voces en español, cuál se usa y el último error
+    voices: () => voices.map((v) => ({ name: v.name, lang: v.lang, local: v.localService, bad: bad.has(v.voiceURI) })),
+    voiceInfo: () => ({ ...vinfo, supported: !!synth, using: voiceFor()?.name || null, speaking: !!synth?.speaking }),
+    onVoices: (fn) => synth?.addEventListener?.('voiceschanged', fn),
+    // al elegir una voz a mano se le da otra oportunidad aunque haya fallado
+    pickVoice(name) { opt.voiceName = name; for (const v of voices) if (v.name === name) bad.delete(v.voiceURI); },
   };
   return api;
 }
