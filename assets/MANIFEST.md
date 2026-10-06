@@ -1,6 +1,6 @@
 # MANIFEST de assets 3D (F0)
 
-Inventario de los packs para el juego de acción 2.5D. Fuente: carpeta de Drive compartida el 2026-10-06
+Inventario de los packs para HYPERFLOWGEON (acción 2.5D; spec en `docs/superpowers/specs/2026-10-06-hyperflowgeon-f0-design.md`). Fuente: carpeta de Drive compartida el 2026-10-06
 (43 archivos) y los repositorios oficiales de KayKit en GitHub.
 
 > **Estado: incompleto.** El contenedor de desarrollo no puede bajar de Google Drive ni de quaternius.com
@@ -50,9 +50,9 @@ del mismo contenido).
    KayKit (cabezón, low-poly) no combinan. KayKit Character Animations está hecho para Rig_Medium/Rig_Large:
    retargetearlo al rig de Quaternius deforma poses y mezclar personajes de los dos rompe la regla de no
    mezclar estilos. Propuesta en el GDD: personajes solo Quaternius.
-2. **Trajes de fantasía en una ciudad de 1930–1950.** Modular Outfits Fantasy son armaduras y túnicas
-   medievales. No hay ropa de época en la lista. Propuesta en el GDD: usarlos como trajes ceremoniales de
-   festividad y sumar accesorios de época hechos por nosotros (sombreros, sacos, delantales).
+2. **Trajes y accesorios.** Modular Outfits Fantasy son armaduras y túnicas medievales: sirven tal cual para
+   el reino vikingo y de base para los demás. Los accesorios de cada cultura (tricornio, sombrero vaquero,
+   máscara de águila, etc.) se modelan aparte (spec §6). Por medir: si trae cascos y armaduras vikingas.
 3. **Peso.** Los Standard aprobados suman ~870 MB comprimidos (FBX + glTF + OBJ duplicados). Al juego solo
    llega lo exportado, optimizado (meshopt + KTX2) y partido por bioma; objetivo < 15 MB para el primer
    jugable.
@@ -60,9 +60,9 @@ del mismo contenido).
    media; enemigos con LOD simplificado (3–5 k tris).
 5. **Medieval Hex a escala de maqueta.** Agrandado se ve tosco de cerca: sirve como silueta de fondo o
    geometría gruesa de fortaleza (muros, torres), no como detalle cercano.
-6. **Downtown City MegaKit es moderno** (estilo Boston/NYC actual): requiere filtrar piezas anacrónicas y
-   rematerializar. Plan en el GDD, sección «Estética de época». La lista pieza por pieza
-   (OK / repintar / quitar) se hace cuando el pack esté en `assets/packs/`.
+6. **Downtown City MegaKit es urbano moderno** (estilo Boston/NYC): no encaja en los cuatro reinos de
+   partida (piratas, vaqueros, vikingos, nativos latinoamericanos). Queda en reserva para un reino futuro
+   de ciudad neón o alienígena; mientras tanto no se mide ni se usa.
 
 ## 2. Packs de la carpeta que no están en la lista aprobada
 
