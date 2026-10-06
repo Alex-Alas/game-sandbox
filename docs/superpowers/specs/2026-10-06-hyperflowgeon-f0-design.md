@@ -441,11 +441,11 @@ Escenario propio: jarcia y mástil, riel de mina, poste, cadena, tablón de abor
 | Sistema | Resolución |
 |---|---|
 | Ubicación del código | `games/hyperflowgeon/` en este repo (multi-página, Pages, link gratis), TypeScript solo en esa carpeta |
-| Controlador del personaje | cinemático propio con shape-casts de Rapier (coyote, buffer y cancelaciones exactos; determinista); Rapier dinámico solo para objetos |
+| Controlador del personaje | cinemático propio (coyote, buffer y cancelaciones exactos; determinista) con **colisión propia por barrido de cajas** (cambiado al empezar F1; antes: shape-casts de Rapier) |
 | Frecuencia de simulación | 60 Hz fijo (frame data en cuadros, rollback más barato) |
-| Física | `@dimforge/rapier2d-deterministic-compat` (plano de juego 2D; el 3D es solo render) |
-| Panel de tuning | Tweakpane |
-| Tests de la simulación | Vitest |
+| Física | plano de juego 2D (el 3D es solo render); `@dimforge/rapier2d-deterministic-compat` (0.21.0, existe) entra solo si hacen falta cuerpos dinámicos |
+| Panel de tuning | deslizadores nativos generados desde `params.ts` (cambiado al empezar F1; antes: Tweakpane) |
+| Tests de la simulación | `node --test` sin dependencias (cambiado al empezar F1; antes: Vitest) |
 | Contorno | casco invertido |
 | Estado de simulación | datos planos serializables; sin clases con referencias circulares |
 | Matemática | `sim/math.ts` propia; la simulación no importa `Math.sin/cos/atan2/exp/pow`; test que lo vigila |

@@ -18,6 +18,7 @@ export default defineConfig({
         downcastle: resolve(import.meta.dirname, 'games/downcastle/index.html'),
         vortice: resolve(import.meta.dirname, 'games/vortice/index.html'),
         lucero: resolve(import.meta.dirname, 'games/lucero/index.html'),
+        hyperflowgeon: resolve(import.meta.dirname, 'games/hyperflowgeon/index.html'),
       },
     },
   },
