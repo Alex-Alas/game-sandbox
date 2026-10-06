@@ -24,8 +24,10 @@ Calamidad (tirón, enganche, columpio, bowie atado) contra dummies, con el núcl
 - Render Three.js: material toon propio, contorno de casco invertido, cámara 2.5D con «trauma», HUD mínimo
   (momentum, estado, cable), resolución adaptativa y overlay de métricas.
 - Panel de tuning (Tweakpane) y estado serializable con replays de entradas.
-- Héroe provisional: el muñeco de Prototype Bits o una cápsula con la pose por estado; los UBC de Quaternius
-  entran cuando estén medidos (F2).
+- Héroe: **UBC Superhero_Male** (Quaternius, ya medido) con los clips de UAL 1 y 2 que existen (`Idle`,
+  `Jog/Sprint`, `Jump_*`, `Pistol_Aim_*` para apuntar el garfio, `OverhandThrow` para el bowie, `Slide_*`
+  para el grind, `Hit_*`, `Sword_Regular_*` como golpe ligero provisional) y poses por código para lo que
+  no existe (tirón y columpio). Sin trajes ni accesorios culturales todavía (F2+).
 
 **Fuera:** los otros tres héroes, enemigos con IA, reinos, jefes, ofrendas y run (F2–F3), PVP y red (F4–F5),
 audio final (solo sonidos procedurales de prueba), doble anclaje.
@@ -54,6 +56,7 @@ games/hyperflowgeon/
       serialize.ts      estado ⇄ JSON/ArrayBuffer; replay de entradas
     render/
       scene.ts, toon.ts, outline.ts, camera.ts (trauma), hero.ts, fx.ts, hud.ts, quality.ts
+      anim.ts           estado de la sim → clip (estirado a los cuadros del golpe) + poses por código
     input/
       keyboard.ts, gamepad.ts, touch.ts (joystick + botones reubicables), mapping.ts (remapeo)
     tuning/
@@ -63,7 +66,9 @@ games/hyperflowgeon/
       meson.ts          el Patio como «reino» de datos (valida el formato de §3.4 del spec)
   tests/                Vitest (ver «Pruebas»)
   tools/
-    export-assets.mjs   Prototype Bits → glTF optimizado (meshopt/KTX2) en public/hyperflowgeon/
+    export-assets.mjs   Prototype Bits + UBC + UAL → glTF optimizado en public/hyperflowgeon/:
+                        simplifica a ≤ 6 k tris, funde materiales, quita huesos de dedos (≤ 60),
+                        recorta los clips al mismo esqueleto, texturas ≤ 1024² (meshopt/KTX2)
 public/hyperflowgeon/   assets exportados
 ```
 
@@ -96,16 +101,20 @@ public/hyperflowgeon/   assets exportados
    ATAQUE lo lanza) → columpio → bowie atado que se clava y vuelve. Cable tenso = deslizable.
 9. **Auto-aim y entrada.** `aim.ts` (cono 35°, prioridad) con las 16 direcciones de PVP; teclado, mouse,
    gamepad y táctil híbrido (botones de ≥ 12 mm, reubicables y escalables como en VÓRTICE); remapeo.
-10. **Render y feedback.** Material toon (2 bandas + luz de borde), contorno de casco invertido solo en lo
+10. **Personaje y animación.** `tools/export-assets.mjs` produce el héroe y los clips (esqueleto de 65 → ≤ 60
+    huesos, ≤ 6 k tris). `anim.ts`: tabla estado → clip, con el clip estirado para que su impacto caiga en el
+    cuadro que dice la simulación; poses de tirón y columpio con control de huesos por código.
+    Medir en el teléfono antes de pasar al paso 11.
+11. **Render y feedback.** Material toon (2 bandas + luz de borde), contorno de casco invertido solo en lo
     jugable y en los dummies, lenguaje de color de gameplay del §5 (anillo jade en anclables, etc.), cámara
     con trauma, estela del cable, chispas e impactos procedurales, sonidos procedurales de prueba.
-11. **Calidad y métricas.** Presets `?q=low|med|high` (como ELYTRA), resolución adaptativa, overlay F3 con
+12. **Calidad y métricas.** Presets `?q=low|med|high` (como ELYTRA), resolución adaptativa, overlay F3 con
     ms de simulación y render, draw calls y tris.
-12. **Panel de tuning.** Tweakpane con todos los valores de `params.ts`, presets y exportación a JSON.
-13. **Aceptación.** Pruebas de §«Aceptación», `npm run typecheck`, `npm run test`, `npm run build`, recorrido en
+13. **Panel de tuning.** Tweakpane con todos los valores de `params.ts`, presets y exportación a JSON.
+14. **Aceptación.** Pruebas de §«Aceptación», `npm run typecheck`, `npm run test`, `npm run build`, recorrido en
     el navegador (teclado y táctil emulado), medición en teléfono real Android de gama media, y actualizar
     `CLAUDE.md` (arquitectura de la carpeta, comandos de prueba).
-14. **Prueba de sensación con el usuario** y ajuste de `params.ts` según lo que diga; la decisión sobre si el
+15. **Prueba de sensación con el usuario** y ajuste de `params.ts` según lo que diga; la decisión sobre si el
     grapple «funciona» cierra F1.
 
 ## Pruebas (Vitest, en Node)
@@ -127,7 +136,7 @@ public/hyperflowgeon/   assets exportados
 | Criterio | Umbral |
 |---|---|
 | Simulación + render en el teléfono de gama media | 60 fps sostenidos en el Patio; simulación ≤ 3 ms, envío de render ≤ 5 ms |
-| Draw calls / tris | ≤ 120 / ≤ 250 k |
+| Draw calls / tris | ≤ 120 / ≤ 250 k; héroe ≤ 6 k tris y ≤ 60 huesos |
 | Carga inicial | ≤ 15 MB comprimido |
 | Tests y typecheck | en verde |
 | Determinismo | replay idéntico en Chrome (escritorio) y Chromium emulando móvil |
@@ -146,8 +155,12 @@ public/hyperflowgeon/   assets exportados
   se actualiza («no hay tests» pasa a «solo hyperflowgeon tiene Vitest»).
 - **Rapier 2D determinista pesa o no existe con la versión esperada.** Verificar en el paso 1; si falla,
   presentar opciones (colisión propia solo con AABB y rampas, que además sería trivialmente determinista).
-- **Los packs no están en el contenedor.** F1 solo necesita Prototype Bits (ya medido); Quaternius se mide
-  en cuanto el usuario habilite Drive.
+- **Los packs ya están medidos** (spec §6.1). El riesgo que queda es de rendimiento: UBC trae 14 k tris y 65
+  huesos contra un presupuesto de 6 k y 60. Si la simplificación deforma al personaje, plan B: cuerpo propio
+  de bajo polígono sobre el mismo esqueleto (los clips siguen valiendo).
+- **Animaciones que no existen** (tirón, columpio, planeo): son trabajo propio y el grapple de F1 es el que
+  más depende de ellas; si las poses por código no leen bien, se dibuja el cable y los efectos primero y la
+  pose se pule después (el juicio de F1 es sobre la sensación, no sobre la animación).
 
 ## Después de F1
 

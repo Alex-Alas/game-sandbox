@@ -3,8 +3,8 @@
 Estado: **F0 cerrada en papel, lista para implementar F1.** Todas las decisiones de la §0 están resueltas
 (las tuyas y, donde no dijiste nada, mis recomendaciones). Nada está implementado.
 Plan de F1: [`plans/2026-10-06-hyperflowgeon-f1.md`](../plans/2026-10-06-hyperflowgeon-f1.md).
-Inventario de assets: [`assets/MANIFEST.md`](../../../assets/MANIFEST.md) (KayKit medido; Quaternius pendiente
-de medir porque el contenedor no puede bajar de Drive).
+Inventario de assets: [`assets/MANIFEST.md`](../../../assets/MANIFEST.md) (todo medido sobre los archivos desde
+2026-10-06; ver §6.1 para lo que cambió respecto de lo supuesto).
 
 **Nombre:** HYPERFLOWGEON = *hyper* (hype) + *flow* (estado de flujo) + *dungeon*. Carpeta
 `games/hyperflowgeon/`, assets en `public/hyperflowgeon/`, mismo repo.
@@ -16,9 +16,9 @@ de medir porque el contenedor no puede bajar de Drive).
 | D1 | Concepto de mundo | **Multiverso de estereotipos, tipo D&D**: una mazmorra viva con un reino por cultura. Arranca con piratas, vaqueros, vikingos y nativos latinoamericanos, cada uno con su mitología (§3). Reemplaza a Ciudad Faro / Puerto Niebla / Santelmo | tuya |
 | D2 | Nombre | **HYPERFLOWGEON** | tuya |
 | D3 | Línea de personajes | Solo Quaternius (UBC + Outfits + UAL 1/2). KayKit Character Animations queda sin uso | recomendación |
-| D4 | Ropa | Ya no hay época que respetar: los trajes de Outfits Fantasy valen tal cual. Lo que falta son los **accesorios de cada cultura**, modelados por nosotros (§6) | ajustada por D1 |
+| D4 | Ropa | Ya no hay época que respetar, pero **Outfits Fantasy solo trae Peasant y Ranger** (medido): no hay armadura vikinga ni ropa de ninguna cultura. Todo lo cultural (sombreros, cascos, pecheras, capas, máscaras) se modela nosotros sobre UBC + Peasant/Ranger; se evalúa pagar el PRO (§6.1) | ajustada por D1 y por la medición |
 | D5 | Huecos de assets | Enemigos = humanoides UBC + objetos poseídos; armas propias; se aprueba **Fantasy Props MegaKit** para objetos lanzables y rompibles | recomendación |
-| D6 | Packs brutos | `assets/packs/` fuera de git. **Pendiente tuyo:** habilitar Drive en la red del entorno (no bloquea F1, §9) | recomendación |
+| D6 | Packs brutos | `assets/packs/` fuera de git. **Resuelto:** el acceso a Drive ya funciona y los 7 packs Quaternius están bajados y medidos | recomendación |
 | D7 | Arquetipos | 1B + 2A + 3B + 4A, **renombrados como héroes de cada cultura** (§4) | recomendación + tu pedido de nombres |
 | D8 | Lenguaje de color de gameplay | Aprobado como estaba (§5) | recomendación |
 | D9 | Hitstop con varios jugadores | Por entidad; global solo en remates de PVE de un jugador | recomendación |
@@ -58,7 +58,15 @@ de medir porque el contenedor no puede bajar de Drive).
     muros, torres y siluetas lejanas (Fiordos y fondos de la Frontera), no para detalle cercano.
 13. **Alcance de F2.** Cuatro héroes, cuatro herramientas y 12 interacciones es más que todo F1. → Dos
     entregas (D13).
-14. **Alcance del mundo.** Cuatro reinos × (bioma + enemigos + jefe + héroe) es mucho contenido. → Cada reino
+14. **Animación de los héroes (medido).** UAL 1+2 traen 86 clips (43 + 43) y cubren bien a Freydis y a Calicó,
+    pero **no hay planeo, picada, tirón, columpio ni escalada de pared**: Cuauhtli y La Calamidad necesitan
+    poses y movimientos propios (§4.7). Las animaciones de Quaternius no traen *frame data*: la simulación
+    manda y el clip se estira a los cuadros del ataque.
+15. **Polycount y huesos de los personajes (medido).** UBC 14–15 k tris, Ranger completo 27 k tris y 10 draw
+    calls, rig de 65 huesos contra un presupuesto de ~6 k tris y ≤ 60 huesos. Hace falta un paso de build:
+    simplificar con meshoptimizer, fusionar materiales y quitar huesos de dedos (los clips se recortan al
+    mismo esqueleto).
+16. **Alcance del mundo.** Cuatro reinos × (bioma + enemigos + jefe + héroe) es mucho contenido. → Cada reino
     es **datos + assets, no sistemas** (§3.4): F1–F2 juegan en un solo escenario de práctica; los reinos entran
     de a uno desde F3 y el primero (Mares) se termina antes de empezar el segundo.
 
@@ -303,7 +311,21 @@ cultura): *1A Zopilote / 1C Barrilete* (Sol Alto, otros pueblos), *2B Arriero* (
 *4B Mensajero* (reino ninja), *4C Pelotero* (juego de pelota mesoamericano, Sol Alto; el más caro de leer).
 Se construyen después de F5, o antes si el usuario lo pide.
 
-### 4.7 Interacciones cruzadas (2+ por par)
+### 4.7 Cobertura de animación (medida en UAL 1 y 2)
+
+| Héroe | Qué hay en los clips | Qué hay que hacer nosotros |
+|---|---|---|
+| Freydis | `Sword_Regular_A/B/C` + `_Rec`, `Sword_Heavy_Combo`, `Sword_Dash`, `Punch_*`, `Melee_Hook`, `NinjaJump_*` (salto explosivo), `Roll`, `Hit_Knockback` | casi todo está; el PASO de lobo y la picada de zarpas |
+| Calicó | `Slide_Start/Loop/Exit` (grind), `Roll`, `Sprint_Loop`, `NinjaJump_*`, `Jump_*` | postura sobre el tablón y la bala encadenada |
+| La Calamidad | `Pistol_Aim_Up/Neutral/Down` (apuntado del garfio), `OverhandThrow` (bowie), `Idle`, `Jump_*` | pose de tirón y de columpio (control de huesos por código sobre un clip base) |
+| Cuauhtli | solo `Jump_Loop` y `NinjaJump_Idle_Loop` como base | planeo, cabeceo, picada, pérdida, impulsos: poses procedurales con control de huesos por código |
+| Enemigos | `Zombie_*`, `Hit_*`, `Sword_*`, `Shield_*`, `Punch_*` | voladores y jefes a medida |
+
+Los clips no traen *frame data*: la simulación es la autoridad y cada animación se estira para que el
+momento de impacto coincida con el cuadro del golpe. Cuauhtli y La Calamidad son los que más trabajo de
+animación necesitan, y La Calamidad es el héroe de F1.
+
+### 4.8 Interacciones cruzadas (2+ por par)
 
 Cada una sale de una regla compartida, no de un caso programado aparte (pilar 1). Funcionan entre la
 herramienta principal y la secundaria del mismo jugador y entre jugadores.
@@ -378,8 +400,31 @@ compartido (lista en §6).
 sombrero vaquero, pañuelo, revólver y bowie (vaqueros); casco con cuernos y capa de piel (vikingos); máscara de
 águila y adornos de plumas no sagrados (mexicas); cañón de mano, barril, bala encadenada.
 Escenario propio: jarcia y mástil, riel de mina, poste, cadena, tablón de abordaje, escalón de pirámide.
-Por medir en cuanto estén los packs: si Stylized Nature trae cactus y palmeras; si Outfits Fantasy cubre cascos y
-armaduras vikingas.
+
+### 6.1 Lo medido en los packs Quaternius (2026-10-06)
+
+| Supuesto del spec | Realidad |
+|---|---|
+| UBC: 6 cuerpos, 20 peinados | **2 cuerpos** (Superhero M/F) y 6 peinados + barba + cejas; el resto es del pack de pago |
+| Outfits Fantasy: 12 trajes en 62 partes | **4 trajes** (Peasant y Ranger, H/M) en 24 piezas; sin armaduras de caballero ni vikingas |
+| UAL: 45 + ~91 clips | **43 + 43 = 86 clips**, con `Slide_*` (grind), `Sword_*` (combos), `Hit_Knockback`, `Pistol_*`, `Zombie_*`, `Shield_*` |
+| Rigs compatibles | **Confirmado**: 65 huesos con nombres idénticos en UBC, Outfits y UAL 1 y 2 |
+| Licencia CC0 | **Confirmada** en el texto de cada pack (`License_Standard.txt`) |
+| Nature para selvas y desiertos | árboles, pinos, árboles muertos y retorcidos, rocas y textura de desierto; **sin cactus ni palmeras** |
+| Fantasy Props para armas y lanzables | 94 modelos: espada, hacha, pico, escudo, barril, cajas, cofre, monedas, cadena, sogas, yunque, estandartes; **sin cañón, arma de fuego, sombrero ni casco** |
+
+**Qué cambia en la práctica:**
+- El PRO de UBC y de Outfits resolvería parte del vestuario, pero igual no trae cultura pirata, vaquera o
+  mexica: **el vestuario cultural es trabajo propio en cualquier caso**. El PRO se evalúa solo si el costo de
+  modelar ropa completa supera su precio; no es prerrequisito de F1–F2.
+- Reino por reino con lo que ya hay: *Fiordos* = el más cubierto (Pine, Axe, Shield, Banner, Barrel, rocas;
+  casco y capa de piel propios). *Mares* = Barrel, Chest, Coin_Pile, Chain, Rope, Crate; faltan velas,
+  mástiles, cañón y tricornio. *Frontera* = Barrel, Crate, Pickaxe, Anvil, Stall, DeadTree, rocas de desierto;
+  faltan sombrero, revólver, cactus y rieles. *Sol Alto* = rocas y árboles; faltan pirámide, máscara y
+  cualquier arquitectura propia (la parte más cara).
+- Enemigos: `Zombie_*` sirve para draugr y esqueletos de tesoro, `Shield_*` para el Blindado, `Sword_*` y
+  `Hit_*` para casi todos.
+- El kit de estilo sigue sin mezclarse: todo Quaternius (más Prototype Bits para el campo de práctica).
 
 ## 7. Presupuesto para Android de gama media (Adreno 610/618, Mali-G57, 4 GB)
 
@@ -427,8 +472,8 @@ armaduras vikingas.
 | F5 | PVP online con rollback | iPhone contra Android sin desincronizar |
 
 **Qué necesito de vos fuera del código:**
-1. Habilitar `drive.google.com` y `drive.usercontent.google.com` en la red del entorno (D6): no bloquea F1,
-   sí el tramo de Quaternius (personajes finales) desde F2.
+1. *(Resuelto)* El acceso a Drive ya funciona. Decidir si hay presupuesto para los PRO de UBC y Outfits (§6.1);
+   no bloquea F1.
 2. Un teléfono real Android de gama media para medir en la primera semana de F1 (contorno y personajes).
 3. Revisar cada reino con una nota corta antes de F3 (§3.3).
 
