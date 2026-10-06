@@ -6,15 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm install
-npm run dev      # Vite en :5173 (hub en / ; ELYTRA en /games/elytra/ ; DOWNCASTLE en /games/downcastle/ ; VÓRTICE en /games/vortice/ ; LUCERO en /games/lucero/)
+npm run dev      # Vite en :5173 (hub en / ; ELYTRA en /games/elytra/ ; DOWNCASTLE en /games/downcastle/ ; VÓRTICE en /games/vortice/ ; LUCERO en /games/lucero/ ; HYPERFLOWGEON en /games/hyperflowgeon/)
 npm run build    # salida en dist/
+npm test         # tests de HYPERFLOWGEON (node --test, sin dependencias)
+npm run typecheck  # tsc sobre games/hyperflowgeon (TypeScript 7)
 ```
 
-No hay linter ni tests. Se verifica en el navegador con el dev server (`.claude/launch.json`, config `sandbox`).
+No hay linter. Solo HYPERFLOWGEON tiene tests y typecheck; lo demás se verifica en el navegador con el dev server (`.claude/launch.json`, config `sandbox`).
 
 ## Arquitectura
 
-Vite multi-página: cada juego vive en `games/<nombre>/` y sus assets en `public/<nombre>/`. Un juego nuevo se registra en `build.rollupOptions.input` de [vite.config.js](vite.config.js) y en el hub `index.html`. ELYTRA usa Three.js + Rapier (`@dimforge/rapier3d-compat`, WASM incrustado); DOWNCASTLE, VÓRTICE y LUCERO, Canvas 2D sin dependencias de motor. Los comentarios y textos de UI están en español.
+Vite multi-página: cada juego vive en `games/<nombre>/` y sus assets en `public/<nombre>/`. Un juego nuevo se registra en `build.rollupOptions.input` de [vite.config.js](vite.config.js) y en el hub `index.html`. ELYTRA usa Three.js + Rapier (`@dimforge/rapier3d-compat`, WASM incrustado); DOWNCASTLE, VÓRTICE y LUCERO, Canvas 2D sin dependencias de motor; HYPERFLOWGEON, TypeScript y por ahora Canvas 2D en gris. Los comentarios y textos de UI están en español.
 
 ### ELYTRA (`games/elytra/src/`)
 
@@ -96,8 +98,13 @@ Match-3 por niveles al estilo saga (mapa sin fin, vidas, estrellas), pensado par
 - `sky.js`: constelaciones (10 a mano, después generadas) que se encienden gastando estrellas; cada estrella da monedas y cada constelación completa, un cofre celeste.
 - `main.js`: flujo mapa → ventana del nivel → partida → victoria/derrota → mapa con recompensas en cola (`queueModal`), y tras una victoria nueva se abre solo el nivel siguiente. Los niveles que enseñan (`TEACH`) usan una semilla con la jugada a mano (`teachSeed`) y solo aceptan esa jugada. `window.__lucero`: `play(n)` (sin ventana), `auto(on)` (el bot juega), `speed(k)`, `advance(seg)` (sin rAF), `state()`, `board()`, `moves()`, `win()`, `lose()`, `give(c)`, `modal()`, `close()`. Verificado con Playwright (`/opt/node22/lib/node_modules/playwright`, Chromium en `/opt/pw-browsers`) en 390×844 táctil, 844×390 y 1280×720: los botones que laten necesitan `click({ force: true })`.
 
-### HYPERFLOWGEON (en diseño, F0 cerrada; sin código todavía)
+### HYPERFLOWGEON (`games/hyperflowgeon/`, F1 en curso: paso A hecho)
 
 - Acción 2.5D de movimiento + combate: un multiverso de estereotipos tipo D&D (mazmorra viva con un reino por cultura: Mares de Calavera, Frontera del Polvo Rojo, Fiordos del Fin, Sol Alto). Cuatro héroes: Cuauhtli (vuelo), La Calamidad (grapple), Freydis la Loba (melee), Calicó (suelo). Un reino es datos + assets, no sistemas.
-- Diseño en `docs/superpowers/specs/2026-10-06-hyperflowgeon-f0-design.md` (decisiones cerradas en §0 y §8) y plan en `docs/superpowers/plans/2026-10-06-hyperflowgeon-f1.md`. Irá en `games/hyperflowgeon/` (TypeScript solo ahí, Vitest, Rapier 2D determinista, simulación a 60 Hz con matemática propia). Las fases (F1–F5) avanzan solo con aprobación explícita del usuario, y antes de cada sistema nuevo se presentan 2–3 opciones.
+- Diseño en `docs/superpowers/specs/2026-10-06-hyperflowgeon-f0-design.md` (decisiones cerradas en §0 y §8) y plan en `docs/superpowers/plans/2026-10-06-hyperflowgeon-f1.md`. TypeScript solo en esa carpeta (`tsconfig.json` en la raíz). Las fases (F1–F5) avanzan solo con aprobación explícita del usuario, y antes de cada sistema nuevo se presentan 2–3 opciones.
+- F1 va en gris y por pasos que el usuario calibra jugando: **A** correr y saltar (hecho) → **B** tirón y columpio → **C** auto-aim y táctil; después enganchar, bowie, combate, momentum y estados; Three.js y assets al final. Cambios a §8 del spec acordados al empezar: colisión propia (sin Rapier hasta que haya cuerpos dinámicos), panel nativo (sin Tweakpane), `node --test` (sin Vitest).
+- `src/sim/` es pura y determinista: estado de datos planos (ida y vuelta por JSON), `step(s, world, input, cfg)` a 60 Hz. Metros, y hacia arriba, `p.x` = centro y `p.y` = pies. Solo `+ − × ÷ √` (sin `Math.sin/cos/atan2/exp/pow/random` ni `**`: lo vigila un test). Colisión: barrido por ejes de la caja contra rects (`sweepX/Y`, `EPS` = tocarse no es solaparse), así no atraviesa nada. Paso vertical trapezoidal: `JUMP_H`/`JUMP_T` son exactos. En el aire la entrada nunca le quita velocidad a favor (el impulso se conserva, clave para el garfio).
+- Frame data: coyote = `COYOTE` cuadros en el aire en que todavía se salta; buffer = un SALTO apretado hasta `BUFFER` cuadros antes de aterrizar salta al aterrizar (`groundT`/`pressT` son números de cuadro). Soltar SALTO subiendo multiplica `vy` por `JUMP_CUT`, también en un salto con buffer ya soltado.
+- `params.ts`: `RANGES` = `[valor, mín, máx, paso, etiqueta]`; el panel AJUSTES (`main.ts`, `<details>` con deslizadores nativos) se genera de ahí y guarda en `hfg.cfg` (localStorage); «copiar JSON» para pasar valores calibrados a `RANGES`. `patio.ts`: el Patio en gris (escalones de 1–4 m, foso de 5 m, túnel de 2,2 m, flotantes, cornisa de 8 m). El HUD mide alto, largo y cuadros del último vuelo, y el rastro deja un punto por cuadro.
+- Imports con extensión `.ts` y solo sintaxis borrable (sin `enum` ni `namespace`; `erasableSyntaxOnly`): Node corre los `.ts` sin compilar. Los tests van en `.mjs` (`tests/sim.test.mjs`), así no hace falta `@types/node`. `window.__hfg`: `state()`, `cfg`, `reset()`, `advance(n, { x, jump })` (n cuadros sin rAF). Verificado con Playwright global en 1280×720 con teclado real.
 - Assets: `assets/MANIFEST.md`. Los packs brutos van descomprimidos en `assets/packs/<pack>/` (ignorado por git) y se miden con `node tools/assets-inventory.mjs assets/packs [--pack <nombre>] [--json]`. Los KayKit se pueden clonar de `github.com/KayKit-Game-Assets/KayKit-<Pack>-1.0`. Los packs Quaternius (UBC, UAL 1/2, Outfits, Nature, Props, Downtown) ya están medidos (todos con el mismo rig de 65 huesos; ver spec §6.1) y se bajan de Drive: el conector da el `id` y se baja con `curl` a `drive.usercontent.google.com/download?id=<ID>&export=download&confirm=t` (pasos en `assets/MANIFEST.md` §4).

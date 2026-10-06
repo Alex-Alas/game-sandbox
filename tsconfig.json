@@ -1,0 +1,17 @@
+{
+  // TypeScript solo en HYPERFLOWGEON; Vite y Node (tests) quitan los tipos, tsc solo verifica
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022", "dom"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["games/hyperflowgeon"]
+}

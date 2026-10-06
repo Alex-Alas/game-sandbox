@@ -4,6 +4,16 @@ Spec: [`specs/2026-10-06-hyperflowgeon-f0-design.md`](../specs/2026-10-06-hyperf
 cerradas en su §0 y §8). Rama de implementación: una nueva desde `master`; esta planificación va primero.
 **No se implementa nada hasta que el usuario diga «empezá F1».**
 
+## Cambios acordados al empezar (2026-10-06)
+
+F1 arrancó en gris y por pasos que el usuario calibra jugando, empezando por lo riesgoso:
+**A** correr y saltar (hecho) → **B** tirón y columpio → **C** auto-aim y táctil (primera respuesta a la pregunta
+de F1) → después enganchar dummies, bowie, combate, momentum y estados → render Three.js, assets y animación
+al final. Además: colisión propia por barrido de cajas (Rapier 2D solo si hacen falta cuerpos dinámicos),
+deslizadores nativos en vez de Tweakpane, `node --test` en vez de Vitest, sin trigonometría propia (vectores +
+`√`, cono por producto punto, 16 direcciones en tabla). Lo de abajo queda como mapa; donde contradice esto,
+manda esto.
+
 ## Objetivo
 
 Contestar la pregunta más riesgosa del proyecto: **¿el grapple con auto-aim en el pulgar se siente preciso y
