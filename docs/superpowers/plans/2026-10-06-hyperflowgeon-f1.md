@@ -14,6 +14,11 @@ deslizadores nativos en vez de Tweakpane, `node --test` en vez de Vitest, sin tr
 `√`, cono por producto punto, 16 direcciones en tabla). Lo de abajo queda como mapa; donde contradice esto,
 manda esto.
 
+**Paso A calibrado (2026-10-06):** el usuario fijó `RUN 20, ACC 22, DEC 61, AIR 20, JUMP_H 3.8` (el resto quedó)
+con un principio que guía lo que sigue: tomar carrera lleva tiempo y cambiar de dirección no es instantáneo, así que
+redirigir el momentum sale de movimientos avanzados y de la geometría; **las herramientas facilitan conservar el
+momentum, pero no lo regalan.** El garfio del paso B se diseña con esa regla.
+
 ## Objetivo
 
 Contestar la pregunta más riesgosa del proyecto: **¿el grapple con auto-aim en el pulgar se siente preciso y

@@ -1,11 +1,12 @@
 // Valores tuneables de la simulación: [valor, mín, máx, paso, etiqueta]. Metros, segundos y cuadros de 60 Hz.
+// Los valores son los calibrados jugando el paso A (2026-10-06): carrera larga y giros lentos a propósito.
 // El panel de ajustes (main.ts) se genera de esta tabla; la sim recibe un Cfg plano.
 export const RANGES = {
-  RUN: [9, 2, 20, 0.1, 'carrera m/s'],
-  ACC: [70, 5, 300, 1, 'acelerar m/s²'],
-  DEC: [90, 5, 300, 1, 'frenar/girar m/s²'],
-  AIR: [35, 0, 300, 1, 'control aire m/s²'],
-  JUMP_H: [3.2, 0.5, 8, 0.05, 'altura salto m'],
+  RUN: [20, 2, 30, 0.1, 'carrera m/s'],
+  ACC: [22, 5, 300, 1, 'acelerar m/s²'],
+  DEC: [61, 5, 300, 1, 'frenar/girar m/s²'],
+  AIR: [20, 0, 300, 1, 'control aire m/s²'],
+  JUMP_H: [3.8, 0.5, 8, 0.05, 'altura salto m'],
   JUMP_T: [0.38, 0.15, 1, 0.01, 'subida s'],
   JUMP_CUT: [0.45, 0, 1, 0.01, 'corte al soltar ×'],
   FALL_G: [1.6, 1, 4, 0.05, 'gravedad caída ×'],
