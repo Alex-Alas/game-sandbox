@@ -3,3 +3,6 @@ dist/
 *.log
 .DS_Store
 .wrangler/
+
+# Packs de assets brutos (~1 GB): ver assets/MANIFEST.md
+assets/packs/
