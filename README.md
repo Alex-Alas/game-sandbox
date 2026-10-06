@@ -11,6 +11,21 @@ npm run build    # salida en dist/
 
 ## Juegos
 
+### LUCERO — `games/lucero/`
+Match-3 por niveles al estilo saga, todo procedural en Canvas 2D (gemas, efectos y música por código).
+
+- **Juego**: deslizá (o tocá dos) gemas para alinear 3 iguales. 4 en línea crean una **cometa**, una L/T
+  una **nova**, un cuadrado 2×2 una **luciérnaga** y 5 en línea un **lucero**; tocá o mové un especial para
+  dispararlo y juntá dos para combinarlos. Metas por nivel: juntar gemas, disipar niebla, romper rocas
+  lunares, derretir escarcha y bajar estrellas fugaces. Lo que sobra al ganar se vuelve una lluvia de cometas.
+- **Progreso**: mapa sin fin por regiones con dificultad en serrucho (DIFÍCIL / SÚPER DIFÍCIL), 1 a 3
+  estrellas por nivel, vidas que se recargan, +5 movimientos con monedas, potenciadores que se desbloquean
+  de a uno, racha de victorias con especiales gratis, regalo diario de 7 días, misiones del día, cofres y
+  un cielo de constelaciones que se enciende con las estrellas ganadas.
+- **Niveles**: generados y calibrados con un bot (`tools/simrun.mjs`); los primeros 300 vienen en una tabla.
+
+Depuración: `__lucero.play(n)`, `auto(true)`, `speed(k)`, `state()`.
+
 ### ELYTRA — `games/elytra/`
 Vuelo con alas en tercera persona + ragdoll físico. Three.js + Rapier (WASM).
 

@@ -17,6 +17,7 @@ export default defineConfig({
         elytra: resolve(import.meta.dirname, 'games/elytra/index.html'),
         downcastle: resolve(import.meta.dirname, 'games/downcastle/index.html'),
         vortice: resolve(import.meta.dirname, 'games/vortice/index.html'),
+        lucero: resolve(import.meta.dirname, 'games/lucero/index.html'),
       },
     },
   },
