@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#120c33" />
+<title>LUCERO</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22%3E%3Cpath d=%22M12 1.5l3.1 6.6 7.1.8-5.3 4.8 1.5 7-6.4-3.6-6.4 3.6 1.5-7L1.8 8.9l7.1-.8z%22 fill=%22%23ffd23f%22 stroke=%22%23fff6c9%22 stroke-width=%221.2%22/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-heart" viewBox="0 0 24 24"><path fill="#ff4d79" stroke="#ffd0dc" stroke-width="1.3" d="M12 21s-7.6-4.6-9.6-9.2C1 8.4 3 4.4 6.8 4.4c2.1 0 3.5 1.1 4.2 2.6.7-1.5 2.1-2.6 4.2-2.6 3.8 0 5.8 4 4.4 7.4C19.6 16.4 12 21 12 21z"/></symbol>
+  <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#ffcf3a" stroke="#fff3b8" stroke-width="1.2"/><circle cx="12" cy="12" r="7.2" fill="none" stroke="#d98c0b" stroke-width="1.4"/><path fill="#fff7d1" d="M12 6.6l1.6 3.4 3.7.4-2.8 2.5.8 3.7-3.3-1.9-3.3 1.9.8-3.7-2.8-2.5 3.7-.4z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path fill="#ffd23f" stroke="#fff6c9" stroke-width="1.2" stroke-linejoin="round" d="M12 2l3 6.4 7 .8-5.2 4.7 1.5 6.9L12 17.3l-6.3 3.5 1.5-6.9L2 9.2l7-.8z"/></symbol>
+  <symbol id="i-gift" viewBox="0 0 24 24"><path fill="#ff6fa8" d="M3 9h18v4H3zM4.5 13h15v8h-15z"/><path fill="#ffd23f" d="M10.6 9h2.8v12h-2.8z"/><path fill="none" stroke="#ffd23f" stroke-width="2" d="M12 9c-1-3-5-4.5-5.5-2S10 9 12 9zm0 0c1-3 5-4.5 5.5-2S14 9 12 9z"/></symbol>
+  <symbol id="i-scroll" viewBox="0 0 24 24"><rect x="4.5" y="3.5" width="15" height="18" rx="2.5" fill="#f3e6ff" stroke="#b892ff" stroke-width="1.4"/><path stroke="#7b4dff" stroke-width="2" stroke-linecap="round" d="M8 9l1.4 1.4L12 8M8 15l1.4 1.4L12 14"/><path stroke="#b892ff" stroke-width="2" stroke-linecap="round" d="M14 9.5h2.5M14 15.5h2.5"/></symbol>
+  <symbol id="i-sky" viewBox="0 0 24 24"><path fill="#ffe27a" d="M14 3a9 9 0 1 0 7 13.5A7.5 7.5 0 0 1 14 3z"/><path fill="#fff" d="M18 3.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6zM21 9l.4.9.9.4-.9.4-.4.9-.4-.9-.9-.4.9-.4z"/></symbol>
+  <symbol id="i-shop" viewBox="0 0 24 24"><path fill="#7fe0ff" stroke="#d6f6ff" stroke-width="1.2" d="M4.5 8h15l-1.2 13H5.7z"/><path fill="none" stroke="#d6f6ff" stroke-width="1.8" d="M8.5 10V6.5a3.5 3.5 0 0 1 7 0V10"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5" fill="none" stroke="#c9c2ff" stroke-width="4" stroke-dasharray="3.1 2"/><circle cx="12" cy="12" r="4.6" fill="#c9c2ff"/><circle cx="12" cy="12" r="2" fill="#2a1d66"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1.5" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1.5" fill="currentColor"/></symbol>
+  <symbol id="i-hammer" viewBox="0 0 24 24"><path fill="#c98a4a" stroke="#ffe0bd" stroke-width="1" d="M10.5 11.5l2 2-8 8-2.2-2.2z"/><path fill="#b8c2d9" stroke="#fff" stroke-width="1.2" stroke-linejoin="round" d="M9 6.5l5-4 3.5 1.6L21 7.6l1.4 3.6-4 5-2.5-2.5-2-2z"/></symbol>
+  <symbol id="i-row" viewBox="0 0 24 24"><path fill="none" stroke="#fff3a8" stroke-width="3" stroke-linecap="round" d="M3 12h18"/><path fill="#ffd23f" d="M17 7l6 5-6 5zM7 7l-6 5 6 5z"/><circle cx="12" cy="12" r="3" fill="#fff"/></symbol>
+  <symbol id="i-shuffle" viewBox="0 0 24 24"><path fill="none" stroke="#9ff0ff" stroke-width="2.4" stroke-linecap="round" d="M12 12.5a1.2 1.2 0 1 1 1.2-1.2 3.4 3.4 0 1 1-6.8 0 5.6 5.6 0 1 1 11.2 0 7.8 7.8 0 1 1-15.6 0"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10.5" rx="2.5" fill="#a69bd6"/><path fill="none" stroke="#a69bd6" stroke-width="2.4" d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/><circle cx="12" cy="15.5" r="1.6" fill="#2a1d66"/></symbol>
+  <symbol id="i-chest" viewBox="0 0 24 24"><path fill="#b8662e" stroke="#ffcf8a" stroke-width="1.2" d="M3 11h18v9.5H3z"/><path fill="#d98a3e" stroke="#ffcf8a" stroke-width="1.2" d="M3 11a9 6 0 0 1 18 0z"/><path fill="#ffd23f" d="M3 11h18v2H3zM10.5 11h3v4h-3z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path stroke="currentColor" stroke-width="3" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5.5v13l10.5-6.5z"/></symbol>
+  <symbol id="i-fire" viewBox="0 0 24 24"><path fill="#ff8a3d" d="M12 22c-4.4 0-7-3-7-6.6 0-3.4 2.4-5.4 3.6-8 .9 1.6 1.3 2.7 1.4 4 1.6-1.6 2.6-4.7 2.2-8.4 4 2.6 6.8 6.6 6.8 11.6 0 4.3-2.6 7.4-7 7.4z"/><path fill="#ffd23f" d="M12 22c-2 0-3.2-1.4-3.2-3.1 0-1.9 1.5-2.9 2.1-4.5 1.6 1.2 4.3 2.6 4.3 4.9 0 1.6-1.2 2.7-3.2 2.7z"/></symbol>
+</svg>
+
+<div id="toasts"></div>
+
+<section id="map" class="screen">
+  <header class="top">
+    <button class="pill lives" id="m-lives" aria-label="Vidas"><svg class="ic"><use href="#i-heart"/></svg><b id="m-lives-n">5</b><small id="m-lives-t">LLENAS</small></button>
+    <button class="pill coins" id="m-coins" aria-label="Monedas"><svg class="ic"><use href="#i-coin"/></svg><b id="m-coins-n">0</b><i class="plus">+</i></button>
+    <button class="pill stars" id="m-stars" aria-label="Estrellas"><svg class="ic"><use href="#i-star"/></svg><b id="m-stars-n">0</b></button>
+  </header>
+  <div id="m-scroll" class="mapscroll"><div id="m-path" class="mappath"></div></div>
+  <aside class="side left">
+    <button id="b-daily" class="sidebtn"><svg><use href="#i-gift"/></svg><span>REGALO</span><i class="dot"></i></button>
+    <button id="b-quests" class="sidebtn"><svg><use href="#i-scroll"/></svg><span>MISIONES</span><i class="dot"></i></button>
+    <button id="b-chests" class="sidebtn chestbtn"><svg><use href="#i-chest"/></svg><span>COFRES</span><i class="dot num"></i></button>
+  </aside>
+  <aside class="side right">
+    <button id="b-sky" class="sidebtn"><svg><use href="#i-sky"/></svg><span>CIELO</span><i class="dot"></i></button>
+    <button id="b-shop" class="sidebtn"><svg><use href="#i-shop"/></svg><span>TIENDA</span></button>
+    <button id="b-settings" class="sidebtn"><svg><use href="#i-gear"/></svg><span>AJUSTES</span></button>
+  </aside>
+  <footer class="mapfoot">
+    <div class="starchest" id="m-starchest"><svg class="ic"><use href="#i-chest"/></svg><div class="bar"><i></i><span></span></div></div>
+    <button id="b-play" class="big gold"><span id="b-play-t">NIVEL 1</span></button>
+    <a class="back" href="../../">← sandbox</a>
+  </footer>
+</section>
+
+<section id="play" class="screen hidden">
+  <header class="hud">
+    <div class="hbox hmoves"><small>MOVIMIENTOS</small><b id="h-moves">0</b></div>
+    <div class="hbox hgoals" id="h-goals"></div>
+    <div class="hbox hscore"><small>NIVEL <span id="h-level">1</span></small><b id="h-score">0</b>
+      <div class="sbar"><i id="h-sbar"></i><span class="tk" id="h-t2"></span><span class="tk" id="h-t3"></span></div>
+    </div>
+  </header>
+  <div id="tip" class="tip hidden"></div>
+  <div id="board-slot"></div>
+  <footer class="tools">
+    <button id="b-pause" class="tool pausebtn" aria-label="Pausa"><svg><use href="#i-pause"/></svg></button>
+    <button class="tool bst" data-b="hammer" aria-label="Martillo"><svg><use href="#i-hammer"/></svg><span class="n"></span><small>MARTILLO</small></button>
+    <button class="tool bst" data-b="row" aria-label="Estela"><svg><use href="#i-row"/></svg><span class="n"></span><small>ESTELA</small></button>
+    <button class="tool bst" data-b="shuffle" aria-label="Remolino"><svg><use href="#i-shuffle"/></svg><span class="n"></span><small>REMOLINO</small></button>
+  </footer>
+</section>
+
+<section id="sky" class="screen hidden">
+  <header class="top">
+    <button class="round" data-back aria-label="Volver"><svg><use href="#i-back"/></svg></button>
+    <h2>EL CIELO</h2>
+    <div class="pill stars"><svg class="ic"><use href="#i-star"/></svg><b id="s-avail">0</b></div>
+  </header>
+  <div class="skywrap">
+    <h3 id="s-name"></h3>
+    <p id="s-story" class="story"></p>
+    <svg id="s-svg" class="skysvg" viewBox="-6 -6 112 112"></svg>
+    <p class="hint" id="s-hint"></p>
+    <div class="skyprog"><div class="bar"><i id="s-bar"></i></div><span id="s-prog"></span></div>
+  </div>
+  <div class="gallery" id="s-gal"></div>
+</section>
+
+<div id="modal" class="modal hidden"><div class="mbox" id="mbox"></div></div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
