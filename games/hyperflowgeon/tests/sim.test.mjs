@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { init, step, hookTarget, cosDeg, DT } from '../src/sim/sim.ts';
+import { init, step, hookTarget, aimDir, cosDeg, DT } from '../src/sim/sim.ts';
 import { DEFAULTS as C, RANGES, PROFILES, HOOK_KEYS } from '../src/sim/params.ts';
 import { PATIO } from '../src/patio.ts';
 
@@ -175,6 +175,34 @@ test('cono de gracia: si el rayo no pega, la esquina visible más cercana a la m
   const g3 = aim(0, 12, [R(-50, -10, 50, -1)]);
   assert.ok(Math.abs(g3.d - C.HOOK_LEN) < 1e-3 && Math.abs(g3.y + 1) < 1e-3, JSON.stringify(g3));
   for (const d of [0, 10, 30, 60, 90]) assert.ok(Math.abs(cosDeg(d) - Math.cos(d * Math.PI / 180)) < 1e-6);
+});
+
+test('imán a esquinas: dentro del cono, una esquina visible gana a la superficie que pega el rayo', () => {
+  const p = init({ spawn: [0, -1.2], rects: [] }).p; // la mano en (0, 0)
+  const w = { spawn: [0, 0], rects: [R(8, -10, 9, 10), R(4, 0.8, 6, 1.2)] }; // pared a 8 m y una viga apenas arriba
+  const at = (deg, c) => hookTarget(w, p, { x: 0, jump: false, ax: 1, ay: Math.tan(deg * Math.PI / 180) }, { ...C, HOOK_CONE: 12, ...c });
+  const ray = at(0, {}), mag = at(0, { AIM_EDGE: 1 });
+  assert.ok(!ray.grace && Math.abs(ray.x - 8) < 1e-9 && Math.abs(ray.y) < 1e-9, JSON.stringify(ray));
+  assert.ok(mag.grace && Math.abs(mag.x - 6) < 1e-3 && Math.abs(mag.y - 0.8) < 1e-3, JSON.stringify(mag)); // la de 7,6°
+  const low = at(-30, { AIM_EDGE: 1 }); // sin esquinas en el cono: el rayo de siempre
+  assert.ok(!low.grace && Math.abs(low.x - 8) < 1e-9, JSON.stringify(low));
+  assert.equal(at(0, { AIM_EDGE: 1, HOOK_CONE: 0 }).grace, false); // sin cono no hay imán
+});
+
+test('16 direcciones (PVP): toda mira se reduce a la más cercana; ratón y joystick coinciden', () => {
+  const p = init({ spawn: [0, 0], rects: [] }).p, c16 = { ...C, AIM_16: 1 };
+  const dir = (ax, ay, c = c16) => aimDir(p, { x: 0, jump: false, ax, ay }, c);
+  // el ratón lejos (~20°) y el joystick a medias (~22°): la misma dirección de 22,5°
+  assert.deepEqual(dir(30, 11), dir(0.62, 0.25));
+  assert.notDeepEqual(dir(30, 11, C), dir(0.62, 0.25, C));
+  const [x, y] = dir(30, 11);
+  assert.ok(Math.abs(x - Math.cos(Math.PI / 8)) < 1e-12 && Math.abs(y - Math.sin(Math.PI / 8)) < 1e-12);
+  for (let k = 0; k < 97; k++) {
+    const a = k * Math.PI / 48 + 0.003, [qx, qy] = dir(3 * Math.cos(a), 3 * Math.sin(a));
+    assert.ok(Math.abs(Math.sin(8 * Math.atan2(qy, qx))) < 1e-9 && Math.abs(qx * qx + qy * qy - 1) < 1e-12, `${a}`);
+    assert.ok(qx * Math.cos(a) + qy * Math.sin(a) >= Math.cos(Math.PI / 16) - 1e-12, `${a}`); // la más cercana
+  }
+  assert.deepEqual(dir(0, 0), dir(1, 1)); // sin mira, adelante y arriba (AIM_UP = 1): también la de 45°
 });
 
 test('viaje del ancla: tarda HOOK_TRAVEL × distancia / alcance y mientras viaja no tira', () => {

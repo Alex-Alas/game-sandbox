@@ -2,20 +2,21 @@ import { init, step, aimDir, hookTarget, attached, DT, HW, H, HAND, ORB_R, type 
 import { RANGES, DEFAULTS, PROFILES, HOOK_KEYS, type Cfg, type HookCfg, type Profile } from './sim/params.ts';
 import { PATIO } from './patio.ts';
 import { CAM_RANGES, CAM_DEFAULTS, newCam, follow, type CamCfg } from './camera.ts';
+import { buildMenu, rows, refresh, type Section } from './menu.ts';
+import * as T from './touch.ts';
 
-// HYPERFLOWGEON · F1 paso B: la liga (garfio elástico) en gris. Paso fijo de 60 Hz con render interpolado.
+// HYPERFLOWGEON · F1 paso C: auto-aim y táctil, en gris. Paso fijo de 60 Hz con render interpolado.
 const cv = document.getElementById('game') as HTMLCanvasElement;
 const ctx = cv.getContext('2d')!;
 const hud = document.getElementById('hud')!;
 
-// Ajustes: deslizadores nativos generados desde RANGES (sim, en hfg.cfg) y CAM_RANGES (vista, en hfg.cam); las filas
-// [v, 0, 1, 1] son casillas. Las claves del garfio (HOOK_KEYS) son del perfil activo: cada perfil guarda las suyas
-// (hfg.prof) y elegir otro las carga en cfg. Cada función de `shows` vuelve a pintar su fila desde los valores.
-type Row = [number, number, number, number, string];
+// Valores guardados: sim en hfg.cfg, cámara en hfg.cam, controles táctiles en hfg.ctl. Las claves del garfio
+// (HOOK_KEYS) son del perfil activo: cada perfil guarda las suyas (hfg.prof2) y elegir otro las carga en cfg.
 const cfg: Cfg = { ...DEFAULTS }, camCfg: CamCfg = { ...CAM_DEFAULTS };
 const NAMES = Object.keys(PROFILES) as Profile[];
-let profs = structuredClone(PROFILES) as Record<Profile, HookCfg>, active: Profile = 'liga';
-const load = (key: string) => { try { return JSON.parse(localStorage.getItem(key) ?? '{}'); } catch { return {}; } };
+const profs = structuredClone(PROFILES) as Record<Profile, HookCfg>;
+let active: Profile = 'liga';
+const load = (key: string) => { try { return JSON.parse(localStorage.getItem(key) ?? '{}') ?? {}; } catch { return {}; } };
 const store = (key: string, v: unknown) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* sin almacenamiento */ } };
 const restore = (vals: Record<string, number>, saved: Record<string, unknown> | undefined, keys: readonly string[]) => {
   for (const k of keys) if (typeof saved?.[k] === 'number') vals[k] = saved[k] as number;
@@ -26,57 +27,109 @@ restore(camCfg, load('hfg.cam'), Object.keys(CAM_RANGES));
   const sv = load('hfg.prof2'); // hfg.prof2: los perfiles cambiaron con el viaje del ancla (los de hfg.prof quedan atrás)
   if (NAMES.includes(sv.active)) active = sv.active;
   for (const n of NAMES) restore(profs[n], sv.perfiles?.[n], HOOK_KEYS);
+  const c = load('hfg.ctl');
+  restore(T.ctl, c, Object.keys(T.CTL_RANGES));
+  if (T.SCHEMES.some(x => x.id === c.scheme)) T.opts.scheme = c.scheme;
+  for (const b of ['stick', 'jump', 'hook'] as const) {
+    const v = c.pos?.[b];
+    if (Array.isArray(v) && v.length === 2 && v.every(Number.isFinite)) T.opts.pos[b] = [v[0], v[1]];
+  }
 }
 Object.assign(cfg, profs[active]);
 function saveAll() {
   for (const k of HOOK_KEYS) profs[active][k] = cfg[k];
-  store('hfg.cfg', cfg), store('hfg.cam', camCfg), store('hfg.prof2', { active, perfiles: profs });
+  store('hfg.cfg', cfg), store('hfg.cam', camCfg), store('hfg.prof2', { active, perfiles: profs }), store('hfg.ctl', { ...T.ctl, ...T.opts });
 }
-const shows: (() => void)[] = [];
-function rows(table: Record<string, Row>, keys: readonly string[], vals: Record<string, number>, box: string) {
-  for (const k of keys) {
-    const [, min, max, stp, label] = table[k], check = min === 0 && max === 1 && stp === 1;
-    const row = document.createElement('label');
-    row.innerHTML = `<span title="${k}">${label}</span>` + (check ? '<input type="checkbox"><output></output>'
-      : `<input type="range" min="${min}" max="${max}" step="${stp}"><output></output>`);
-    const inp = row.querySelector('input')!, out = row.querySelector('output')!;
-    inp.oninput = () => { vals[k] = check ? +inp.checked : +inp.value; out.textContent = check ? '' : inp.value; saveAll(); };
-    document.getElementById(box)!.append(row);
-    shows.push(() => { if (check) inp.checked = vals[k] > 0.5; else inp.value = out.textContent = String(vals[k]); });
-  }
-}
-rows(RANGES, Object.keys(RANGES).filter(k => !(HOOK_KEYS as readonly string[]).includes(k)), cfg, 'rows');
-rows(RANGES, HOOK_KEYS, cfg, 'hookrows');
-rows(CAM_RANGES, Object.keys(CAM_RANGES), camCfg, 'camrows');
-const sel = document.getElementById('profile') as HTMLSelectElement;
-sel.innerHTML = NAMES.map((n, k) => `<option value="${n}">${k + 1} · ${n.toUpperCase()}</option>`).join('');
-sel.onchange = () => useProfile(sel.value as Profile);
-const showAll = () => { sel.value = active; shows.forEach(f => f()); };
-showAll();
 // Cambiar de perfil carga sus valores y llena las cargas (también con 1/2/3 en el teclado)
 function useProfile(n: Profile) {
   saveAll();
   active = n;
   Object.assign(cfg, profs[n]);
   if (s) s.p.charge = cfg.HOOK_N;
-  saveAll(), showAll();
+  saveAll(), refresh();
 }
-document.getElementById('copy')!.onclick = () => navigator.clipboard?.writeText(JSON.stringify({ ...cfg, ...camCfg, perfil: active, perfiles: profs }));
-document.getElementById('reset')!.onclick = () => {
-  profs = structuredClone(PROFILES) as Record<Profile, HookCfg>;
-  Object.assign(cfg, DEFAULTS, profs[active]), Object.assign(camCfg, CAM_DEFAULTS);
-  saveAll(), showAll();
+
+// Menú de AJUSTES (⚙ o Esc; pausa el juego): una pestaña por tema
+const MOVE = ['RUN', 'ACC', 'DEC', 'AIR', 'JUMP_H', 'JUMP_T', 'JUMP_CUT', 'FALL_G', 'MAX_FALL', 'COYOTE', 'BUFFER'] as const;
+const ASSIST = ['AIM_EDGE', 'AIM_16', 'AIM_UP'] as const;
+const resetKeys = (ks: readonly (keyof Cfg)[]) => { for (const k of ks) cfg[k] = DEFAULTS[k]; };
+const HINTS: Record<Profile, string> = {
+  corto: 'Casi una cuerda: poco estirón, columpio predecible, rígida y de recarga rápida.',
+  liga: 'La calibrada: larga y blanda, con tirón alto; el ancla llega casi al instante.',
+  lanzadera: 'Para salir de apuros: te tira hasta el ancla desde lejos, con una sola carga lenta; el ancla tarda en llegar (apuntá adelantado).',
 };
-document.getElementById('tune')!.addEventListener('click', () => (document.activeElement as HTMLElement | null)?.blur()); // el teclado vuelve al juego
+const SECTIONS: Section[] = [
+  { id: 'controles', label: 'CONTROLES', fields: [
+    { title: 'Apuntar el garfio (táctil)' },
+    { choice: T.SCHEMES, get: () => T.opts.scheme, set: v => { T.opts.scheme = v as T.Scheme; T.clear(true); } },
+    { title: 'Asistencia de puntería', note: 'Imán: dentro del cono, las esquinas ganan a las superficies. 16 direcciones: la regla de PVP (ratón, joystick y teclado apuntan igual). El ancho del cono es de cada perfil (GARFIO → Puntería).' },
+    { rows: RANGES, keys: ASSIST, vals: cfg },
+    { title: 'Joystick' },
+    { rows: T.CTL_RANGES, keys: ['STICK_DEAD', 'STICK_FULL', 'AIM_DEAD'], vals: T.ctl },
+    { title: 'Tamaño y lugar' },
+    { rows: T.CTL_RANGES, keys: ['STICK_SIZE', 'BTN_SIZE'], vals: T.ctl },
+    { button: 'MOVER CONTROLES', onClick: () => editControls(true) },
+  ], reset: () => { Object.assign(T.ctl, T.CTL_DEFAULTS); T.opts.scheme = 'stick'; T.opts.pos = {}; T.clear(true); resetKeys(ASSIST); } },
+  { id: 'garfio', label: 'GARFIO', fields: [
+    { choice: NAMES.map((n, k) => ({ id: n, label: `${k + 1} · ${n.toUpperCase()}`, hint: HINTS[n] })), get: () => active, set: v => useProfile(v as Profile) },
+    { title: 'Liga' },
+    { rows: RANGES, keys: ['HOOK_LEN', 'HOOK_TRAVEL', 'HOOK_K', 'HOOK_REST', 'HOOK_V', 'HOOK_DAMP', 'HOOK_JUMP'], vals: cfg },
+    { title: 'Puntería' },
+    { rows: RANGES, keys: ['HOOK_CONE', 'HOOK_MISS'], vals: cfg },
+    { title: 'Cargas' },
+    { rows: RANGES, keys: ['HOOK_N', 'HOOK_CD', 'HOOK_GROUND', 'HOOK_REFUND', 'ORB_T'], vals: cfg },
+  ], reset: () => { profs[active] = { ...PROFILES[active] }; Object.assign(cfg, profs[active]); cfg.ORB_T = DEFAULTS.ORB_T; } },
+  { id: 'movimiento', label: 'MOVIMIENTO', fields: [
+    { title: 'Carrera' },
+    { rows: RANGES, keys: MOVE.slice(0, 4), vals: cfg },
+    { title: 'Salto' },
+    { rows: RANGES, keys: MOVE.slice(4, 9), vals: cfg },
+    { title: 'Tolerancias', note: 'Coyote: cuadros en el aire en que todavía se salta. Buffer: cuadros antes de aterrizar en que un SALTO cuenta.' },
+    { rows: RANGES, keys: MOVE.slice(9), vals: cfg },
+  ], reset: () => resetKeys(MOVE) },
+  { id: 'camara', label: 'CÁMARA', fields: [
+    { rows: CAM_RANGES, keys: Object.keys(CAM_RANGES), vals: camCfg },
+  ], reset: () => Object.assign(camCfg, CAM_DEFAULTS) },
+];
+{ // toda clave tuneable tiene que estar en alguna pestaña
+  const listed = new Set(SECTIONS.flatMap(sc => sc.fields.flatMap(f => 'keys' in f ? f.keys : [])));
+  for (const k of [...Object.keys(RANGES), ...Object.keys(CAM_RANGES), ...Object.keys(T.CTL_RANGES)]) if (!listed.has(k)) console.warn(`ajuste sin pestaña: ${k}`);
+}
+const gear = document.getElementById('gear')!;
+const menu = buildMenu(document.getElementById('menu')!, SECTIONS, {
+  changed: saveAll,
+  copy: () => JSON.stringify({ ...cfg, ...camCfg, ...T.ctl, ...T.opts, perfil: active, perfiles: profs }),
+  onOpen: () => { gear.hidden = true; T.clear(); down.clear(); mouseHook = false; },
+  onClose: () => { gear.hidden = false; },
+});
+gear.onclick = () => menu.open();
+
+// MOVER CONTROLES: el juego sigue en pausa; arriba, los tamaños y LISTO (vuelve al menú)
+const editbar = document.getElementById('editbar')!;
+rows(editbar.querySelector('.sizes')!, T.CTL_RANGES, ['STICK_SIZE', 'BTN_SIZE'], T.ctl, saveAll);
+(editbar.querySelector('.def') as HTMLButtonElement).onclick = () => {
+  T.opts.pos = {}, T.ctl.STICK_SIZE = T.CTL_DEFAULTS.STICK_SIZE, T.ctl.BTN_SIZE = T.CTL_DEFAULTS.BTN_SIZE;
+  saveAll(), refresh();
+};
+(editbar.querySelector('.done') as HTMLButtonElement).onclick = () => editControls(false);
+function editControls(on: boolean) {
+  if (on) menu.close();
+  T.setEditing(on);
+  editbar.hidden = !on, hud.hidden = on, gear.hidden = on;
+  if (!on) menu.open('controles');
+}
+const paused = () => menu.isOpen() || T.isEditing();
+T.bind(cv, saveAll);
 
 // Teclado: ←/→ A/D corren, las flechas y WASD también apuntan, espacio salta, K o Shift = GARFIO (mantener).
-// Un botón apretado y soltado entre dos cuadros también cuenta (tapped).
+// Un botón apretado y soltado entre dos cuadros también cuenta (tapped). Esc abre y cierra AJUSTES.
 const down = new Set<string>();
 const JUMP = ['Space'], HOOK = ['KeyK', 'ShiftLeft', 'ShiftRight'];
 const DIRS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS'];
 let tapped = false, hookTapped = false;
 addEventListener('keydown', e => {
-  if (e.target instanceof HTMLInputElement) return;
+  if (e.code === 'Escape') { if (T.isEditing()) editControls(false); else menu.toggle(); return; }
+  if (paused() || e.target instanceof HTMLInputElement) return;
   if (JUMP.includes(e.code) || e.code.startsWith('Arrow')) e.preventDefault();
   if (e.repeat) return;
   down.add(e.code);
@@ -95,67 +148,26 @@ const has = (...codes: string[]) => codes.some(c => down.has(c));
 let mouse = { x: 0, y: 0 }, mouseAim = false, mouseHook = false;
 addEventListener('pointermove', e => { if (e.pointerType === 'mouse') mouse = { x: e.clientX, y: e.clientY }, mouseAim = true; });
 addEventListener('pointerup', e => { if (e.pointerType === 'mouse' && e.button === 0) mouseHook = false; });
+cv.addEventListener('pointerdown', e => { if (e.pointerType === 'mouse' && e.button === 0 && !T.isEditing()) mouseHook = hookTapped = true; });
 
-// Táctil (provisorio hasta el paso C). Joystick FIJO abajo a la izquierda: donde se toca es la dirección, sin arrastrar
-// (vale cualquier toque en la mitad izquierda, medido desde el centro fijo); mueve y apunta. A la derecha, SALTO y
-// GARFIO: cada dedo es del botón más cercano, así que deslizar de GARFIO a SALTO suelta con impulso en un solo gesto.
-const STICK_R = 60, BTN_R = 44; // px
-type Touch = { x: number, y: number, kind: 'stick' | 'jump' | 'hook' };
-const touches = new Map<number, Touch>();
-let touchUI = matchMedia('(pointer: coarse)').matches;
-const layout = () => ({
-  stick: [STICK_R + 40, innerHeight - STICK_R - 40],
-  jump: [innerWidth - BTN_R - 36, innerHeight - BTN_R - 36],
-  hook: [innerWidth - 3 * BTN_R - 56, innerHeight - BTN_R - 76],
-});
-const btnAt = (x: number, y: number): 'jump' | 'hook' => {
-  const { jump: j, hook: h } = layout();
-  return (x - j[0]) ** 2 + (y - j[1]) ** 2 <= (x - h[0]) ** 2 + (y - h[1]) ** 2 ? 'jump' : 'hook';
-};
-const press = (kind: Touch['kind']) => { if (kind === 'jump') tapped = true; else if (kind === 'hook') hookTapped = true; };
-cv.addEventListener('pointerdown', e => {
-  if (e.pointerType === 'mouse') { if (e.button === 0) mouseHook = hookTapped = true; return; }
-  touchUI = true;
-  const t: Touch = { x: e.clientX, y: e.clientY, kind: e.clientX < innerWidth / 2 ? 'stick' : btnAt(e.clientX, e.clientY) };
-  touches.set(e.pointerId, t);
-  press(t.kind);
-});
-cv.addEventListener('pointermove', e => {
-  const t = touches.get(e.pointerId);
-  if (!t) return;
-  t.x = e.clientX, t.y = e.clientY;
-  if (t.kind !== 'stick' && btnAt(t.x, t.y) !== t.kind) t.kind = btnAt(t.x, t.y), press(t.kind);
-});
-for (const ev of ['pointerup', 'pointercancel'] as const) cv.addEventListener(ev, e => touches.delete(e.pointerId));
-// Del centro fijo al dedo, en unidades de STICK_R y con largo hasta 1; y hacia arriba
-function stickVec(t: Touch): [number, number] {
-  const [cx, cy] = layout().stick;
-  let x = (t.x - cx) / STICK_R, y = (cy - t.y) / STICK_R;
-  const n = Math.sqrt(x * x + y * y);
-  if (n > 1) x /= n, y /= n;
-  return [x, y];
-}
-
-// Mira: el joystick si está tocado (en su zona muerta, la mira sola), si no el ratón si se movió, si no las flechas
+// De un punto de la pantalla al vector desde la mano (ratón y esquema TOCAR)
 const cam = newCam();
+const worldAim = (x: number, y: number): [number, number] =>
+  [cam.cx + (x - innerWidth / 2) / cam.k - s.p.x, cam.cy - (y - innerHeight / 2) / cam.k - s.p.y - HAND];
+// Mira: la táctil si algún dedo apunta, si no el ratón si se movió, si no las flechas
 function aim(): [number, number] {
-  for (const t of touches.values()) if (t.kind === 'stick') {
-    const [x, y] = stickVec(t);
-    return x * x + y * y > 0.09 ? [x, y] : [0, 0];
-  }
-  if (mouseAim) return [cam.cx + (mouse.x - innerWidth / 2) / cam.k - s.p.x, cam.cy - (mouse.y - innerHeight / 2) / cam.k - s.p.y - HAND];
+  const t = T.touchAim(worldAim);
+  if (t) return t;
+  if (mouseAim) return worldAim(mouse.x, mouse.y);
   return [+has('ArrowRight', 'KeyD') - +has('ArrowLeft', 'KeyA'), +has('ArrowUp', 'KeyW') - +has('ArrowDown', 'KeyS')];
 }
 
 function input(): Input {
-  let x = +has('ArrowRight', 'KeyD') - +has('ArrowLeft', 'KeyA'), jump = tapped || has(...JUMP), hook = hookTapped || mouseHook || has(...HOOK);
-  for (const t of touches.values()) {
-    if (t.kind === 'jump') jump = true;
-    else if (t.kind === 'hook') hook = true;
-    else { const sx = stickVec(t)[0], a = Math.abs(sx); if (a > 0.25) x += Math.sign(sx) * Math.min(1, (a - 0.25) / 0.35); } // a fondo desde 0,6
-  }
+  const t = T.touchInput(worldAim);
+  const x = +has('ArrowRight', 'KeyD') - +has('ArrowLeft', 'KeyA') + t.x;
+  const jump = tapped || has(...JUMP) || t.jump, hook = hookTapped || mouseHook || has(...HOOK) || t.hook;
   tapped = hookTapped = false;
-  const [ax, ay] = aim();
+  const [ax, ay] = t.aim ?? aim();
   return { x: Math.min(Math.max(x, -1), 1), jump, hook, ax, ay };
 }
 
@@ -164,7 +176,7 @@ let s: State, prev = { x: 0, y: 0 }, simMs = 0;
 const trail: { x: number, y: number, c: string }[] = [];
 let air: { x: number, y: number, top: number, t: number } | null = null, lastJump = '';
 let hookMax = 0, lastHook = '';
-function reset() { s = init(PATIO, cfg); prev = { x: s.p.x, y: s.p.y }; trail.length = 0; air = null; cam.vx = cam.vy = 0; }
+function reset() { T.clear(true); s = init(PATIO, cfg); prev = { x: s.p.x, y: s.p.y }; trail.length = 0; air = null; cam.vx = cam.vy = 0; }
 reset();
 
 const speed = () => Math.sqrt(s.p.vx * s.p.vx + s.p.vy * s.p.vy);
@@ -172,6 +184,7 @@ function tick(i: Input) {
   prev = { x: s.p.x, y: s.p.y };
   const hooked = attached(s.p, s.t), t0 = performance.now();
   step(s, PATIO, i, cfg);
+  T.afterTick(!!s.p.hook);
   simMs += (performance.now() - t0 - simMs) * 0.05;
   const p = s.p;
   const on = attached(p, s.t);
@@ -252,15 +265,16 @@ function draw(a: number, dt: number) {
     ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(X(p.hook.x), Y(p.hook.y)); ctx.stroke();
     ctx.fillStyle = '#e8c07a';
     ctx.beginPath(); ctx.arc(X(p.hook.x), Y(p.hook.y), 4, 0, 2 * Math.PI); ctx.fill();
-  } else {
-    if (st && !st.hit && tr - st.at < 8) {
-      const [tx, ty] = tip(st);
-      ctx.strokeStyle = `rgba(232,192,122,${Math.min(1, 1 - (tr - st.at) / 8)})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
-    }
+  } else if (st && !st.hit && tr - st.at < 8) {
+    const [tx, ty] = tip(st);
+    ctx.strokeStyle = `rgba(232,192,122,${Math.min(1, 1 - (tr - st.at) / 8)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+  }
+  if (!p.hook || T.dragging()) {
     // Alcance (círculo de rayas), cono de gracia y mira: dónde se pegaría la liga si se aprieta ahora (hookTarget,
-    // lo mismo que usa la simulación). Con la gracia, la línea va a donde se pegaría y la mira original queda tenue.
+    // lo mismo que usa la simulación; enganchado, solo mientras ARRASTRAR apunta la siguiente). Con la gracia o el
+    // imán, la línea va a donde se pegaría y la mira original queda tenue.
     const [ax, ay] = aim(), i = { x: 0, jump: false, ax, ay }, [dx, dy] = aimDir(p, i, cfg), R = cfg.HOOK_LEN;
     const g = hookTarget(PATIO, p, i, cfg), ready = s.t + 1 >= p.hookT && p.charge >= 1;
     ctx.setLineDash([3, 6]);
@@ -304,34 +318,14 @@ function draw(a: number, dt: number) {
     else if (f > 0) { ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, pr, -Math.PI / 2, -Math.PI / 2 + f * 2 * Math.PI); ctx.fill(); }
   }
 
-  // Controles táctiles: joystick fijo con su perilla, SALTO y GARFIO (más claros mientras se tocan)
-  if (touchUI) {
-    const L = layout(), on = new Set([...touches.values()].map(t => t.kind));
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = ctx.fillStyle = '#f2f2e855';
-    ctx.beginPath(); ctx.arc(L.stick[0], L.stick[1], STICK_R, 0, 2 * Math.PI); ctx.stroke();
-    const st = [...touches.values()].find(t => t.kind === 'stick'), [sx, sy] = st ? stickVec(st) : [0, 0];
-    ctx.fillStyle = st ? '#f2f2e899' : '#f2f2e844';
-    ctx.beginPath(); ctx.arc(L.stick[0] + sx * STICK_R, L.stick[1] - sy * STICK_R, 22, 0, 2 * Math.PI); ctx.fill();
-    ctx.font = 'bold 11px ui-monospace, monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    for (const [kind, label] of [['jump', 'SALTO'], ['hook', 'GARFIO']] as const) {
-      const [bx, by] = L[kind];
-      ctx.fillStyle = on.has(kind) ? '#f2f2e855' : '#f2f2e818';
-      ctx.beginPath(); ctx.arc(bx, by, BTN_R, 0, 2 * Math.PI); ctx.fill();
-      ctx.strokeStyle = '#f2f2e866';
-      ctx.stroke();
-      ctx.fillStyle = '#f2f2e8cc';
-      ctx.fillText(label, bx, by);
-    }
-  }
+  T.draw(ctx);
 
-  hud.textContent = `HYPERFLOWGEON · F1 paso B${touchUI ? `
-joystick fijo: mueve y apunta · GARFIO (mantener) · deslizar a SALTO = soltar con impulso` : ` · R reiniciar
+  const scheme = T.SCHEMES.find(o => o.id === T.opts.scheme)!.label, assist = [cfg.AIM_EDGE > 0.5 && 'imán', cfg.AIM_16 > 0.5 && '16 dir.'].filter(Boolean).join(' · ');
+  hud.textContent = `HYPERFLOWGEON · F1 paso C · ⚙ o Esc: ajustes${T.visible() ? `
+apuntar: ${scheme}${T.opts.scheme === 'drag' ? ' · arrastrar desde GARFIO y soltar · tocar GARFIO o SALTO suelta' : T.opts.scheme === 'tap' ? ' · tocar el mundo (mantener)' : ' · GARFIO (mantener) · deslizar a SALTO = soltar con impulso'}` : ` · R reiniciar
 teclado: ←/→ A/D correr · espacio saltar · flechas/WASD apuntan · K o Shift garfio (mantener) · 1/2/3 perfil
 ratón: moverlo apunta · clic garfio`}
-garfio ${active.toUpperCase()} · cargas ${p.charge.toFixed(1)}/${cfg.HOOK_N}
+garfio ${active.toUpperCase()} · cargas ${p.charge.toFixed(1)}/${cfg.HOOK_N}${assist ? ` · ${assist}` : ''}
 vx ${p.vx.toFixed(2).padStart(6)}   vy ${p.vy.toFixed(2).padStart(6)}   |v| ${speed().toFixed(1).padStart(5)}   ${on ? 'liga ' : p.hook ? 'viaje' : p.ground ? 'suelo' : 'aire '}   sim ${simMs.toFixed(3)} ms
 ${lastJump}
 ${lastHook}`;
@@ -341,6 +335,7 @@ let acc = 0, last = 0;
 function frame(now: number) {
   const dt = Math.min((now - last) / 1000, 0.1); // tras una pausa larga no recupera más de 6 cuadros
   acc += dt, last = now;
+  if (paused()) acc = 0; // AJUSTES o MOVER CONTROLES abiertos
   while (acc >= DT) tick(input()), acc -= DT;
   draw(acc / DT, dt);
   requestAnimationFrame(frame);
