@@ -2,36 +2,59 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { init, step, hookTarget, aimDir, cosDeg, DT } from '../src/sim/sim.ts';
+import { init, step, hookTarget, aimDir, cosDeg, throwVel, DT } from '../src/sim/sim.ts';
 import { DEFAULTS as C, RANGES, PROFILES, HOOK_KEYS } from '../src/sim/params.ts';
 import { PATIO } from '../src/patio.ts';
 
 const R = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
 // inp(t) da la entrada del cuadro t (1, 2, …); devuelve una copia del estado tras cada cuadro
-function run(w, n, inp) {
-  const s = init(w), out = [];
-  for (let k = 0; k < n; k++) step(s, w, inp(s.t + 1), C), out.push(structuredClone(s));
+function run(w, n, inp, c = C) {
+  const s = init(w, c), out = [];
+  for (let k = 0; k < n; k++) step(s, w, inp(s.t + 1), c), out.push(structuredClone(s));
   return out;
 }
+const C0 = { ...C, AIR_JUMPS: 0 }; // sin doble salto: un SALTO en el aire queda guardado para el buffer
 
-test('coyote: se salta hasta COYOTE cuadros en el aire después de dejar el suelo', () => {
+test('coyote: se salta hasta COYOTE cuadros en el aire después de dejar el suelo (sin gastar el doble salto)', () => {
   const w = { spawn: [-1, 0], rects: [R(-20, -1, 0, 0)] }; // borde en x = 0, vacío a la derecha
   const g = run(w, 120, () => ({ x: 1, jump: false })).findLast(s => s.p.ground).t;
   for (let n = 1; n <= C.COYOTE + 2; n++) {
     const k = g + 1 + n; // SALTO apretado viendo el cuadro n en el aire
-    const s = run(w, k, t => ({ x: 1, jump: t === k })).at(-1);
+    const s = run(w, k, t => ({ x: 1, jump: t === k }), C0).at(-1);
     assert.equal(s.p.vy > 0, n <= C.COYOTE, `cuadro ${n} en el aire`);
+    const d = run(w, k, t => ({ x: 1, jump: t === k })).at(-1); // con doble salto: pasado el coyote, gasta uno
+    assert.ok(d.p.vy > 0 && d.p.air === C.AIR_JUMPS - (n <= C.COYOTE ? 0 : 1), `cuadro ${n}: quedan ${d.p.air}`);
   }
 });
 
 test('buffer: un SALTO hasta BUFFER cuadros antes de aterrizar salta al aterrizar', () => {
   const w = { spawn: [0, 4], rects: [R(-20, -1, 20, 0)] };
-  const L = run(w, 120, () => ({ x: 0, jump: false })).find(s => s.p.ground).t;
+  const L = run(w, 120, () => ({ x: 0, jump: false }), C0).find(s => s.p.ground).t;
   for (let n = 1; n <= C.BUFFER + 2; n++) {
     const k = L + 1 - n; // SALTO apretado viendo el n-ésimo cuadro antes de tocar el suelo
-    const s = run(w, L + 1, t => ({ x: 0, jump: t === k })).at(-1);
+    const s = run(w, L + 1, t => ({ x: 0, jump: t === k }), C0).at(-1);
     assert.equal(s.p.vy > 0, n <= C.BUFFER, `${n} cuadros antes`);
   }
+});
+
+test('doble salto: en el aire sube JUMP2_H sin tocar vx; AIR_JUMPS por vuelo y vuelven al tocar suelo', () => {
+  const w = { spawn: [0, 100], rects: [R(-500, -1, 500, 0)] }, c = { ...C, AIR_JUMPS: 2, FALL_G: 1 };
+  const s = init(w, c), top = [];
+  s.p.vx = 7;
+  const at = [10, 60, 110]; // tres SALTOS en el aire (mantenidos hasta la cima): el tercero no hace nada
+  for (let t = 1; t <= 1000 && !s.p.ground; t++) {
+    const y0 = s.p.y;
+    step(s, w, { x: 0, jump: at.some(a => t >= a && t < a + 40) }, c);
+    if (at.includes(t)) top.push({ y0, max: y0 });
+    if (top.length) top.at(-1).max = Math.max(top.at(-1).max, s.p.y);
+  }
+  assert.equal(s.p.air, c.AIR_JUMPS, 'al aterrizar vuelven');
+  for (const k of [0, 1]) assert.ok(Math.abs(top[k].max - top[k].y0 - c.JUMP2_H) < 0.02, `salto ${k}: ${top[k].max - top[k].y0}`);
+  assert.ok(top[2].max - top[2].y0 < 1e-9, 'el tercero no sube');
+  const r = init({ spawn: [0, 10], rects: [] }, c); // no le quita subida a quien ya sube más rápido
+  r.p.vy = 40, r.p.vx = 7;
+  step(r, { spawn: [0, 10], rects: [] }, { x: 0, jump: true }, c);
+  assert.ok(r.p.vy > 39 && r.p.vx === 7 && !r.p.rise, JSON.stringify(r.p));
 });
 
 test('salto variable: mantener llega a JUMP_H y un toque queda corto', () => {
@@ -289,18 +312,95 @@ test('dummies: correr contra un liviano lo empuja sin atravesarlo', () => {
   assert.ok(d.x > 4 && d.x - 0.4 >= s.p.x + 0.35 - 1e-6, `dummy en ${d.x}, héroe en ${s.p.x}`);
 });
 
-test('lanzar: ATAQUE enganchado suelta la liga y lanza al dummy por la mira (los pesados, más lento)', () => {
+test('lanzar: un toque de ATAQUE enganchado suelta la liga y lanza al dummy por la mira (los pesados, más lento)', () => {
   for (const [kind, m] of [['liviano', Z.M_LIGHT], ['pesado', Z.M_HEAVY]]) {
-    const { s, w } = grab(kind, Z, 3);
-    step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 0, ay: 1 }, Z);
+    const { s, w } = grab(kind, Z, 3), i = { x: 0, jump: false, hook: true, ax: 0, ay: 1 };
+    step(s, w, { ...i, atk: true }, Z);
+    assert.ok(s.p.hook && s.p.anchor, `${kind}: mantener ATAQUE no lanza`);
+    const vy = s.d[0].vy; // lo que ya iba hacia arriba (la mira lo empujó un cuadro) se suma
+    step(s, w, i, Z);
     const d = s.d[0];
     assert.equal(s.p.hook, null);
-    assert.ok(d.lz && d.vx === 0 && Math.abs(d.vy - Z.THROW_V * Math.min(1, 1 / m)) < 1e-9, `${kind}: ${JSON.stringify(d)}`);
+    assert.ok(d.lz && d.vx === 0 && Math.abs(d.vy - Z.THROW_V * Math.min(1, 1 / m) - vy) < 1e-9, `${kind}: ${JSON.stringify(d)}`);
   }
   const { s, w } = grab('liviano', Z, 3); // sin liga no lanza nada
   step(s, w, { x: 0, jump: false, hook: false }, Z);
   step(s, w, { x: 0, jump: false, hook: false, atk: true, ax: 0, ay: 1 }, Z);
   assert.equal(s.d[0].lz, false);
+});
+
+test('lanzar: soltar ATAQUE suma la rapidez que el dummy ya llevaba a favor de la mira (en contra no resta)', () => {
+  for (const [ax, ay, v] of [[1, 0, Z.THROW_V + 20], [-1, 0, Z.THROW_V], [0, 1, Z.THROW_V]]) {
+    const { s, w } = grab('mediano', Z, 1), i = { x: 0, jump: false, hook: true, ax, ay };
+    step(s, w, { ...i, atk: true }, Z);
+    Object.assign(s.d[0], { vx: 20, vy: 0 }); // el péndulo va hacia la derecha a 20 m/s
+    assert.deepEqual(throwVel(w, s, i, Z), [ax * v, ay * v]); // lo mismo que dibuja la flecha de lanzar
+    step(s, w, i, Z);
+    assert.deepEqual([s.d[0].vx, s.d[0].vy], [ax * v, ay * v], `mira (${ax}, ${ay})`);
+  }
+});
+
+test('enganchado a un dummy, SALTO no suelta la liga: en el suelo salta y en el aire es el doble salto', () => {
+  const c = { ...C, HOOK_TRAVEL: 0 }, i = { x: 0, jump: false, hook: true, ax: 1, ay: 0 };
+  const floor = { spawn: [0, 0], rects: [R(-50, -1, 50, 0)], dummies: [{ x: 10, y: 0, kind: 'pesado' }] };
+  const air = { spawn: [0, 10], rects: [], dummies: [{ x: 10, y: 9.5, kind: 'pesado' }] };
+  for (const w of [floor, air]) {
+    const s = init(w, c);
+    step(s, w, i, c), step(s, w, i, c);
+    assert.equal(s.p.hook?.e, 0);
+    step(s, w, { ...i, jump: true }, c);
+    assert.ok(s.p.hook && s.p.vy > 0, JSON.stringify(s.p));
+    assert.equal(s.p.air, w === floor ? c.AIR_JUMPS : c.AIR_JUMPS - 1);
+  }
+});
+
+test('modo ancla: con ATAQUE mantenido el héroe pesa ANCHOR_M para la liga (el liviano viene sin frenarte)', () => {
+  const c = { ...Z, SWING_A: 0 }, { s, w } = grab('liviano', c, 0);
+  const v0 = { p: s.p.vx, d: s.d[0].vx };
+  for (let k = 0; k < 10; k++) step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 1, ay: 0 }, c);
+  const dp = s.p.vx - v0.p, dd = s.d[0].vx - v0.d;
+  assert.ok(s.p.anchor && s.d[0].lz, 'modo ancla: lo que manejás golpea como LANZADO');
+  assert.ok(dd < -5 && Math.abs(c.ANCHOR_M * dp + c.M_LIGHT * dd) < 1e-9, `héroe ${dp}, dummy ${dd}`);
+});
+
+test('modo ancla: la mira empuja al dummy con SWING_A y, pasando SWING_V, solo lo gira', () => {
+  const c = { ...Z, HOOK_K: 0, HOOK_DAMP: 0 }, { s, w } = grab('liviano', c, 0); // sin liga que tire: solo la mira
+  const i = { x: 0, jump: false, hook: true, atk: true, ax: 0, ay: 1 }, rel = () => Math.sqrt(s.d[0].vx ** 2 + s.d[0].vy ** 2);
+  step(s, w, i, c);
+  assert.ok(s.d[0].vx === 0 && Math.abs(s.d[0].vy - c.SWING_A * DT) < 1e-12, JSON.stringify(s.d[0]));
+  for (let k = 0; k < 60; k++) step(s, w, i, c);
+  const top = rel();
+  assert.ok(top >= c.SWING_V && top <= c.SWING_V + c.SWING_A * DT, `rapidez ${top}`);
+  for (let k = 0; k < 30; k++) step(s, w, { ...i, ax: 1, ay: 0 }, c); // de costado: gira hacia la mira sin acelerar
+  assert.ok(Math.abs(rel() - top) < 1e-9 && s.d[0].vx > s.d[0].vy, JSON.stringify(s.d[0]));
+});
+
+test('modo ancla: ATAQUE sostiene la liga sin GARFIO; apretar GARFIO otra vez la suelta sin lanzar', () => {
+  const { s, w } = grab('liviano', Z, 2), i = { x: 0, jump: false, ax: 0, ay: 1 };
+  for (let k = 0; k < 6; k++) step(s, w, { ...i, hook: false, atk: true }, Z); // deslizar de GARFIO a ATAQUE: el mismo cuadro
+  assert.ok(s.p.hook && s.p.anchor);
+  const d0 = structuredClone(s.d[0]);
+  step(s, w, { ...i, hook: true, atk: true }, Z);
+  assert.ok(!s.p.hook && !s.p.anchor && s.p.shot.t < s.t, 'suelta y no dispara otra');
+  assert.deepEqual([s.d[0].vx, s.d[0].vy], [d0.vx, d0.vy]);
+});
+
+test('a la par: con ATAQUE mantenido un dummy lanzado atraviesa al héroe; sin ATAQUE choca', () => {
+  for (const atk of [false, true]) {
+    const w = { spawn: [0, 0], rects: [], dummies: [{ x: 5, y: 0, kind: 'liviano' }] }, s = init(w, Z);
+    Object.assign(s.d[0], { vx: -20, lz: true });
+    for (let k = 0; k < 40; k++) step(s, w, { x: 0, jump: false, atk }, Z);
+    const d = s.d[0];
+    if (atk) assert.ok(d.x < -5 && d.vx === -20 && s.p.vx === 0, `atravesó: ${d.x}`);
+    else assert.ok(d.x - 0.4 >= s.p.x + 0.35 - 1e-6 && s.p.vx < 0, `chocó: dummy ${d.x}, héroe ${s.p.x}`);
+  }
+  // soltar ATAQUE con el dummy encimado: sigue a la par hasta separarse (no se frena contra el héroe)
+  const w = { spawn: [0, 0], rects: [], dummies: [{ x: 5, y: 0, kind: 'liviano' }] }, s = init(w, Z);
+  Object.assign(s.d[0], { vx: -20, lz: true });
+  while (s.d[0].x - 0.4 > 0.35 - 0.1) step(s, w, { x: 0, jump: false, atk: true }, Z);
+  assert.ok(s.d[0].par, 'encimado');
+  for (let k = 0; k < 30; k++) step(s, w, { x: 0, jump: false }, Z);
+  assert.ok(s.d[0].x < -5 && s.d[0].vx === -20 && !s.d[0].par && s.p.vx === 0, JSON.stringify(s.d[0]));
 });
 
 test('golpes: lo LANZADO se lastima al chocar según cuánto pierde por encima de IMPACT_V', () => {

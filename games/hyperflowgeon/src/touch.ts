@@ -2,11 +2,12 @@ import type { Row } from './menu.ts';
 
 // Controles táctiles (solo entrada y dibujo: la sim recibe lo mismo que del teclado). Joystick FIJO abajo a la
 // izquierda: donde se toca es la dirección, sin arrastrar (pedido del usuario), medida desde su centro; mueve y apunta.
-// A la derecha, SALTO, GARFIO y ATAQUE (enganchado a un dummy dice LANZAR: lo lanza hacia la mira; deslizar de un
-// botón a otro también los aprieta). Tres esquemas para apuntar el garfio (Ajustes → CONTROLES):
+// A la derecha, SALTO, GARFIO y ATAQUE (deslizar de un botón a otro también los aprieta). ATAQUE mantenido = a la par;
+// enganchado a un dummy dice LANZAR: mantenerlo es el modo ancla y soltarlo lo lanza hacia la mira (deslizar de GARFIO a
+// ATAQUE le pasa la liga). Tres esquemas para apuntar el garfio (Ajustes → CONTROLES):
 // - JOYSTICK: la mira sigue al joystick; GARFIO mantenido = enganchado; deslizar de GARFIO a SALTO suelta con impulso.
 // - ARRASTRAR (como Brawl Stars): arrastrar desde GARFIO apunta y soltar dispara (un toque sin arrastrar: hacia el
-//   joystick). La liga queda enganchada sola hasta SALTO o hasta tocar GARFIO otra vez, que suelta y, si se arrastra,
+//   joystick). La liga queda enganchada sola hasta SALTO (a una superficie) o hasta tocar GARFIO otra vez, que suelta y, si se arrastra,
 //   apunta la siguiente: soltar y volver a lanzar es un solo gesto. Volver al centro del botón antes de soltar cancela.
 // - TOCAR: tocar el mundo apunta ahí y engancha mientras se mantiene (como el ratón); el joystick queda en su círculo.
 // Tamaños en % y lugares arrastrables (MOVER CONTROLES; el joystick en la mitad izquierda, los botones en la derecha),
@@ -23,7 +24,7 @@ export const CTL_DEFAULTS = Object.fromEntries(Object.entries(CTL_RANGES).map(([
 
 export const SCHEMES = [
   { id: 'stick', label: 'JOYSTICK', hint: 'La mira sigue al joystick (sin dirección: adelante y arriba). GARFIO mantenido = enganchado; deslizar de GARFIO a SALTO suelta con impulso.' },
-  { id: 'drag', label: 'ARRASTRAR', hint: 'Arrastrá desde GARFIO para apuntar y soltá para lanzar (un toque: hacia el joystick). Queda enganchada hasta SALTO o hasta tocar GARFIO otra vez, que suelta y apunta la siguiente. Volver al centro cancela.' },
+  { id: 'drag', label: 'ARRASTRAR', hint: 'Arrastrá desde GARFIO para apuntar y soltá para lanzar (un toque: hacia el joystick). Queda enganchada hasta SALTO (a un dummy, SALTO solo salta) o hasta tocar GARFIO otra vez, que suelta y apunta la siguiente. Volver al centro cancela.' },
   { id: 'tap', label: 'TOCAR', hint: 'Tocá el mundo: la liga va ahí y queda enganchada mientras mantengas el dedo. El joystick responde solo dentro de su círculo.' },
 ] as const;
 export type Scheme = typeof SCHEMES[number]['id'];
