@@ -52,7 +52,7 @@ test('el impulso en el aire se conserva sin entrada', () => {
 test('determinismo: mismas entradas ⇒ mismo estado; serializar a mitad no cambia nada', () => {
   let seed = 1;
   const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-  const inputs = Array.from({ length: 1200 }, () => ({ x: rnd() * 2 - 1, jump: rnd() < 0.3, hook: rnd() < 0.6, ax: rnd() * 2 - 1, ay: rnd() * 2 - 1 }));
+  const inputs = Array.from({ length: 1200 }, () => ({ x: rnd() * 2 - 1, jump: rnd() < 0.3, hook: rnd() < 0.6, atk: rnd() < 0.2, ax: rnd() * 2 - 1, ay: rnd() * 2 - 1 }));
   const play = (s, from, to) => { for (let k = from; k < to; k++) step(s, PATIO, inputs[k], C); return s; };
   const end = JSON.stringify(play(init(PATIO), 0, 1200));
   assert.equal(JSON.stringify(play(init(PATIO), 0, 1200)), end);
@@ -161,7 +161,7 @@ test('chispas: devuelven una carga y reaparecen a los ORB_T s', () => {
 });
 
 test('cono de gracia: si el rayo no pega, la esquina visible más cercana a la mira dentro del cono', () => {
-  const p = init({ spawn: [0, -1.2], rects: [] }).p; // la mano en (0, 0)
+  const p = init({ spawn: [0, -1.2], rects: [] }); // la mano en (0, 0)
   const aim = (deg, cone, rects) => hookTarget({ spawn: [0, 0], rects }, p, { x: 0, jump: false, ax: 1, ay: Math.tan(deg * Math.PI / 180) }, { ...C, HOOK_CONE: cone });
   const beam = [R(5, -10, 6, 0.5)]; // su esquina de arriba está a ~5,7° de la horizontal
   assert.equal(aim(0, 12, beam).grace, false);
@@ -178,7 +178,7 @@ test('cono de gracia: si el rayo no pega, la esquina visible más cercana a la m
 });
 
 test('imán a esquinas: dentro del cono, una esquina visible gana a la superficie que pega el rayo', () => {
-  const p = init({ spawn: [0, -1.2], rects: [] }).p; // la mano en (0, 0)
+  const p = init({ spawn: [0, -1.2], rects: [] }); // la mano en (0, 0)
   const w = { spawn: [0, 0], rects: [R(8, -10, 9, 10), R(4, 0.8, 6, 1.2)] }; // pared a 8 m y una viga apenas arriba
   const at = (deg, c) => hookTarget(w, p, { x: 0, jump: false, ax: 1, ay: Math.tan(deg * Math.PI / 180) }, { ...C, HOOK_CONE: 12, ...c });
   const ray = at(0, {}), mag = at(0, { AIM_EDGE: 1 });
@@ -229,6 +229,133 @@ test('viaje del ancla: un disparo fallido viaja todo el alcance y después HOOK_
   const w = { spawn: [0, 0], rects: [] }, s = init(w), c = { ...G0, HOOK_TRAVEL: 0.3 };
   step(s, w, { x: 0, jump: false, hook: true }, c);
   assert.equal(s.p.hookT, 1 + 18 + C.HOOK_MISS);
+});
+
+// Dummies (paso D). Sin gravedad, sin roce y sin viaje del ancla para aislar la liga y los choques. La mano del héroe
+// queda en (0, 1,2) y un dummy a 10 m; la liga le pega en la cara a la altura de la mano.
+const Z = { ...C, JUMP_H: 0, HOOK_TRAVEL: 0, D_FRIC: 0 };
+const dum = (kind, x = 10, y = 0.75, rects = []) => ({ spawn: [0, 0], rects, dummies: [{ x, y, kind }] });
+function grab(kind, c = Z, n = 0) {
+  const w = dum(kind), s = init(w, c);
+  for (let k = 0; k <= n; k++) step(s, w, { x: 0, jump: false, hook: true, ax: 1, ay: 0 }, c);
+  return { s, w };
+}
+
+test('dummies: la liga tira de las dos puntas repartida por masa (el liviano viene, el pesado te lleva)', () => {
+  for (const kind of ['liviano', 'mediano', 'pesado']) {
+    const { s } = grab(kind, Z, 10), m = Z[{ liviano: 'M_LIGHT', mediano: 'M_MID', pesado: 'M_HEAVY' }[kind]], d = s.d[0];
+    assert.equal(s.p.hook.e, 0);
+    assert.ok(Math.abs(s.p.vx + m * d.vx) < 1e-9, `${kind}: momento ${s.p.vx + m * d.vx}`);
+    assert.ok(Math.abs((d.x - 10) / s.p.x + 1 / m) < 1e-9, `${kind}: el dummy se movió ${d.x - 10}, el héroe ${s.p.x}`);
+  }
+});
+
+test('dummies: lo relativo es igual que contra una pared (la liga se siente igual)', () => {
+  const w = { spawn: [0, 0], rects: [R(9.6, -50, 10.4, 50)] }, wall = init(w, Z);
+  const runs = [['liviano', 0.4], ['pesado', 0.8]].map(([kind, hw]) => { const w = dum(kind, 9.6 + hw); return { w, s: init(w, Z) }; });
+  for (let k = 0; k < 15; k++) {
+    const i = { x: 0, jump: false, hook: true, ax: 1, ay: 0 };
+    step(wall, w, i, Z);
+    for (const r of runs) {
+      step(r.s, r.w, i, Z);
+      const a = wall.p.hook.x - wall.p.x, b = r.s.p.hook.x - r.s.p.x;
+      assert.ok(Math.abs(a - b) < 1e-9, `cuadro ${k}: ${a} contra ${b}`);
+    }
+  }
+});
+
+test('dummies: el liviano llega y se frena contra el héroe (choque sin rebote, sin atravesarse)', () => {
+  const { s } = grab('liviano', Z, 120), d = s.d[0];
+  assert.ok(Math.abs(s.p.vx) < 1e-9 && Math.abs(d.vx) < 1e-9, `quedan a ${s.p.vx} y ${d.vx}`);
+  const gap = d.x - 0.4 - (s.p.x + 0.35);
+  assert.ok(gap > -1e-6 && gap < 0.05, `separación ${gap}`);
+});
+
+test('dummies: uno se para encima de un dummy (lo trabado contra el piso no se hunde) y salta desde ahí', () => {
+  for (const [kind, h] of [['pesado', 2.6], ['liviano', 0.9]]) {
+    const w = { spawn: [0, 5], rects: [R(-20, -1, 20, 0)], dummies: [{ x: 0, y: 0, kind }] }, s = init(w);
+    for (let k = 0; k < 90; k++) step(s, w, { x: 0, jump: false }, C);
+    assert.ok(Math.abs(s.p.y - h) < 1e-6 && s.p.ground && s.p.vy === 0, `${kind}: y ${s.p.y}, suelo ${s.p.ground}`);
+    assert.ok(s.d[0].x === 0 && s.d[0].y === 0, `${kind}: el dummy se movió`);
+    step(s, w, { x: 0, jump: true }, C);
+    assert.ok(s.p.vy > 0, `${kind}: no saltó`);
+  }
+});
+
+test('dummies: correr contra un liviano lo empuja sin atravesarlo', () => {
+  const w = { spawn: [0, 0], rects: [R(-20, -1, 40, 0)], dummies: [{ x: 3, y: 0, kind: 'liviano' }] }, s = init(w);
+  for (let k = 0; k < 60; k++) step(s, w, { x: 1, jump: false }, C);
+  const d = s.d[0];
+  assert.ok(d.x > 4 && d.x - 0.4 >= s.p.x + 0.35 - 1e-6, `dummy en ${d.x}, héroe en ${s.p.x}`);
+});
+
+test('lanzar: ATAQUE enganchado suelta la liga y lanza al dummy por la mira (los pesados, más lento)', () => {
+  for (const [kind, m] of [['liviano', Z.M_LIGHT], ['pesado', Z.M_HEAVY]]) {
+    const { s, w } = grab(kind, Z, 3);
+    step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 0, ay: 1 }, Z);
+    const d = s.d[0];
+    assert.equal(s.p.hook, null);
+    assert.ok(d.lz && d.vx === 0 && Math.abs(d.vy - Z.THROW_V * Math.min(1, 1 / m)) < 1e-9, `${kind}: ${JSON.stringify(d)}`);
+  }
+  const { s, w } = grab('liviano', Z, 3); // sin liga no lanza nada
+  step(s, w, { x: 0, jump: false, hook: false }, Z);
+  step(s, w, { x: 0, jump: false, hook: false, atk: true, ax: 0, ay: 1 }, Z);
+  assert.equal(s.d[0].lz, false);
+});
+
+test('golpes: lo LANZADO se lastima al chocar según cuánto pierde por encima de IMPACT_V', () => {
+  const hp = (v, lz) => {
+    const w = dum('liviano', 0, 0, [R(2, -50, 3, 50)]), s = init(w, Z);
+    w.spawn = [-20, 0];
+    Object.assign(s.p, { x: -20 }), Object.assign(s.d[0], { vx: v, lz });
+    for (let k = 0; k < 30; k++) step(s, w, { x: 0, jump: false }, Z);
+    return s.d[0].hp;
+  };
+  assert.equal(hp(20, true), 100 - (20 - Z.IMPACT_V) * Z.IMPACT_DMG);
+  assert.equal(hp(20, false), 100);
+  assert.equal(hp(Z.IMPACT_V - 1, true), 100);
+});
+
+test('golpes: un LANZADO contra otro dummy: choque sin rebote, se conserva el momento y sufre más el liviano', () => {
+  const w = { spawn: [-20, 0], rects: [], dummies: [{ x: 0, y: 0, kind: 'liviano' }, { x: 5, y: 0, kind: 'pesado' }] }, s = init(w, Z);
+  Object.assign(s.d[0], { vx: 30, lz: true });
+  for (let k = 0; k < 30; k++) step(s, w, { x: 0, jump: false }, Z);
+  const [a, b] = s.d, dv = 30 - a.vx;
+  assert.ok(Math.abs(Z.M_LIGHT * a.vx + Z.M_HEAVY * b.vx - Z.M_LIGHT * 30) < 1e-9 && Math.abs(a.vx - b.vx) < 1e-9, `${a.vx} y ${b.vx}`);
+  assert.ok(Math.abs(a.hp - (100 - (dv - Z.IMPACT_V) * Z.IMPACT_DMG)) < 1e-9 && b.hp === 100, `hp ${a.hp} y ${b.hp}`);
+});
+
+test('mira: imán a enemigos (un dummy en el cono gana a la pared que pega el rayo) y el dummy tapa lo de atrás', () => {
+  const w = dum('liviano', 5, 0.3, [R(8, -10, 9, 10)]), s = init({ ...w, spawn: [0, -1.2] }); // la mano en (0, 0)
+  const at = (ax, ay, c = {}) => hookTarget(w, s, { x: 0, jump: false, ax, ay }, { ...C, HOOK_CONE: 12, ...c });
+  const foe = at(1, 0), off = at(1, 0, { AIM_FOE: 0 }), ray = at(5, 0.75);
+  assert.ok(foe.e === 0 && foe.grace && Math.abs(foe.x - 4.6) < 1e-9, JSON.stringify(foe)); // centro a ~8,5°: el rayo pasa por debajo
+  assert.ok(off.e === -1 && Math.abs(off.x - 8) < 1e-9, JSON.stringify(off));
+  assert.ok(ray.e === 0 && !ray.grace, JSON.stringify(ray));
+});
+
+test('dummies: roto suelta la liga, desaparece y vuelve entero a los D_RESPAWN s', () => {
+  const { s, w } = grab('liviano', Z, 2);
+  s.d[0].hp = 0;
+  step(s, w, { x: 0, jump: false, hook: true }, Z);
+  assert.equal(s.p.hook, null);
+  assert.equal(hookTarget(w, s, { x: 0, jump: false, ax: 1, ay: 0 }, Z), null);
+  const t0 = s.t;
+  while (s.d[0].hp <= 0) step(s, w, { x: 0, jump: false }, Z);
+  assert.equal(s.t - t0, Z.D_RESPAWN * 60);
+  assert.deepEqual([s.d[0].x, s.d[0].hp, s.d[0].lz], [10, 100, false]);
+});
+
+test('determinismo en el corral: con dummies, choques y lanzamientos, mismo estado y serializable', () => {
+  let seed = 7;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const w = { ...PATIO, spawn: [206, 0] };
+  const inputs = Array.from({ length: 1500 }, () => ({ x: rnd() * 2 - 1, jump: rnd() < 0.2, hook: rnd() < 0.7, atk: rnd() < 0.1, ax: rnd() * 2 - 1, ay: rnd() * 2 - 1 }));
+  const play = (s, from, to) => { for (let k = from; k < to; k++) step(s, w, inputs[k], C); return s; };
+  const end = play(init(w), 0, 1500), json = JSON.stringify(end);
+  assert.equal(JSON.stringify(play(init(w), 0, 1500)), json);
+  assert.equal(JSON.stringify(play(JSON.parse(JSON.stringify(play(init(w), 0, 700))), 700, 1500)), json);
+  assert.ok([end.p, ...end.d].every(b => Number.isFinite(b.x) && Number.isFinite(b.y)));
 });
 
 test('perfiles del garfio: todas las claves y dentro de los rangos del panel', () => {
