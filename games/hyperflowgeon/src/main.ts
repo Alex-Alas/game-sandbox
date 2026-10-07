@@ -1,4 +1,4 @@
-import { init, step, aimDir, hookTarget, DT, HW, H, HAND, ORB_R, type Input, type State } from './sim/sim.ts';
+import { init, step, aimDir, hookTarget, attached, DT, HW, H, HAND, ORB_R, type Input, type State } from './sim/sim.ts';
 import { RANGES, DEFAULTS, PROFILES, HOOK_KEYS, type Cfg, type HookCfg, type Profile } from './sim/params.ts';
 import { PATIO } from './patio.ts';
 import { CAM_RANGES, CAM_DEFAULTS, newCam, follow, type CamCfg } from './camera.ts';
@@ -23,14 +23,14 @@ const restore = (vals: Record<string, number>, saved: Record<string, unknown> | 
 restore(cfg, load('hfg.cfg'), Object.keys(RANGES));
 restore(camCfg, load('hfg.cam'), Object.keys(CAM_RANGES));
 {
-  const sv = load('hfg.prof');
+  const sv = load('hfg.prof2'); // hfg.prof2: los perfiles cambiaron con el viaje del ancla (los de hfg.prof quedan atrás)
   if (NAMES.includes(sv.active)) active = sv.active;
   for (const n of NAMES) restore(profs[n], sv.perfiles?.[n], HOOK_KEYS);
 }
 Object.assign(cfg, profs[active]);
 function saveAll() {
   for (const k of HOOK_KEYS) profs[active][k] = cfg[k];
-  store('hfg.cfg', cfg), store('hfg.cam', camCfg), store('hfg.prof', { active, perfiles: profs });
+  store('hfg.cfg', cfg), store('hfg.cam', camCfg), store('hfg.prof2', { active, perfiles: profs });
 }
 const shows: (() => void)[] = [];
 function rows(table: Record<string, Row>, keys: readonly string[], vals: Record<string, number>, box: string) {
@@ -170,11 +170,12 @@ reset();
 const speed = () => Math.sqrt(s.p.vx * s.p.vx + s.p.vy * s.p.vy);
 function tick(i: Input) {
   prev = { x: s.p.x, y: s.p.y };
-  const hooked = !!s.p.hook, t0 = performance.now();
+  const hooked = attached(s.p, s.t), t0 = performance.now();
   step(s, PATIO, i, cfg);
   simMs += (performance.now() - t0 - simMs) * 0.05;
   const p = s.p;
-  trail.push({ x: p.x, y: p.y, c: p.hook ? '#5ec8ff' : p.ground ? '#8a8f94' : '#ffd84a' });
+  const on = attached(p, s.t);
+  trail.push({ x: p.x, y: p.y, c: on ? '#5ec8ff' : p.ground ? '#8a8f94' : '#ffd84a' });
   if (trail.length > 240) trail.shift();
   if (!p.ground && !air) air = { x: prev.x, y: prev.y, top: p.y, t: s.t - 1 };
   if (air) air.top = Math.max(air.top, p.y);
@@ -182,9 +183,9 @@ function tick(i: Input) {
     lastJump = `vuelo: ${(air.top - air.y).toFixed(2)} m alto · ${Math.abs(p.x - air.x).toFixed(2)} m largo · ${s.t - air.t} cuadros`;
     air = null;
   }
-  if (p.hook && !hooked) hookMax = 0;
-  if (p.hook) hookMax = Math.max(hookMax, speed());
-  if (!p.hook && hooked) lastHook = `liga: máx ${hookMax.toFixed(1)} m/s · suelta a ${speed().toFixed(1)} m/s`;
+  if (on && !hooked) hookMax = 0;
+  if (on) hookMax = Math.max(hookMax, speed());
+  if (!on && hooked) lastHook = `liga: máx ${hookMax.toFixed(1)} m/s · suelta a ${speed().toFixed(1)} m/s`;
 }
 
 // Color de la mira según lo que hará la liga con la velocidad actual: verde acelera, amarillo columpia, rojo frena
@@ -228,9 +229,23 @@ function draw(a: number, dt: number) {
     ctx.fillRect(X(t.x) - 1.5, Y(t.y) - 1.5, 3, 3);
   }
 
-  // Liga: tensa más gruesa; floja, tenue. Un disparo fallido se ve unos cuadros.
-  const hx = X(px), hy = Y(py + HAND);
-  if (p.hook) {
+  // Liga: tensa más gruesa; floja, tenue. La punta en viaje va de donde salió hacia el ancla (en el tiempo
+  // interpolado del render); un disparo fallido viaja todo el alcance y se desvanece unos cuadros.
+  const hx = X(px), hy = Y(py + HAND), on = attached(p, s.t), st = p.shot, tr = s.t - 1 + a;
+  const tip = (sh: NonNullable<typeof st>) => {
+    const f = Math.min(1, Math.max(0, (tr - sh.t) / Math.max(1, sh.at - sh.t)));
+    return [X(sh.ox + (sh.x - sh.ox) * f), Y(sh.oy + (sh.y - sh.oy) * f)];
+  };
+  if (p.hook && !on && st) {
+    const [tx, ty] = tip(st);
+    ctx.strokeStyle = '#e8c07a99';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+    ctx.fillStyle = '#e8c07a';
+    ctx.beginPath(); ctx.arc(tx, ty, 3, 0, 2 * Math.PI); ctx.fill();
+    ctx.strokeStyle = '#e8c07a55';
+    ctx.beginPath(); ctx.arc(X(st.x), Y(st.y), 6, 0, 2 * Math.PI); ctx.stroke();
+  } else if (p.hook) {
     const d = Math.sqrt((p.hook.x - px) ** 2 + (p.hook.y - py - HAND) ** 2);
     ctx.strokeStyle = d > p.hook.rest ? '#e8c07a' : '#e8c07a77';
     ctx.lineWidth = d > p.hook.rest ? 3 : 2;
@@ -238,10 +253,11 @@ function draw(a: number, dt: number) {
     ctx.fillStyle = '#e8c07a';
     ctx.beginPath(); ctx.arc(X(p.hook.x), Y(p.hook.y), 4, 0, 2 * Math.PI); ctx.fill();
   } else {
-    if (p.shot && !p.shot.hit && s.t - p.shot.t < 8) {
-      ctx.strokeStyle = `rgba(232,192,122,${1 - (s.t - p.shot.t) / 8})`;
+    if (st && !st.hit && tr - st.at < 8) {
+      const [tx, ty] = tip(st);
+      ctx.strokeStyle = `rgba(232,192,122,${Math.min(1, 1 - (tr - st.at) / 8)})`;
       ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(X(p.shot.x), Y(p.shot.y)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
     }
     // Alcance (círculo de rayas), cono de gracia y mira: dónde se pegaría la liga si se aprieta ahora (hookTarget,
     // lo mismo que usa la simulación). Con la gracia, la línea va a donde se pegaría y la mira original queda tenue.
@@ -274,7 +290,7 @@ function draw(a: number, dt: number) {
       ctx.beginPath(); ctx.moveTo(ex - 5, ey - 5); ctx.lineTo(ex + 5, ey + 5); ctx.moveTo(ex + 5, ey - 5); ctx.lineTo(ex - 5, ey + 5); ctx.stroke();
     }
   }
-  ctx.fillStyle = p.hook ? '#5ec8ff' : p.ground ? '#f2f2e8' : '#ffd84a';
+  ctx.fillStyle = on ? '#5ec8ff' : p.ground ? '#f2f2e8' : '#ffd84a';
   ctx.fillRect(X(px - HW), Y(py + H), 2 * HW * k, H * k);
   // Cargas sobre la cabeza: llenas, la que se recarga como arco; verdes un momento si soltar rápido devolvió una
   const n = cfg.HOOK_N, pr = Math.max(3, 0.12 * k), gap = 3 * pr, refund = s.t - p.refundT < 20;
@@ -316,7 +332,7 @@ joystick fijo: mueve y apunta · GARFIO (mantener) · deslizar a SALTO = soltar 
 teclado: ←/→ A/D correr · espacio saltar · flechas/WASD apuntan · K o Shift garfio (mantener) · 1/2/3 perfil
 ratón: moverlo apunta · clic garfio`}
 garfio ${active.toUpperCase()} · cargas ${p.charge.toFixed(1)}/${cfg.HOOK_N}
-vx ${p.vx.toFixed(2).padStart(6)}   vy ${p.vy.toFixed(2).padStart(6)}   |v| ${speed().toFixed(1).padStart(5)}   ${p.hook ? 'liga ' : p.ground ? 'suelo' : 'aire '}   sim ${simMs.toFixed(3)} ms
+vx ${p.vx.toFixed(2).padStart(6)}   vy ${p.vy.toFixed(2).padStart(6)}   |v| ${speed().toFixed(1).padStart(5)}   ${on ? 'liga ' : p.hook ? 'viaje' : p.ground ? 'suelo' : 'aire '}   sim ${simMs.toFixed(3)} ms
 ${lastJump}
 ${lastHook}`;
 }

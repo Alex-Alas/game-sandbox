@@ -1,12 +1,12 @@
 // Cámara 2D (solo vista: no toca la simulación). Mismo formato que RANGES: [valor, mín, máx, paso, etiqueta];
 // las filas [v, 0, 1, 1] son casillas. El panel de ajustes las muestra en su sección CÁMARA.
 export const CAM_RANGES = {
-  CAM_VIEW: [18, 8, 40, 0.5, 'vista m (alto)'],
+  CAM_VIEW: [20.5, 8, 40, 0.5, 'vista m (alto)'],
   CAM_DYN: [1, 0, 1, 1, 'cámara dinámica'],
-  CAM_ZOOM: [0.5, 0, 2, 0.05, 'alejar a 30 m/s ×'],
-  CAM_LEAD: [0.35, 0, 1.5, 0.05, 'adelanto s'],
-  CAM_LEAD_MAX: [0.6, 0, 1, 0.05, 'adelanto máx. × media vista'],
-  CAM_SMOOTH: [0.35, 0.02, 2, 0.01, 'suavizado s'],
+  CAM_ZOOM: [0.3, 0, 2, 0.05, 'alejar a 30 m/s ×'],
+  CAM_LEAD: [0.2, 0, 1.5, 0.05, 'adelanto s'],
+  CAM_LEAD_MAX: [0.8, 0, 1, 0.05, 'adelanto máx. × media vista'],
+  CAM_SMOOTH: [0.99, 0.02, 2, 0.01, 'suavizado s'],
 } satisfies Record<string, [number, number, number, number, string]>;
 
 export type CamCfg = { [K in keyof typeof CAM_RANGES]: number };
