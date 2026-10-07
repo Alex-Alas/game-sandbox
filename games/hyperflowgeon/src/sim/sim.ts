@@ -79,6 +79,7 @@ const approach = (v: number, to: number, d: number) => v < to ? Math.min(v + d, 
 
 export function step(s: State, w: World, i: Input, c: Cfg): void {
   const p = s.p, t = ++s.t, g = 2 * c.JUMP_H / (c.JUMP_T * c.JUMP_T); // gravedad tal que JUMP_H se alcanza en JUMP_T
+  const e0 = (p.vx * p.vx + p.vy * p.vy) / 2 + g * p.y, on0 = attached(p, t); // energía al empezar el cuadro (ver la honda)
   if (i.x > 0) p.face = 1;
   else if (i.x < 0) p.face = -1;
   if (i.jump && !p.held) p.pressT = t;
@@ -86,14 +87,17 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
 
   // Garfio. SALTO enganchado a una superficie suelta y suma HOOK_JUMP hacia arriba (y sigue siendo un SALTO: en el suelo
   // salta); enganchado a un dummy es solo un salto (o el doble salto) y no suelta: no corta lo que se hace con él.
-  // Soltar GARFIO suelta conservando la velocidad. Soltar a HOOK_REFUND m/s o más (sin contar el HOOK_JUMP)
-  // devuelve la carga: encadenar bien casi no gasta. Apretarlo con una carga dispara a hookTarget: si pega, la liga
-  // gasta la carga y la punta viaja hasta el ancla (travel: más lejos, más tarda); al llegar queda enganchada con
-  // un largo en reposo de HOOK_REST × la distancia de ese momento. Mientras viaja no tira, SALTO es solo un salto y
-  // soltar GARFIO la cancela y devuelve la carga. Si no pega, la punta viaja todo el alcance y después quedan
-  // HOOK_MISS cuadros sin poder disparar (fallar no gasta).
+  // Soltar GARFIO suelta conservando la velocidad. Soltar a HOOK_REFUND m/s o más (sin contar el HOOK_JUMP) devuelve
+  // la carga, pero solo si el ancla ya quedó atrás de tu movimiento (columpio que la pasó: te alejás de ella); soltando
+  // mientras te acercás no vuelve. Así encadenar columpios bien casi no gasta.
+  // Apretarlo con una carga dispara a hookTarget: si pega, la liga gasta la carga y la punta viaja hasta el ancla
+  // (travel: más lejos, más tarda); al llegar queda enganchada con un largo en reposo de HOOK_REST × la distancia de
+  // ese momento. Mientras viaja no tira, SALTO es solo un salto y soltar GARFIO la cancela y devuelve la carga. Si no
+  // pega, la punta viaja todo el alcance y después quedan HOOK_MISS cuadros sin poder disparar (fallar no gasta).
   const release = () => {
-    if (c.HOOK_REFUND > 0 && p.vx * p.vx + p.vy * p.vy >= c.HOOK_REFUND * c.HOOK_REFUND) p.charge = Math.min(c.HOOK_N, p.charge + 1), p.refundT = t;
+    const ex = p.hook!.x - p.x, ey = p.hook!.y - (p.y + HAND); // ancla atrás: la distancia crece (r·v < 0)
+    if (c.HOOK_REFUND > 0 && p.vx * p.vx + p.vy * p.vy >= c.HOOK_REFUND * c.HOOK_REFUND && ex * p.vx + ey * p.vy < 0)
+      p.charge = Math.min(c.HOOK_N, p.charge + 1), p.refundT = t;
     p.hook = null;
   };
   // ATAQUE con la liga enganchada a un dummy. Mantenerlo es el modo ancla: el héroe es el ancla (pesa ANCHOR_M para la
@@ -205,6 +209,16 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   p.y += dy;
   p.ground = wy < 0 && dy !== wy;
   if (dy !== wy) p.vy = 0, p.rise = false;
+  // Honda: enganchado a un ancla por debajo de la mano, la liga no sube la rapidez por encima de RUN. Lo que la liga
+  // sumó en este cuadro (energía total, cinética más de altura, contra la de al empezar; la caída la conserva) se
+  // descuenta de la rapidez, sin bajar de RUN. Las anclas por encima de la mano no entran en este tope.
+  if (on0 && p.hook && p.hook.y < p.y + HAND) {
+    const v2 = p.vx * p.vx + p.vy * p.vy, W = v2 / 2 + g * p.y - e0;
+    if (v2 > c.RUN * c.RUN && W > 0) {
+      const keep = Math.max(c.RUN * c.RUN, v2 - 2 * W), k = Math.sqrt(keep / v2);
+      p.vx *= k, p.vy *= k;
+    }
+  }
 
   // Dummies: una sola gravedad (la del héroe enganchado), roce en el suelo y el mismo barrido. Un golpe lastima si
   // involucra a un LANZADO: a cada dummy, IMPACT_DMG por m/s de su cambio de velocidad por encima de IMPACT_V (contra
