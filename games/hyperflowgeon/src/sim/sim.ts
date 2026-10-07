@@ -18,7 +18,8 @@ export type Kind = keyof typeof KINDS;
 // orbs: chispas que devuelven una carga del garfio al tocarlas y reaparecen a los ORB_T s; dummies: dónde aparecen (pies)
 export type World = { rects: Rect[], spawn: [number, number], orbs?: [number, number][], dummies?: { x: number, y: number, kind: Kind }[] };
 export const ORB_R = 0.4, D_HP = 100;
-// x en [-1, 1]; GARFIO mantenido = enganchado; ATAQUE; (ax, ay) = mira (sin largo: adelante y arriba)
+// x en [-1, 1]; GARFIO mantenido = enganchado; ATAQUE (mantenido: a la par y, con la liga a un dummy, modo ancla);
+// (ax, ay) = mira (sin largo: adelante y arriba)
 export type Input = { x: number, jump: boolean, hook?: boolean, atk?: boolean, ax?: number, ay?: number };
 // ancla, cuadro en que llega (antes viaja: no tira) y largo en reposo de la liga (se fija al llegar); e = el dummy
 // enganchado (−1: una superficie) y (ox, oy) dónde, desde sus pies: x, y lo siguen
@@ -33,24 +34,29 @@ export type Player = {
   pressT: number,  // cuadro del último SALTO apretado y sin usar
   held: boolean,   // SALTO apretado en el cuadro anterior
   rise: boolean,   // subiendo por un salto propio (soltar SALTO lo corta)
+  air: number,     // saltos en el aire que quedan (doble salto; vuelven al tocar suelo)
   hook: Hook | null,
   hookHeld: boolean, // GARFIO apretado en el cuadro anterior
-  atkHeld: boolean,  // ATAQUE apretado en el cuadro anterior
+  atkHeld: boolean,  // ATAQUE apretado en el cuadro anterior (mantenido: los dummies pasan a la par)
+  anchor: boolean,   // modo ancla: ATAQUE mantenido con la liga enganchada a un dummy
   hookT: number,     // primer cuadro en que se puede volver a disparar (tras fallar)
   shot: Shot | null,
   charge: number,  // cargas del garfio (con fracción: la parte que se va recargando)
   refundT: number, // último cuadro en que soltar rápido devolvió una carga
 };
-// Un dummy: caja sin control con masa y vida. LANZADO (lz): daña y se daña al chocar; hp ≤ 0: roto hasta el cuadro back.
-export type Dummy = { x: number, y: number, vx: number, vy: number, hp: number, ground: boolean, lz: boolean, hitT: number, back: number };
+// Un dummy: caja sin control con masa y vida. LANZADO (lz): daña y se daña al chocar; hp ≤ 0: roto hasta el cuadro back;
+// par: está pasando a la par del héroe (no chocan hasta que se separen)
+export type Dummy = { x: number, y: number, vx: number, vy: number, hp: number, ground: boolean, lz: boolean, hitT: number, back: number,
+  par: boolean };
 export type State = { t: number, p: Player, orbs: number[], d: Dummy[] }; // orbs: cuadro en que cada chispa vuelve a estar
 
-const fresh = (f: { x: number, y: number }): Dummy => ({ x: f.x, y: f.y, vx: 0, vy: 0, hp: D_HP, ground: false, lz: false, hitT: NEVER, back: 0 });
+const fresh = (f: { x: number, y: number }): Dummy =>
+  ({ x: f.x, y: f.y, vx: 0, vy: 0, hp: D_HP, ground: false, lz: false, hitT: NEVER, back: 0, par: false });
 export function init(w: World, c: Cfg = DEFAULTS): State {
   const [x, y] = w.spawn;
   return { t: 0, orbs: (w.orbs ?? []).map(() => 0), d: (w.dummies ?? []).map(fresh), p: { x, y, vx: 0, vy: 0, ground: false, face: 1,
-    groundT: NEVER, pressT: NEVER, held: false, rise: false, hook: null, hookHeld: false, atkHeld: false, hookT: NEVER, shot: null,
-    charge: c.HOOK_N, refundT: NEVER } };
+    groundT: NEVER, pressT: NEVER, held: false, rise: false, air: c.AIR_JUMPS, hook: null, hookHeld: false, atkHeld: false,
+    anchor: false, hookT: NEVER, shot: null, charge: c.HOOK_N, refundT: NEVER } };
 }
 
 export const size = (w: World, k: number) => KINDS[w.dummies![k].kind];
@@ -72,14 +78,15 @@ const travel = (d: number, c: Cfg) => Math.ceil(c.HOOK_TRAVEL * HZ * d / c.HOOK_
 const approach = (v: number, to: number, d: number) => v < to ? Math.min(v + d, to) : Math.max(v - d, to);
 
 export function step(s: State, w: World, i: Input, c: Cfg): void {
-  const p = s.p, t = ++s.t;
+  const p = s.p, t = ++s.t, g = 2 * c.JUMP_H / (c.JUMP_T * c.JUMP_T); // gravedad tal que JUMP_H se alcanza en JUMP_T
   if (i.x > 0) p.face = 1;
   else if (i.x < 0) p.face = -1;
   if (i.jump && !p.held) p.pressT = t;
   p.held = i.jump;
 
-  // Garfio. SALTO enganchado suelta y suma HOOK_JUMP hacia arriba (y sigue siendo un SALTO: en el suelo salta);
-  // soltar GARFIO suelta conservando la velocidad. Soltar a HOOK_REFUND m/s o más (sin contar el HOOK_JUMP)
+  // Garfio. SALTO enganchado a una superficie suelta y suma HOOK_JUMP hacia arriba (y sigue siendo un SALTO: en el suelo
+  // salta); enganchado a un dummy es solo un salto (o el doble salto) y no suelta: no corta lo que se hace con él.
+  // Soltar GARFIO suelta conservando la velocidad. Soltar a HOOK_REFUND m/s o más (sin contar el HOOK_JUMP)
   // devuelve la carga: encadenar bien casi no gasta. Apretarlo con una carga dispara a hookTarget: si pega, la liga
   // gasta la carga y la punta viaja hasta el ancla (travel: más lejos, más tarda); al llegar queda enganchada con
   // un largo en reposo de HOOK_REST × la distancia de ese momento. Mientras viaja no tira, SALTO es solo un salto y
@@ -89,20 +96,25 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
     if (c.HOOK_REFUND > 0 && p.vx * p.vx + p.vy * p.vy >= c.HOOK_REFUND * c.HOOK_REFUND) p.charge = Math.min(c.HOOK_N, p.charge + 1), p.refundT = t;
     p.hook = null;
   };
-  // ATAQUE enganchado a un dummy lo lanza por la mira (LANZADO) y suelta la liga: a THROW_V, o más lento si pesa más que
-  // el héroe (el impulso no pasa del de lanzarse a sí mismo). Va antes de soltar GARFIO: deslizar de GARFIO a ATAQUE lanza.
-  if (i.atk && !p.atkHeld && attached(p, t) && p.hook!.e >= 0) {
-    const d = s.d[p.hook!.e], [ax, ay] = aimDir(p, i, c), v = c.THROW_V * Math.min(1, 1 / mass(w, p.hook!.e, c));
-    d.vx = ax * v, d.vy = ay * v, d.lz = true;
+  // ATAQUE con la liga enganchada a un dummy. Mantenerlo es el modo ancla: el héroe es el ancla (pesa ANCHOR_M para la
+  // liga), la mira empuja al dummy y ATAQUE sostiene la liga aunque se suelte GARFIO (deslizar de GARFIO a ATAQUE se la
+  // pasa). Soltarlo lo lanza (LANZADO) hacia la mira con throwVel: un toque es lanzarlo. En modo ancla, apretar GARFIO
+  // otra vez suelta la liga sin lanzar (el dummy sigue con su velocidad) y no dispara otra en ese cuadro.
+  const toDummy = () => attached(p, t) && p.hook!.e >= 0;
+  let dropped = false;
+  if (toDummy() && p.atkHeld && !i.atk) {
+    const d = s.d[p.hook!.e], [vx, vy] = throwVel(w, s, i, c);
+    d.vx = vx, d.vy = vy, d.lz = true;
     release();
-  }
+  } else if (toDummy() && p.anchor && i.atk && i.hook && !p.hookHeld) release(), dropped = true;
   p.atkHeld = !!i.atk;
-  if (attached(p, t) && p.pressT === t) release(), p.vy += c.HOOK_JUMP;
-  if (p.hook && !i.hook) {
+  const hookJump = attached(p, t) && p.hook!.e < 0 && p.pressT === t;
+  if (hookJump) release(), p.vy += c.HOOK_JUMP;
+  if (p.hook && !i.hook && !(toDummy() && i.atk)) {
     if (attached(p, t)) release();
     else p.hook = null, p.charge = Math.min(c.HOOK_N, p.charge + 1), p.shot!.at = t;
   }
-  if (i.hook && !p.hookHeld && !p.hook && t >= p.hookT && p.charge >= 1) {
+  if (i.hook && !p.hookHeld && !p.hook && !dropped && t >= p.hookT && p.charge >= 1) {
     const g = hookTarget(w, s, i, c), ox = p.x, oy = p.y + HAND;
     if (g) {
       const at = t + travel(g.d, c), e = g.e >= 0 ? s.d[g.e] : null;
@@ -116,6 +128,7 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   }
   p.hookHeld = !!i.hook;
   const on = attached(p, t);
+  p.anchor = on && p.hook!.e >= 0 && !!i.atk;
 
   // Cargas: se recargan solas, una cada HOOK_CD s (HOOK_GROUND veces más rápido en el suelo); las chispas devuelven una.
   p.charge = Math.min(c.HOOK_N, p.charge + DT / c.HOOK_CD * (p.ground ? c.HOOK_GROUND : 1));
@@ -137,33 +150,50 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   // nunca te acerca más rápido que HOOK_V: la herramienta sola no regala velocidad (pasar de ahí sale del columpio).
   // Es una fuerza central, así que la rapidez cambia según el ángulo (a favor acelera, en contra frena y te
   // devuelve, de costado solo te curva: columpio) y se conserva el momento angular alrededor del ancla.
-  // Enganchada a un dummy, la misma fuerza tira de las dos puntas repartida por masa (el héroe pesa 1; una superficie,
-  // infinito): el liviano viene, el pesado te lleva, y lo relativo es igual que contra una pared. Se conserva el momento.
+  // Enganchada a un dummy, la misma fuerza tira de las dos puntas repartida por masa (el héroe pesa 1, o ANCHOR_M en
+  // modo ancla; una superficie, infinito): el liviano viene, el pesado te lleva, y lo relativo es igual que contra una
+  // pared. Se conserva el momento.
   if (p.hook && on) {
-    const e = p.hook.e >= 0 ? s.d[p.hook.e] : null, ie = e ? 1 / mass(w, p.hook.e, c) : 0;
+    const e = p.hook.e >= 0 ? s.d[p.hook.e] : null, ie = e ? 1 / mass(w, p.hook.e, c) : 0, ih = p.anchor ? 1 / c.ANCHOR_M : 1;
     const ex = p.hook.x - p.x, ey = p.hook.y - (p.y + HAND), d = Math.sqrt(ex * ex + ey * ey);
     if (t === p.hook.at) p.hook.rest = d * c.HOOK_REST;
     if (d > p.hook.rest) {
       const nx = ex / d, ny = ey / d, vr = (p.vx - (e?.vx ?? 0)) * nx + (p.vy - (e?.vy ?? 0)) * ny;
       const a = Math.max(0, Math.min(c.HOOK_K * (d - p.hook.rest) - c.HOOK_DAMP * vr, (c.HOOK_V - vr) / DT)) * DT;
-      p.vx += nx * a / (1 + ie), p.vy += ny * a / (1 + ie);
-      if (e) e.vx -= nx * a * ie / (1 + ie), e.vy -= ny * a * ie / (1 + ie);
+      p.vx += nx * a * ih / (ih + ie), p.vy += ny * a * ih / (ih + ie);
+      if (e) e.vx -= nx * a * ie / (ih + ie), e.vy -= ny * a * ie / (ih + ie);
+    }
+    // Modo ancla: la mira empuja al dummy con SWING_A (junto con la gravedad y la liga, un péndulo que va hacia donde
+    // apuntás) y lo que golpea, golpea como LANZADO. Ya más rápido que SWING_V respecto del héroe, la mira solo lo
+    // dobla y no le suma rapidez: girarlo más rápido sale de tu impulso, no de la herramienta.
+    if (e && p.anchor) {
+      const [ax, ay] = aimDir(p, i, c), rx = e.vx - p.vx, ry = e.vy - p.vy, v2 = rx * rx + ry * ry;
+      let qx = rx + ax * c.SWING_A * DT, qy = ry + ay * c.SWING_A * DT;
+      const q2 = qx * qx + qy * qy;
+      if (q2 > v2 && v2 >= c.SWING_V * c.SWING_V) { const k = Math.sqrt(v2 / q2); qx *= k, qy *= k; } // solo gira
+      e.vx = p.vx + qx, e.vy = p.vy + qy, e.lz = true;
     }
   }
 
   // Salto: un SALTO apretado hasta BUFFER cuadros antes, con suelo hasta COYOTE cuadros atrás.
   // groundT = t − 1 es estar en el suelo, así que el aire empieza en t − groundT = 2.
+  // Si no, en el aire y en el cuadro en que se aprieta, el doble salto (AIR_JUMPS por vuelo, vuelven al tocar suelo):
+  // sube JUMP2_H sin tocar vx y sin quitar subida a favor. SALTO enganchado a una superficie ya fue el impulso de la liga.
   if (t - p.pressT <= c.BUFFER && t - p.groundT <= c.COYOTE + 1) {
     p.vy = 2 * c.JUMP_H / c.JUMP_T;
     p.rise = true;
     p.pressT = p.groundT = NEVER;
+  } else if (p.pressT === t && !hookJump && p.air >= 1) {
+    const v = Math.sqrt(2 * g * c.JUMP2_H);
+    if (p.vy < v) p.vy = v, p.rise = true;
+    p.air -= 1, p.pressT = NEVER;
   }
   if (!i.jump && p.rise && p.vy > 0) p.vy *= c.JUMP_CUT, p.rise = false; // soltar subiendo = salto corto
 
-  // Gravedad tal que JUMP_H se alcanza en JUMP_T; más fuerte al caer. Paso trapezoidal: la parábola es exacta.
+  // Gravedad g; más fuerte al caer. Paso trapezoidal: la parábola es exacta.
   // Enganchado, una sola gravedad y sin tope de caída: con la de caída más fuerte cada columpio ganaría altura gratis.
   const vy0 = p.vy;
-  p.vy -= 2 * c.JUMP_H / (c.JUMP_T * c.JUMP_T) * (p.vy < 0 && !on ? c.FALL_G : 1) * DT;
+  p.vy -= g * (p.vy < 0 && !on ? c.FALL_G : 1) * DT;
   if (p.vy < -c.MAX_FALL && !on) p.vy = -c.MAX_FALL;
   if (p.vy <= 0) p.rise = false;
 
@@ -179,7 +209,6 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   // Dummies: una sola gravedad (la del héroe enganchado), roce en el suelo y el mismo barrido. Un golpe lastima si
   // involucra a un LANZADO: a cada dummy, IMPACT_DMG por m/s de su cambio de velocidad por encima de IMPACT_V (contra
   // una pared, todo lo que pierde), y el que lo recibe queda LANZADO. Así el liviano sufre más contra el pesado.
-  const g = 2 * c.JUMP_H / (c.JUMP_T * c.JUMP_T);
   const hit = (d: Dummy, dv: number) => {
     if (dv > c.IMPACT_V) d.hp -= (dv - c.IMPACT_V) * c.IMPACT_DMG, d.hitT = t, d.lz = true;
   };
@@ -199,9 +228,14 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   });
 
   // Choques entre cajas (ver collide): el héroe con cada dummy y los dummies entre sí. Pararse arriba de uno es suelo.
+  // Con ATAQUE mantenido los dummies pasan a la par del héroe (no chocan con él): para pasar rápido sobre uno y
+  // engancharlo, o dejar pasar uno lanzado y devolverlo; entre ellos siguen chocando. El que quedó encimado sigue a la
+  // par hasta separarse: soltar ATAQUE (lanzar) con el péndulo encima no lo frena contra vos.
   const live = s.d.flatMap((d, k) => d.hp > 0 ? [k] : []);
   for (const k of live) {
-    const d = s.d[k], { hw, h } = size(w, k), r = collide(w, p, HW, H, 1, d, hw, h, 1 / mass(w, k, c));
+    const d = s.d[k], { hw, h } = size(w, k);
+    if (i.atk || d.par) { d.par = overlap(p, HW, H, d, hw, h); continue; }
+    const r = collide(w, p, HW, H, 1, d, hw, h, 1 / mass(w, k, c));
     if (!r) continue;
     if (r.vert && r.n < 0) p.ground = true, p.rise = false;
     if (d.lz) hit(d, r.db);
@@ -214,7 +248,7 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
     if (r.vert) (r.n < 0 ? A : B).ground = true;
     if (lz) hit(A, r.da), hit(B, r.db);
   }
-  if (p.ground) p.groundT = t;
+  if (p.ground) p.groundT = t, p.air = c.AIR_JUMPS;
 
   // Fin de LANZADO: en el suelo y más lento de lo que lastima. Roto (o caído del mundo): vuelve a los D_RESPAWN s.
   // Si el roto era el enganchado, la liga se suelta (y si todavía viajaba, devuelve la carga).
@@ -236,11 +270,22 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   }
 }
 
+// Velocidad con que ATAQUE lanza al dummy enganchado: hacia la mira, a THROW_V (más lento si pesa más que el héroe: el
+// impulso no pasa del de lanzarse a sí mismo) más la rapidez que ya llevaba a favor de la mira. Soltar cuando el péndulo
+// (o tu impulso, que lo arrastra) va hacia allá lo lanza más fuerte; en contra, sale solo a THROW_V.
+export function throwVel(w: World, s: State, i: Input, c: Cfg): [number, number] {
+  const k = s.p.hook!.e, d = s.d[k], [ax, ay] = aimDir(s.p, i, c);
+  const v = c.THROW_V * Math.min(1, 1 / mass(w, k, c)) + Math.max(0, d.vx * ax + d.vy * ay);
+  return [ax * v, ay * v];
+}
+
 // Choque entre dos cajas que se solapan (pies en y, media anchura hw, alto h, inversa de la masa i): por el eje de menor
 // penetración, inelástico (sin rebote) y repartido por masa. Lo que no puede moverse hacia ese lado (contra el piso o
 // una pared) cuenta como masa infinita: así uno se para sobre un dummy y lo trabado no se hunde. Separa las cajas con
 // barrido (nunca dentro de un rect). Devuelve el eje, el sentido de A hacia B y cuánto cambió la velocidad de cada uno.
 type Body = { x: number, y: number, vx: number, vy: number };
+const overlap = (a: Pos, ahw: number, ah: number, b: Pos, bhw: number, bh: number) =>
+  Math.min(a.x + ahw, b.x + bhw) - Math.max(a.x - ahw, b.x - bhw) > EPS && Math.min(a.y + ah, b.y + bh) - Math.max(a.y, b.y) > EPS;
 function collide(w: World, a: Body, ahw: number, ah: number, ia: number, b: Body, bhw: number, bh: number, ib: number) {
   const ox = Math.min(a.x + ahw, b.x + bhw) - Math.max(a.x - ahw, b.x - bhw);
   const oy = Math.min(a.y + ah, b.y + bh) - Math.max(a.y, b.y);
