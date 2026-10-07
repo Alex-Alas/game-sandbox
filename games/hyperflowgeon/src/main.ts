@@ -1,32 +1,72 @@
-import { init, step, aimDir, raycast, DT, HW, H, HAND, type Input, type State } from './sim/sim.ts';
-import { RANGES, DEFAULTS, type Cfg } from './sim/params.ts';
+import { init, step, aimDir, hookTarget, DT, HW, H, HAND, ORB_R, type Input, type State } from './sim/sim.ts';
+import { RANGES, DEFAULTS, PROFILES, HOOK_KEYS, type Cfg, type HookCfg, type Profile } from './sim/params.ts';
 import { PATIO } from './patio.ts';
+import { CAM_RANGES, CAM_DEFAULTS, newCam, follow, type CamCfg } from './camera.ts';
 
 // HYPERFLOWGEON · F1 paso B: la liga (garfio elástico) en gris. Paso fijo de 60 Hz con render interpolado.
 const cv = document.getElementById('game') as HTMLCanvasElement;
 const ctx = cv.getContext('2d')!;
 const hud = document.getElementById('hud')!;
 
-// Ajustes: deslizadores nativos generados desde RANGES y guardados en localStorage
-const cfg: Cfg = { ...DEFAULTS };
-const keys = Object.keys(RANGES) as (keyof Cfg)[];
-try {
-  const saved = JSON.parse(localStorage.getItem('hfg.cfg') ?? '{}');
-  for (const k of keys) if (typeof saved[k] === 'number') cfg[k] = saved[k];
-} catch { /* sin almacenamiento: valores por defecto */ }
-const save = () => { try { localStorage.setItem('hfg.cfg', JSON.stringify(cfg)); } catch { /* idem */ } };
-const shows = keys.map(k => {
-  const [, min, max, stp, label] = RANGES[k];
-  const row = document.createElement('label');
-  row.innerHTML = `<span title="${k}">${label}</span><input type="range" min="${min}" max="${max}" step="${stp}"><output></output>`;
-  const inp = row.querySelector('input')!, out = row.querySelector('output')!;
-  inp.oninput = () => { cfg[k] = +inp.value; out.textContent = inp.value; save(); };
-  document.getElementById('rows')!.append(row);
-  return () => { inp.value = String(cfg[k]); out.textContent = String(cfg[k]); };
-});
-shows.forEach(f => f());
-document.getElementById('copy')!.onclick = () => navigator.clipboard?.writeText(JSON.stringify(cfg));
-document.getElementById('reset')!.onclick = () => { Object.assign(cfg, DEFAULTS); save(); shows.forEach(f => f()); };
+// Ajustes: deslizadores nativos generados desde RANGES (sim, en hfg.cfg) y CAM_RANGES (vista, en hfg.cam); las filas
+// [v, 0, 1, 1] son casillas. Las claves del garfio (HOOK_KEYS) son del perfil activo: cada perfil guarda las suyas
+// (hfg.prof) y elegir otro las carga en cfg. Cada función de `shows` vuelve a pintar su fila desde los valores.
+type Row = [number, number, number, number, string];
+const cfg: Cfg = { ...DEFAULTS }, camCfg: CamCfg = { ...CAM_DEFAULTS };
+const NAMES = Object.keys(PROFILES) as Profile[];
+let profs = structuredClone(PROFILES) as Record<Profile, HookCfg>, active: Profile = 'liga';
+const load = (key: string) => { try { return JSON.parse(localStorage.getItem(key) ?? '{}'); } catch { return {}; } };
+const store = (key: string, v: unknown) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* sin almacenamiento */ } };
+const restore = (vals: Record<string, number>, saved: Record<string, unknown> | undefined, keys: readonly string[]) => {
+  for (const k of keys) if (typeof saved?.[k] === 'number') vals[k] = saved[k] as number;
+};
+restore(cfg, load('hfg.cfg'), Object.keys(RANGES));
+restore(camCfg, load('hfg.cam'), Object.keys(CAM_RANGES));
+{
+  const sv = load('hfg.prof');
+  if (NAMES.includes(sv.active)) active = sv.active;
+  for (const n of NAMES) restore(profs[n], sv.perfiles?.[n], HOOK_KEYS);
+}
+Object.assign(cfg, profs[active]);
+function saveAll() {
+  for (const k of HOOK_KEYS) profs[active][k] = cfg[k];
+  store('hfg.cfg', cfg), store('hfg.cam', camCfg), store('hfg.prof', { active, perfiles: profs });
+}
+const shows: (() => void)[] = [];
+function rows(table: Record<string, Row>, keys: readonly string[], vals: Record<string, number>, box: string) {
+  for (const k of keys) {
+    const [, min, max, stp, label] = table[k], check = min === 0 && max === 1 && stp === 1;
+    const row = document.createElement('label');
+    row.innerHTML = `<span title="${k}">${label}</span>` + (check ? '<input type="checkbox"><output></output>'
+      : `<input type="range" min="${min}" max="${max}" step="${stp}"><output></output>`);
+    const inp = row.querySelector('input')!, out = row.querySelector('output')!;
+    inp.oninput = () => { vals[k] = check ? +inp.checked : +inp.value; out.textContent = check ? '' : inp.value; saveAll(); };
+    document.getElementById(box)!.append(row);
+    shows.push(() => { if (check) inp.checked = vals[k] > 0.5; else inp.value = out.textContent = String(vals[k]); });
+  }
+}
+rows(RANGES, Object.keys(RANGES).filter(k => !(HOOK_KEYS as readonly string[]).includes(k)), cfg, 'rows');
+rows(RANGES, HOOK_KEYS, cfg, 'hookrows');
+rows(CAM_RANGES, Object.keys(CAM_RANGES), camCfg, 'camrows');
+const sel = document.getElementById('profile') as HTMLSelectElement;
+sel.innerHTML = NAMES.map((n, k) => `<option value="${n}">${k + 1} · ${n.toUpperCase()}</option>`).join('');
+sel.onchange = () => useProfile(sel.value as Profile);
+const showAll = () => { sel.value = active; shows.forEach(f => f()); };
+showAll();
+// Cambiar de perfil carga sus valores y llena las cargas (también con 1/2/3 en el teclado)
+function useProfile(n: Profile) {
+  saveAll();
+  active = n;
+  Object.assign(cfg, profs[n]);
+  if (s) s.p.charge = cfg.HOOK_N;
+  saveAll(), showAll();
+}
+document.getElementById('copy')!.onclick = () => navigator.clipboard?.writeText(JSON.stringify({ ...cfg, ...camCfg, perfil: active, perfiles: profs }));
+document.getElementById('reset')!.onclick = () => {
+  profs = structuredClone(PROFILES) as Record<Profile, HookCfg>;
+  Object.assign(cfg, DEFAULTS, profs[active]), Object.assign(camCfg, CAM_DEFAULTS);
+  saveAll(), showAll();
+};
 document.getElementById('tune')!.addEventListener('click', () => (document.activeElement as HTMLElement | null)?.blur()); // el teclado vuelve al juego
 
 // Teclado: ←/→ A/D corren, las flechas y WASD también apuntan, espacio salta, K o Shift = GARFIO (mantener).
@@ -44,6 +84,8 @@ addEventListener('keydown', e => {
   if (HOOK.includes(e.code)) hookTapped = true;
   if (DIRS.includes(e.code)) mouseAim = false;
   if (e.code === 'KeyR') reset();
+  const n = NAMES[+e.key - 1];
+  if (n && e.code.startsWith('Digit')) useProfile(n);
 });
 addEventListener('keyup', e => down.delete(e.code));
 addEventListener('blur', () => { down.clear(); mouseHook = false; });
@@ -95,13 +137,13 @@ function stickVec(t: Touch): [number, number] {
 }
 
 // Mira: el joystick si está tocado (en su zona muerta, la mira sola), si no el ratón si se movió, si no las flechas
-let cam = { px: 0, py: 0, k: 1 };
+const cam = newCam();
 function aim(): [number, number] {
   for (const t of touches.values()) if (t.kind === 'stick') {
     const [x, y] = stickVec(t);
     return x * x + y * y > 0.09 ? [x, y] : [0, 0];
   }
-  if (mouseAim) return [cam.px + (mouse.x - innerWidth / 2) / cam.k - s.p.x, cam.py + VIEW_OFF - (mouse.y - innerHeight / 2) / cam.k - s.p.y - HAND];
+  if (mouseAim) return [cam.cx + (mouse.x - innerWidth / 2) / cam.k - s.p.x, cam.cy - (mouse.y - innerHeight / 2) / cam.k - s.p.y - HAND];
   return [+has('ArrowRight', 'KeyD') - +has('ArrowLeft', 'KeyA'), +has('ArrowUp', 'KeyW') - +has('ArrowDown', 'KeyS')];
 }
 
@@ -122,7 +164,7 @@ let s: State, prev = { x: 0, y: 0 }, simMs = 0;
 const trail: { x: number, y: number, c: string }[] = [];
 let air: { x: number, y: number, top: number, t: number } | null = null, lastJump = '';
 let hookMax = 0, lastHook = '';
-function reset() { s = init(PATIO); prev = { x: s.p.x, y: s.p.y }; trail.length = 0; air = null; }
+function reset() { s = init(PATIO, cfg); prev = { x: s.p.x, y: s.p.y }; trail.length = 0; air = null; cam.vx = cam.vy = 0; }
 reset();
 
 const speed = () => Math.sqrt(s.p.vx * s.p.vx + s.p.vy * s.p.vy);
@@ -145,8 +187,6 @@ function tick(i: Input) {
   if (!p.hook && hooked) lastHook = `liga: máx ${hookMax.toFixed(1)} m/s · suelta a ${speed().toFixed(1)} m/s`;
 }
 
-// Metros visibles como mínimo (en vertical u horizontal, lo que entre); el héroe va VIEW_OFF m por debajo del centro
-const VIEW_H = 18, VIEW_W = 30, VIEW_OFF = 3;
 // Color de la mira según lo que hará la liga con la velocidad actual: verde acelera, amarillo columpia, rojo frena
 function effect(dx: number, dy: number): string {
   const v = speed();
@@ -154,29 +194,35 @@ function effect(dx: number, dy: number): string {
   const cos = (dx * s.p.vx + dy * s.p.vy) / v;
   return cos > 0.5 ? '#6bd66b' : cos < -0.5 ? '#ff6b5b' : '#ffe14a';
 }
-function draw(a: number) {
+function draw(a: number, dt: number) {
   const dpr = devicePixelRatio || 1, W = innerWidth, Hh = innerHeight;
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(Hh * dpr)) cv.width = Math.round(W * dpr), cv.height = Math.round(Hh * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const k = Math.min(Hh / VIEW_H, W / VIEW_W), p = s.p;
-  const px = prev.x + (p.x - prev.x) * a, py = prev.y + (p.y - prev.y) * a;
-  cam = { px, py, k };
-  const X = (x: number) => W / 2 + (x - px) * k, Y = (y: number) => Hh / 2 - (y - py - VIEW_OFF) * k;
+  const p = s.p, px = prev.x + (p.x - prev.x) * a, py = prev.y + (p.y - prev.y) * a;
+  follow(cam, px, py, p.vx, p.vy, dt, W, Hh, camCfg);
+  const { cx, cy, k } = cam;
+  const X = (x: number) => W / 2 + (x - cx) * k, Y = (y: number) => Hh / 2 - (y - cy) * k;
 
   ctx.fillStyle = '#1b1a1f';
   ctx.fillRect(0, 0, W, Hh);
   // Rejilla de 1 m (más marcada cada 5 m) para medir a ojo
   ctx.lineWidth = 1;
-  for (let x = Math.ceil(px - W / 2 / k); x < px + W / 2 / k; x++) {
+  for (let x = Math.ceil(cx - W / 2 / k); x < cx + W / 2 / k; x++) {
     ctx.strokeStyle = x % 5 === 0 ? '#3a3740' : '#25242a';
     ctx.beginPath(); ctx.moveTo(X(x), 0); ctx.lineTo(X(x), Hh); ctx.stroke();
   }
-  for (let y = Math.ceil(py + VIEW_OFF - Hh / 2 / k); y < py + VIEW_OFF + Hh / 2 / k; y++) {
+  for (let y = Math.ceil(cy - Hh / 2 / k); y < cy + Hh / 2 / k; y++) {
     ctx.strokeStyle = y % 5 === 0 ? '#3a3740' : '#25242a';
     ctx.beginPath(); ctx.moveTo(0, Y(y)); ctx.lineTo(W, Y(y)); ctx.stroke();
   }
   ctx.fillStyle = '#5b5866';
   for (const r of PATIO.rects) ctx.fillRect(X(r.x0), Y(r.y1), (r.x1 - r.x0) * k, (r.y1 - r.y0) * k);
+  PATIO.orbs?.forEach(([ox, oy], j) => {
+    const on = s.t >= s.orbs[j];
+    ctx.strokeStyle = ctx.fillStyle = on ? '#b98cff' : '#b98cff33';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(X(ox), Y(oy), ORB_R * k, 0, 2 * Math.PI); on ? ctx.fill() : ctx.stroke();
+  });
   for (const t of trail) {
     ctx.fillStyle = t.c;
     ctx.fillRect(X(t.x) - 1.5, Y(t.y) - 1.5, 3, 3);
@@ -197,19 +243,31 @@ function draw(a: number) {
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(X(p.shot.x), Y(p.shot.y)); ctx.stroke();
     }
-    // Mira: dónde se pegaría la liga si se aprieta ahora (el mismo rayo que usa la simulación)
-    const [ax, ay] = aim(), [dx, dy] = aimDir(p, { x: 0, jump: false, ax, ay }, cfg);
-    const d = raycast(PATIO, p.x, p.y + HAND, dx, dy, cfg.HOOK_LEN), ready = s.t + 1 >= p.hookT;
-    const r = d < 0 ? cfg.HOOK_LEN : d, ex = X(p.x + dx * r), ey = Y(p.y + HAND + dy * r);
+    // Alcance (círculo de rayas), cono de gracia y mira: dónde se pegaría la liga si se aprieta ahora (hookTarget,
+    // lo mismo que usa la simulación). Con la gracia, la línea va a donde se pegaría y la mira original queda tenue.
+    const [ax, ay] = aim(), i = { x: 0, jump: false, ax, ay }, [dx, dy] = aimDir(p, i, cfg), R = cfg.HOOK_LEN;
+    const g = hookTarget(PATIO, p, i, cfg), ready = s.t + 1 >= p.hookT && p.charge >= 1;
     ctx.setLineDash([3, 6]);
-    ctx.strokeStyle = '#f2f2e840';
     ctx.lineWidth = 1;
+    ctx.strokeStyle = '#f2f2e838';
+    ctx.beginPath(); ctx.arc(hx, hy, R * k, 0, 2 * Math.PI); ctx.stroke();
+    if (cfg.HOOK_CONE > 0) {
+      const c = Math.cos(cfg.HOOK_CONE * Math.PI / 180), sn = Math.sin(cfg.HOOK_CONE * Math.PI / 180);
+      ctx.beginPath();
+      for (const sg of [-1, 1]) ctx.moveTo(hx, hy), ctx.lineTo(X(p.x + (dx * c - sg * dy * sn) * R), Y(p.y + HAND + (dy * c + sg * dx * sn) * R));
+      ctx.stroke();
+    }
+    const ex = g ? X(g.x) : X(p.x + dx * R), ey = g ? Y(g.y) : Y(p.y + HAND + dy * R);
+    ctx.strokeStyle = '#f2f2e840';
     ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(ex, ey); ctx.stroke();
     ctx.setLineDash([]);
-    if (d >= 0) {
-      ctx.strokeStyle = ctx.fillStyle = ready ? effect(dx, dy) : '#f2f2e855';
+    if (g) {
+      const gx = g.x - p.x, gy = g.y - p.y - HAND, gn = Math.sqrt(gx * gx + gy * gy) || 1;
+      ctx.strokeStyle = ctx.fillStyle = ready ? effect(gx / gn, gy / gn) : '#f2f2e855';
       ctx.lineWidth = 2;
+      if (g.grace) ctx.setLineDash([4, 3]); // de gracia: anillo punteado
       ctx.beginPath(); ctx.arc(ex, ey, 8, 0, 2 * Math.PI); ctx.stroke();
+      ctx.setLineDash([]);
       ctx.beginPath(); ctx.arc(ex, ey, 2.5, 0, 2 * Math.PI); ctx.fill();
     } else {
       ctx.strokeStyle = '#f2f2e840';
@@ -218,6 +276,17 @@ function draw(a: number) {
   }
   ctx.fillStyle = p.hook ? '#5ec8ff' : p.ground ? '#f2f2e8' : '#ffd84a';
   ctx.fillRect(X(px - HW), Y(py + H), 2 * HW * k, H * k);
+  // Cargas sobre la cabeza: llenas, la que se recarga como arco; verdes un momento si soltar rápido devolvió una
+  const n = cfg.HOOK_N, pr = Math.max(3, 0.12 * k), gap = 3 * pr, refund = s.t - p.refundT < 20;
+  for (let j = 0; j < n; j++) {
+    const cx = X(px) + (j - (n - 1) / 2) * gap, cy = Y(py + H) - 2.5 * pr, f = Math.min(1, Math.max(0, p.charge - j));
+    ctx.strokeStyle = '#f2f2e888';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, pr, 0, 2 * Math.PI); ctx.stroke();
+    ctx.fillStyle = refund ? '#6bd66b' : '#e8c07a';
+    if (f >= 1) { ctx.beginPath(); ctx.arc(cx, cy, pr, 0, 2 * Math.PI); ctx.fill(); }
+    else if (f > 0) { ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, pr, -Math.PI / 2, -Math.PI / 2 + f * 2 * Math.PI); ctx.fill(); }
+  }
 
   // Controles táctiles: joystick fijo con su perilla, SALTO y GARFIO (más claros mientras se tocan)
   if (touchUI) {
@@ -244,8 +313,9 @@ function draw(a: number) {
 
   hud.textContent = `HYPERFLOWGEON · F1 paso B${touchUI ? `
 joystick fijo: mueve y apunta · GARFIO (mantener) · deslizar a SALTO = soltar con impulso` : ` · R reiniciar
-teclado: ←/→ A/D correr · espacio saltar · flechas/WASD apuntan · K o Shift garfio (mantener)
+teclado: ←/→ A/D correr · espacio saltar · flechas/WASD apuntan · K o Shift garfio (mantener) · 1/2/3 perfil
 ratón: moverlo apunta · clic garfio`}
+garfio ${active.toUpperCase()} · cargas ${p.charge.toFixed(1)}/${cfg.HOOK_N}
 vx ${p.vx.toFixed(2).padStart(6)}   vy ${p.vy.toFixed(2).padStart(6)}   |v| ${speed().toFixed(1).padStart(5)}   ${p.hook ? 'liga ' : p.ground ? 'suelo' : 'aire '}   sim ${simMs.toFixed(3)} ms
 ${lastJump}
 ${lastHook}`;
@@ -253,15 +323,15 @@ ${lastHook}`;
 
 let acc = 0, last = 0;
 function frame(now: number) {
-  acc = Math.min(acc + (now - last) / 1000, 0.1); // tras una pausa larga no recupera más de 6 cuadros
-  last = now;
+  const dt = Math.min((now - last) / 1000, 0.1); // tras una pausa larga no recupera más de 6 cuadros
+  acc += dt, last = now;
   while (acc >= DT) tick(input()), acc -= DT;
-  draw(acc / DT);
+  draw(acc / DT, dt);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(t => { last = t; frame(t); });
 
 // Depuración: __hfg.advance(n, entrada) simula n cuadros sin rAF
 Object.assign(window, {
-  __hfg: { state: () => s, cfg, reset, advance: (n: number, i: Input = { x: 0, jump: false }) => { for (let k = 0; k < n; k++) tick(i); return s; } },
+  __hfg: { state: () => s, cfg, camCfg, cam, reset, advance: (n: number, i: Input = { x: 0, jump: false }) => { for (let k = 0; k < n; k++) tick(i); return s; } },
 });

@@ -1,4 +1,4 @@
-import type { Cfg } from './params.ts';
+import { DEFAULTS, type Cfg } from './params.ts';
 
 // Simulación pura a 60 Hz: datos planos (ida y vuelta por JSON), sin DOM y sin Math no exacto (ver tests).
 // Metros y segundos, y hacia arriba. p.x es el centro del héroe; p.y, los pies.
@@ -8,7 +8,9 @@ const EPS = 1e-6; // tocarse no es solaparse
 const NEVER = -1e9;
 
 export type Rect = { x0: number, y0: number, x1: number, y1: number };
-export type World = { rects: Rect[], spawn: [number, number] };
+// orbs: chispas que devuelven una carga del garfio al tocarlas y reaparecen a los ORB_T s
+export type World = { rects: Rect[], spawn: [number, number], orbs?: [number, number][] };
+export const ORB_R = 0.4;
 // x en [-1, 1]; GARFIO mantenido = enganchado; (ax, ay) = mira (sin largo: adelante y arriba)
 export type Input = { x: number, jump: boolean, hook?: boolean, ax?: number, ay?: number };
 export type Hook = { x: number, y: number, rest: number }; // ancla y largo en reposo de la liga
@@ -25,13 +27,15 @@ export type Player = {
   hookHeld: boolean, // GARFIO apretado en el cuadro anterior
   hookT: number,     // primer cuadro en que se puede volver a disparar (tras fallar)
   shot: Shot | null,
+  charge: number,  // cargas del garfio (con fracción: la parte que se va recargando)
+  refundT: number, // último cuadro en que soltar rápido devolvió una carga
 };
-export type State = { t: number, p: Player };
+export type State = { t: number, p: Player, orbs: number[] }; // orbs: cuadro en que cada chispa vuelve a estar
 
-export function init(w: World): State {
+export function init(w: World, c: Cfg = DEFAULTS): State {
   const [x, y] = w.spawn;
-  return { t: 0, p: { x, y, vx: 0, vy: 0, ground: false, face: 1, groundT: NEVER, pressT: NEVER, held: false, rise: false,
-    hook: null, hookHeld: false, hookT: NEVER, shot: null } };
+  return { t: 0, orbs: (w.orbs ?? []).map(() => 0), p: { x, y, vx: 0, vy: 0, ground: false, face: 1, groundT: NEVER,
+    pressT: NEVER, held: false, rise: false, hook: null, hookHeld: false, hookT: NEVER, shot: null, charge: c.HOOK_N, refundT: NEVER } };
 }
 
 const approach = (v: number, to: number, d: number) => v < to ? Math.min(v + d, to) : Math.max(v - d, to);
@@ -44,19 +48,34 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   p.held = i.jump;
 
   // Garfio. SALTO enganchado suelta y suma HOOK_JUMP hacia arriba (y sigue siendo un SALTO: en el suelo salta);
-  // soltar GARFIO suelta conservando la velocidad. Apretarlo dispara un rayo por la mira: si pega a menos de
-  // HOOK_LEN, la liga queda enganchada con un largo en reposo de HOOK_REST × la distancia; si no, HOOK_MISS
-  // cuadros sin poder disparar.
-  if (p.hook && p.pressT === t) p.hook = null, p.vy += c.HOOK_JUMP;
-  if (p.hook && !i.hook) p.hook = null;
-  if (i.hook && !p.hookHeld && !p.hook && t >= p.hookT) {
-    const [dx, dy] = aimDir(p, i, c), ox = p.x, oy = p.y + HAND, d = raycast(w, ox, oy, dx, dy, c.HOOK_LEN);
-    const r = d < 0 ? c.HOOK_LEN : d;
-    p.shot = { x: ox + dx * r, y: oy + dy * r, t, hit: d >= 0 };
-    if (d >= 0) p.hook = { x: p.shot.x, y: p.shot.y, rest: d * c.HOOK_REST };
-    else p.hookT = t + c.HOOK_MISS;
+  // soltar GARFIO suelta conservando la velocidad. Soltar a HOOK_REFUND m/s o más (sin contar el HOOK_JUMP)
+  // devuelve la carga: encadenar bien casi no gasta. Apretarlo con una carga dispara a hookTarget: si pega, la liga
+  // queda enganchada con un largo en reposo de HOOK_REST × la distancia y gasta la carga; si no, HOOK_MISS cuadros
+  // sin poder disparar (fallar no gasta).
+  const release = () => {
+    if (c.HOOK_REFUND > 0 && p.vx * p.vx + p.vy * p.vy >= c.HOOK_REFUND * c.HOOK_REFUND) p.charge = Math.min(c.HOOK_N, p.charge + 1), p.refundT = t;
+    p.hook = null;
+  };
+  if (p.hook && p.pressT === t) release(), p.vy += c.HOOK_JUMP;
+  if (p.hook && !i.hook) release();
+  if (i.hook && !p.hookHeld && !p.hook && t >= p.hookT && p.charge >= 1) {
+    const g = hookTarget(w, p, i, c);
+    if (g) p.shot = { x: g.x, y: g.y, t, hit: true }, p.hook = { x: g.x, y: g.y, rest: g.d * c.HOOK_REST }, p.charge -= 1;
+    else {
+      const [dx, dy] = aimDir(p, i, c);
+      p.shot = { x: p.x + dx * c.HOOK_LEN, y: p.y + HAND + dy * c.HOOK_LEN, t, hit: false };
+      p.hookT = t + c.HOOK_MISS;
+    }
   }
   p.hookHeld = !!i.hook;
+
+  // Cargas: se recargan solas, una cada HOOK_CD s (HOOK_GROUND veces más rápido en el suelo); las chispas devuelven una.
+  p.charge = Math.min(c.HOOK_N, p.charge + DT / c.HOOK_CD * (p.ground ? c.HOOK_GROUND : 1));
+  (w.orbs ?? []).forEach(([ox, oy], k) => {
+    if (t < s.orbs[k] || p.charge >= c.HOOK_N) return; // con todas las cargas la chispa queda para después
+    if (Math.abs(ox - p.x) <= HW + ORB_R && oy >= p.y - ORB_R && oy <= p.y + H + ORB_R)
+      p.charge = Math.min(c.HOOK_N, p.charge + 1), s.orbs[k] = t + c.ORB_T * HZ;
+  });
 
   // Horizontal: en el suelo acelera hacia RUN·x y frena con DEC (sin entrada, girando o pasado de RUN).
   // En el aire solo actúa la entrada y nunca le quita velocidad a favor: el impulso se conserva.
@@ -112,6 +131,49 @@ export function aimDir(p: Player, i: Input, c: Cfg): [number, number] {
   if (x * x + y * y < 1e-12) x = p.face, y = c.AIM_UP;
   const n = Math.sqrt(x * x + y * y);
   return [x / n, y / n];
+}
+
+// cos de un ángulo en grados (serie de Taylor: la sim no usa trigonometría). Error < 1e-6 hasta 90°.
+export function cosDeg(deg: number): number {
+  const x = Math.min(Math.abs(deg), 90) * Math.PI / 180, x2 = x * x;
+  return 1 - x2 / 2 * (1 - x2 / 12 * (1 - x2 / 30 * (1 - x2 / 56 * (1 - x2 / 90))));
+}
+
+// Dónde se pegaría la liga desde la mano: el rayo de la mira o, si no pega, el punto de superficie visible a menos de
+// HOOK_LEN más cercano en ángulo a la mira, dentro del cono de gracia (HOOK_CONE grados a cada lado). Ese punto es
+// siempre una esquina de un rect o donde un borde corta el círculo del alcance: a lo largo de un segmento o de un
+// arco el ángulo es monótono, y si la mira lo cruzara ya habría pegado el rayo. Lo tapado lo cubre la esquina que tapa.
+export type Target = { x: number, y: number, d: number, grace: boolean };
+export function hookTarget(w: World, p: Player, i: Input, c: Cfg): Target | null {
+  const [dx, dy] = aimDir(p, i, c), ox = p.x, oy = p.y + HAND, L = c.HOOK_LEN;
+  const d = raycast(w, ox, oy, dx, dy, L);
+  if (d >= 0) return { x: ox + dx * d, y: oy + dy * d, d, grace: false };
+  if (c.HOOK_CONE <= 0) return null;
+  let best: Target | null = null, bestCos = cosDeg(c.HOOK_CONE);
+  const consider = (r: Rect, qx: number, qy: number) => {
+    const vx = qx - ox, vy = qy - oy, n = Math.sqrt(vx * vx + vy * vy);
+    if (n < 1e-6 || n > L + 1e-6) return;
+    const cs = (vx * dx + vy * dy) / n;
+    if (cs <= bestCos) return;
+    // Apuntar un pelo hacia adentro del rect, así el rayo no roza la esquina; tiene que pegar ahí mismo (no tapado)
+    const mx = (r.x0 + r.x1) / 2 - qx, my = (r.y0 + r.y1) / 2 - qy, mn = Math.sqrt(mx * mx + my * my) || 1;
+    const ux = vx + mx / mn * 1e-4, uy = vy + my / mn * 1e-4, un = Math.sqrt(ux * ux + uy * uy);
+    const h = raycast(w, ox, oy, ux / un, uy / un, L + 1e-3);
+    if (h < 0 || h < n - 1e-3) return;
+    best = { x: ox + ux / un * h, y: oy + uy / un * h, d: h, grace: true }, bestCos = cs;
+  };
+  for (const r of w.rects) {
+    for (const qx of [r.x0, r.x1]) for (const qy of [r.y0, r.y1]) consider(r, qx, qy);
+    for (const y of [r.y0, r.y1]) {
+      const e = L * L - (y - oy) * (y - oy);
+      if (e >= 0) for (const x of [ox - Math.sqrt(e), ox + Math.sqrt(e)]) if (x > r.x0 && x < r.x1) consider(r, x, y);
+    }
+    for (const x of [r.x0, r.x1]) {
+      const e = L * L - (x - ox) * (x - ox);
+      if (e >= 0) for (const y of [oy - Math.sqrt(e), oy + Math.sqrt(e)]) if (y > r.y0 && y < r.y1) consider(r, x, y);
+    }
+  }
+  return best;
 }
 
 // Distancia por el rayo unitario (dx, dy) desde (ox, oy) hasta el primer rect antes de max, o −1 (método de las franjas)

@@ -1,7 +1,7 @@
 import type { World } from './sim/sim.ts';
 
 // El Patio del Mesón en gris. A la izquierda, lo del paso A para medir el salto; a la derecha (x > 60), lo del
-// paso B para la liga: vigas en fila, un foso ancho con vigas encima, una torre y un techo bajo. Metros; y = 0 es el piso.
+// paso B para la liga: vigas en fila, un foso ancho con vigas encima, una torre y un techo bajo; y chispas. Metros; y = 0 es el piso.
 const R = (x0: number, y0: number, x1: number, y1: number) => ({ x0, y0, x1, y1 });
 
 export const PATIO: World = {
@@ -21,4 +21,6 @@ export const PATIO: World = {
     R(150, 0, 156, 16),  // torre de 16 m
     R(166, 6, 196, 7),   // techo bajo a 6 m
   ],
+  // Chispas (devuelven una carga del garfio): sobre el foso del inicio, entre vigas, sobre el foso ancho y junto a la torre
+  orbs: [[-11.5, 5], [87.5, 5], [127.5, 4], [146, 13]],
 };

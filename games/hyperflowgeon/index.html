@@ -10,13 +10,14 @@
   #hud { position: fixed; left: 8px; top: 8px; white-space: pre; pointer-events: none; }
   #tune { position: fixed; right: 8px; top: 8px; max-height: calc(100% - 16px); overflow: auto; padding: 4px 8px; background: #000b; }
   #tune summary { cursor: pointer; }
+  #tune .sub { margin-top: 6px; opacity: .7; }
   #tune label { display: grid; grid-template-columns: 11em 9em 3.5em; gap: 6px; align-items: center; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="hud"></div>
-<details id="tune"><summary>AJUSTES</summary><div id="rows"></div><button id="copy">copiar JSON</button> <button id="reset">restablecer</button></details>
+<details id="tune"><summary>AJUSTES</summary><div id="rows"></div><div class="sub">GARFIO <select id="profile"></select></div><div id="hookrows"></div><div class="sub">CÁMARA</div><div id="camrows"></div><button id="copy">copiar JSON</button> <button id="reset">restablecer</button></details>
 <script type="module" src="./src/main.ts"></script>
 </body>
 </html>
