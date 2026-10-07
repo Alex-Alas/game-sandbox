@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { init, step, hookTarget, aimDir, cosDeg, throwVel, DT } from '../src/sim/sim.ts';
+import { init, step, hookTarget, aimDir, cosDeg, throwVel, atkBox, ATK, DT } from '../src/sim/sim.ts';
 import { DEFAULTS as C, RANGES, PROFILES, HOOK_KEYS } from '../src/sim/params.ts';
 import { PATIO } from '../src/patio.ts';
 
@@ -471,4 +471,107 @@ test('la simulación no usa Math no exacto (D11)', () => {
     const src = readFileSync(new URL(f, dir), 'utf8');
     assert.doesNotMatch(src, /Math\.(a?(sin|cos|tan)h?|atan2|exp|expm1|log\w*|pow|hypot|cbrt|random)\b|[\w)\]]\s*\*\*/, f);
   }
+});
+
+// Golpes de ATAQUE (paso E). Con Z (sin gravedad ni roce) los dummies quedan quietos hasta que los golpean.
+const K = (ax = 1, ay = 0) => ({ x: 0, jump: false, atk: true, ax, ay }); // ATAQUE apretado
+const NO = { x: 0, jump: false };
+// ATAQUE mantenido hasta el golpe ligero (pega en f = ATK.L.start): el dummy pasa a la par y el héroe puede correr contra él
+function pegar(kind, x, y, vx = 0) {
+  const w = dum(kind, x, y), s = init(w, Z);
+  s.p.vx = vx;
+  for (let k = 0; k < ATK.L.start + 2; k++) step(s, w, K(), Z);
+  return s;
+}
+
+test('golpes: el ligero pega en f = 5 a 8 (no antes ni después), atkBox coincide y baja la vida ATK_DMG_L', () => {
+  for (let f = 1; f <= 12; f++) {
+    const w = dum('liviano', 50, 0), s = init(w, Z); // lejos de la caja
+    step(s, w, K(), Z); // pulsación: f = 0
+    while (s.t < f) step(s, w, NO, Z);
+    s.d[0].x = 0.8; // entra a la caja justo en el cuadro f
+    step(s, w, NO, Z);
+    const on = f >= 5 && f < 9; // frame data fija (no se lee de ATK: el test la verifica)
+    assert.equal(s.d[0].hp < 100, on, `f = ${f}`);
+    if (on) assert.equal(s.d[0].hp, 100 - C.ATK_DMG_L);
+    assert.equal(atkBox(s.p, Z, s.t) !== null, on, `caja en f = ${f}`);
+  }
+});
+
+test('golpes: cada dummy se golpea una sola vez por golpe, aunque siga en la caja varios cuadros', () => {
+  const w = dum('liviano', 0.8, 0), s = init(w, Z);
+  step(s, w, K(), Z);
+  let hits = 0, hp = s.d[0].hp;
+  for (let k = 0; k < 20; k++) {
+    step(s, w, NO, Z);
+    if (s.d[0].hp < hp) hits++, hp = s.d[0].hp;
+  }
+  assert.equal(hits, 1);
+  assert.equal(s.d[0].hp, 100 - C.ATK_DMG_L);
+});
+
+test('golpes: el empuje es ATK_L_BASE quieto, más tu rapidez a favor (sin frenarte), y el pesado se mueve 1/8', () => {
+  const quieto = pegar('mediano', 0.8, 0), corre = pegar('mediano', 2.55, 0, 10), pesado = pegar('pesado', 1.2, 0);
+  assert.equal(quieto.d[0].vx, C.ATK_L_BASE, 'quieto: el mediano pesa 1');
+  assert.equal(corre.d[0].vx, C.ATK_L_BASE + C.ATK_CARRY * 10, 'corriendo a 10 m/s');
+  assert.equal(corre.p.vx, 10, 'el héroe no se frena');
+  assert.ok(Math.abs(pesado.d[0].vx - C.ATK_L_BASE / C.M_HEAVY) < 1e-9, `pesado ${pesado.d[0].vx}`);
+  for (const s of [quieto, corre, pesado]) assert.equal(s.d[0].hp, 100 - C.ATK_DMG_L);
+});
+
+test('golpes: hitstop: el dummy queda quieto ATK.L.stop cuadros tras el golpe y después se mueve', () => {
+  const w = dum('liviano', 0.8, 0), s = init(w, Z), pos = [];
+  step(s, w, K(), Z);
+  for (let k = 0; k < ATK.L.start + ATK.L.stop + 5; k++) step(s, w, NO, Z), pos[s.t] = s.d[0].x;
+  const hit = 1 + ATK.L.start; // el golpe pega en este cuadro
+  assert.equal(s.d[0].hp, 100 - C.ATK_DMG_L);
+  for (let t = hit; t < hit + ATK.L.stop; t++) assert.equal(pos[t], 0.8, `cuadro ${t}`);
+  assert.ok(pos[hit + ATK.L.stop] > 0.8, `después: ${pos[hit + ATK.L.stop]}`);
+});
+
+test('golpes: el pesado ↑ pega al que está arriba de la cabeza y no al de al costado', () => {
+  const w = { spawn: [0, 0], rects: [], dummies: [{ x: 0, y: 1.9, kind: 'liviano' }, { x: 1.2, y: 1.5, kind: 'liviano' }] }, s = init(w, Z);
+  step(s, w, { ...K(), ax: 0, ay: 1 }, Z); // ↑: pesado
+  for (let k = 0; k < ATK.H.start + 2; k++) step(s, w, NO, Z);
+  assert.equal(s.d[0].hp, 100 - C.ATK_DMG_H, 'arriba');
+  assert.equal(s.d[1].hp, 100, 'al costado');
+  assert.equal(s.d[0].vy, C.ATK_H_BASE, 'sale hacia arriba');
+  assert.ok(s.d[0].lz, 'queda LANZADO');
+});
+
+test('golpes: ↓ en el aire es picada: te baja a ATK_DIVE m/s, y el pesado abajo suma tu caída', () => {
+  const w = { spawn: [0, 3], rects: [], dummies: [{ x: 0.8, y: -1.5, kind: 'liviano' }] }, s = init(w, Z);
+  step(s, w, { x: 0, jump: false, atk: true, ax: 0, ay: -1 }, Z);
+  assert.ok(s.p.vy <= -C.ATK_DIVE, `picada: vy ${s.p.vy}`);
+  let hitAt = -1;
+  for (let k = 0; k < 20 && hitAt < 0; k++) step(s, w, NO, Z), s.d[0].hp < 100 && (hitAt = s.t);
+  assert.equal(hitAt, 1 + ATK.H.start, 'pega en la startup del pesado');
+  assert.equal(s.d[0].vy, -(C.ATK_H_BASE + C.ATK_CARRY * -s.p.vy), 'pesado abajo: ATK_H_BASE más tu caída');
+  assert.ok(s.d[0].lz && s.d[0].hp === 100 - C.ATK_DMG_H);
+});
+
+test('golpes: con la liga enganchada a un dummy, ATAQUE no empieza un golpe (sigue el modo ancla)', () => {
+  const { s, w } = grab('liviano', Z, 2);
+  step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 1, ay: 0 }, Z);
+  assert.ok(s.p.hook && s.p.anchor, 'modo ancla');
+  assert.equal(s.p.atkK, 0, 'no hay golpe');
+});
+
+test('golpes: SALTO cancela el golpe solo en la recuperación (f ≥ end), no en la startup', () => {
+  const w = { spawn: [0, 0], rects: [R(-50, -1, 50, 0)] };
+  for (const [f, cancel] of [[3, false], [ATK.L.end + 1, true]]) {
+    const s = init(w, C);
+    step(s, w, { ...NO, atk: true, ax: 1, ay: 0 }, C); // pulsación: f = 0
+    while (s.t < f) step(s, w, NO, C);
+    step(s, w, { x: 0, jump: true }, C); // SALTO en el cuadro f
+    assert.equal(s.p.atkK === 0, cancel, `SALTO en f = ${f}`);
+  }
+});
+
+test('golpes: init deja los campos nuevos y el estado sigue yendo y viniendo por JSON', () => {
+  const s = init(PATIO);
+  assert.ok(s.d.length > 0);
+  assert.deepEqual([s.p.atkK, s.p.atkT0, s.p.atkHit], [0, -1e9, []]);
+  assert.ok(s.d.every(d => d.stopT === -1e9));
+  assert.deepEqual(JSON.parse(JSON.stringify(s)), s);
 });

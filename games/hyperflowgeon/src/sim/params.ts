@@ -48,6 +48,14 @@ export const RANGES = {
   IMPACT_V: [8, 0, 40, 0.5, 'golpe lastima desde m/s'],
   IMPACT_DMG: [4, 0, 20, 0.5, 'daño por m/s de más'],
   D_RESPAWN: [3, 0.5, 20, 0.5, 'reaparece s'],
+  // Golpes (paso E): sin calibrar
+  ATK_REACH: [1.1, 0.3, 3, 0.05, 'alcance del golpe m'],
+  ATK_L_BASE: [5, 0, 30, 0.5, 'ligero: empuje m/s'],
+  ATK_H_BASE: [12, 0, 40, 0.5, 'pesado: empuje m/s'],
+  ATK_CARRY: [1, 0, 2, 0.05, 'tu rapidez a favor suma ×'],
+  ATK_DMG_L: [8, 0, 100, 1, 'daño ligero (de 100)'],
+  ATK_DMG_H: [25, 0, 100, 1, 'daño pesado (de 100)'],
+  ATK_DIVE: [20, 0, 60, 0.5, 'picada ↓ en el aire m/s'],
 } satisfies Record<string, [number, number, number, number, string]>;
 
 export type Cfg = { [K in keyof typeof RANGES]: number };
