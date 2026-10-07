@@ -19,6 +19,15 @@ con un principio que guía lo que sigue: tomar carrera lleva tiempo y cambiar de
 redirigir el momentum sale de movimientos avanzados y de la geometría; **las herramientas facilitan conservar el
 momentum, pero no lo regalan.** El garfio del paso B se diseña con esa regla.
 
+**Paso B decidido y hecho (2026-10-07):** el garfio es una **liga elástica a lo King Tongue** que se pega a
+**cualquier superficie** (no hay puntos de anclaje). Es una sola fuerza central que solo tira, con tope de velocidad
+radial (`HOOK_V`): las tres opciones que se presentaron (fuerza, cuerda que se acorta, tirón fijo) salen de esa regla
+según el ángulo entre la liga y la velocidad. Apuntado: opción 1 (el mismo joystick que mueve, mira adelante-arriba
+sin dirección) con **joystick fijo** (tocar un punto da la dirección, sin arrastrar) y una mira siempre visible que se
+tiñe según el efecto. Esto cambia el §4.2 y la propiedad «anclable» del spec: ahora todo es anclable. Pendiente de
+confirmar: superficies lisas (no anclables) como excepción de diseño de niveles. La ayuda de apuntado (esquinas, cono
+de 35°, prioridades) queda para el paso C.
+
 ## Objetivo
 
 Contestar la pregunta más riesgosa del proyecto: **¿el grapple con auto-aim en el pulgar se siente preciso y

@@ -13,6 +13,14 @@ export const RANGES = {
   MAX_FALL: [28, 5, 60, 0.5, 'caída máx. m/s'],
   COYOTE: [6, 0, 15, 1, 'coyote cuadros'],
   BUFFER: [7, 0, 15, 1, 'buffer cuadros'],
+  HOOK_LEN: [12, 3, 40, 0.5, 'alcance garfio m'],
+  HOOK_K: [40, 1, 150, 0.5, 'rigidez liga 1/s²'],
+  HOOK_REST: [0.3, 0, 1, 0.01, 'reposo × distancia'],
+  HOOK_V: [22, 5, 60, 0.5, 'tirón máx. m/s'],
+  HOOK_DAMP: [1.5, 0, 20, 0.1, 'amortiguación 1/s'],
+  HOOK_JUMP: [8, 0, 30, 0.5, 'impulso al soltar m/s'],
+  HOOK_MISS: [12, 0, 60, 1, 'pausa si falla cuadros'],
+  AIM_UP: [1, 0, 4, 0.05, 'mira sola: alto/avance'],
 } satisfies Record<string, [number, number, number, number, string]>;
 
 export type Cfg = { [K in keyof typeof RANGES]: number };
