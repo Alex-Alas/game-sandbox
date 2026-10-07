@@ -115,8 +115,15 @@ test('liga: es una fuerza central (conserva el momento angular alrededor del anc
   const { s, w } = hooked([R(-0.1, 11.2, 0.1, 11.4)], [0, 1], 37, c);
   const L = p => (p.x - p.hook.x) * p.vy - (p.y + 1.2 - p.hook.y) * p.vx;
   const L0 = L(s.p);
-  for (let k = 0; k < 300; k++) step(s, w, { x: 0, jump: false, hook: true }, c);
-  assert.ok(s.p.hook && Math.abs(L(s.p) - L0) < Math.abs(L0) * 1e-9, `L ${L0} → ${L(s.p)}`);
+  // Mientras el ancla queda por encima de la mano: cuando la mano pasa por encima del ancla empieza la honda (tope de
+  // RUN, ver step) y ahí el momento ya no se conserva a propósito.
+  let k = 0;
+  for (; k < 300; k++) {
+    step(s, w, { x: 0, jump: false, hook: true }, c);
+    if (s.p.hook.y < s.p.y + 1.2) break;
+    assert.ok(Math.abs(L(s.p) - L0) < Math.abs(L0) * 1e-9, `cuadro ${k}: L ${L0} → ${L(s.p)}`);
+  }
+  assert.ok(k > 10 && s.p.hook, `solo ${k} cuadros antes de la honda`);
 });
 
 test('liga: soltar GARFIO conserva la velocidad; SALTO enganchado suelta y suma HOOK_JUMP', () => {
@@ -168,12 +175,48 @@ test('cargas: enganchar gasta una, fallar no; sin cargas no dispara; se recargan
   assert.equal(miss.p.charge, C.HOOK_N);
 });
 
-test('cargas: soltar a HOOK_REFUND m/s o más devuelve la carga', () => {
-  for (const [vx, back] of [[C.HOOK_REFUND + 1, true], [C.HOOK_REFUND - 5, false]]) {
-    const { s, w } = hooked([R(-50, 11.2, 50, 12)], [0, 1], vx);
-    step(s, w, { x: 0, jump: false, hook: false }, G0);
-    assert.equal(s.p.charge > C.HOOK_N - 1 + 0.5, back, `a ${vx} m/s quedan ${s.p.charge}`);
-  }
+test('cargas: soltar rápido con el ancla delante no devuelve la carga', () => {
+  const { s, w } = hooked([R(-50, 11.2, 50, 12)], [0, 1], C.HOOK_REFUND + 1); // el tirón la sube hacia el ancla
+  assert.ok(s.p.vx ** 2 + s.p.vy ** 2 >= C.HOOK_REFUND ** 2, `rapidez ${s.p.vx}, ${s.p.vy}`);
+  const before = s.p.charge;
+  step(s, w, { x: 0, jump: false, hook: false }, G0);
+  assert.ok(s.p.charge < before + 0.5, `${before} → ${s.p.charge}`);
+});
+
+test('cargas: un columpio que pasa el ancla y suelta a HOOK_REFUND m/s o más devuelve la carga', () => {
+  const { s, w } = hooked([R(-50, 11.2, 50, 12)], [0, 1], C.HOOK_REFUND + 1);
+  const behind = () => (s.p.hook.x - s.p.x) * s.p.vx + (s.p.hook.y - (s.p.y + 1.2)) * s.p.vy < 0; // te alejás del ancla
+  const fast = () => s.p.vx ** 2 + s.p.vy ** 2 >= C.HOOK_REFUND ** 2;
+  for (let k = 0; k < 600 && !(behind() && fast()); k++) step(s, w, { x: 0, jump: false, hook: true }, G0);
+  assert.ok(s.p.hook && behind() && fast(), 'el columpio no pasó el ancla');
+  const before = s.p.charge;
+  step(s, w, { x: 0, jump: false, hook: false }, G0);
+  assert.ok(s.p.charge > before + 0.5, `${before} → ${s.p.charge}`);
+});
+
+// Honda: enganchado a un ancla por debajo de la mano, la liga no sube la rapidez por encima de RUN (ver step)
+test('honda: un piso adelante y abajo no deja pasar RUN, y soltar antes de llegar no devuelve la carga', () => {
+  const w = { spawn: [0, 0], rects: [R(-50, -1, 50, 0)] }, hold = { x: 0, jump: false, hook: true, ax: 1, ay: -0.2 };
+  const s = init(w, C); // parado en el piso; el garfio apunta adelante y abajo, al piso a unos 6 m
+  let max = 0;
+  for (let k = 0; k < 120; k++) step(s, w, hold, C), max = Math.max(max, Math.sqrt(s.p.vx ** 2 + s.p.vy ** 2));
+  assert.ok(s.p.hook && s.p.hook.e === -1, 'enganchado al piso');
+  assert.ok(max <= C.RUN + 1e-6, `rapidez máxima ${max}`);
+  const r = init(w, C); // soltar antes de llegar al ancla (todavía te acercás): no devuelve
+  for (let k = 0; k < 20; k++) step(r, w, hold, C);
+  assert.ok(r.p.hook && r.p.hook.x > r.p.x, 'todavía no llegó al ancla');
+  const before = r.p.charge;
+  step(r, w, { x: 0, jump: false, hook: false }, C);
+  assert.ok(r.p.hook === null && r.p.charge < before + 0.5, `${before} → ${r.p.charge}`);
+});
+
+test('honda: el tope no toca las anclas de arriba: por encima de la mano, la liga sí sube la rapidez sobre RUN', () => {
+  const w = { spawn: [0, 0], rects: [R(10, 2, 12, 50)] }, s = init(w, G0);
+  s.p.vx = 25;
+  let max = 0;
+  for (let k = 0; k < 12; k++) step(s, w, { x: 0, jump: false, hook: true, ax: 1, ay: 0.3 }, G0), max = Math.max(max, Math.sqrt(s.p.vx ** 2 + s.p.vy ** 2));
+  assert.ok(s.p.hook && s.p.hook.y > s.p.y + 1.2, 'el ancla quedó por encima de la mano');
+  assert.ok(max > C.RUN + 1, `rapidez máxima ${max}`);
 });
 
 test('chispas: devuelven una carga y reaparecen a los ORB_T s', () => {
