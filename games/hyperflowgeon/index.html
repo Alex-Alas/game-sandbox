@@ -7,17 +7,47 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; background: #1b1a1f; color: #f2f2e8; font: 12px/1.5 ui-monospace, monospace; }
   canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  [hidden] { display: none !important; }
   #hud { position: fixed; left: 8px; top: 8px; white-space: pre; pointer-events: none; }
-  #tune { position: fixed; right: 8px; top: 8px; max-height: calc(100% - 16px); overflow: auto; padding: 4px 8px; background: #000b; }
-  #tune summary { cursor: pointer; }
-  #tune .sub { margin-top: 6px; opacity: .7; }
-  #tune label { display: grid; grid-template-columns: 11em 9em 3.5em; gap: 6px; align-items: center; }
+  button { font: inherit; color: inherit; background: #2a2930; border: 1px solid #f2f2e833; border-radius: 6px; padding: 4px 10px; min-height: 32px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  button:hover { border-color: #f2f2e877; }
+  button[aria-pressed=true], button[aria-selected=true] { background: #e8c07a; border-color: #e8c07a; color: #1b1a1f; font-weight: bold; }
+  input[type=range] { width: 100%; margin: 0; accent-color: #e8c07a; }
+  input[type=checkbox] { justify-self: start; width: 18px; height: 18px; margin: 0; accent-color: #e8c07a; }
+  #gear { position: fixed; right: max(8px, env(safe-area-inset-right)); top: 8px; width: 40px; height: 40px; padding: 0; border-radius: 50%; background: #000a; font-size: 20px; line-height: 1; }
+
+  /* AJUSTES: pestañas arriba, contenido con scroll, pie con copiar/restablecer. Cabe en 844×390 acostado. */
+  #menu { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #0008; padding: 8px max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left)); box-sizing: border-box; }
+  #menu .panel { width: min(620px, 100%); max-height: 100%; display: flex; flex-direction: column; background: #16151a; border: 1px solid #f2f2e833; border-radius: 10px; overflow: hidden; }
+  #menu header { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid #f2f2e822; }
+  #menu header b { letter-spacing: .12em; }
+  @media (max-width: 480px) { #menu header b { display: none; } #menu .tab { padding: 4px 7px; } }
+  #menu nav { display: flex; gap: 4px; flex: 1; overflow-x: auto; scrollbar-width: none; }
+  #menu .tab { white-space: nowrap; }
+  #menu .x { width: 32px; padding: 0; }
+  #menu .body { overflow: auto; padding: 4px 12px 12px; flex: 1; overscroll-behavior: contain; }
+  #menu h3 { margin: 12px 0 4px; font-size: 11px; letter-spacing: .12em; color: #e8c07a; text-transform: uppercase; }
+  #menu .hint { opacity: .65; margin: 2px 0 6px; white-space: normal; }
+  #menu .seg { display: flex; gap: 4px; margin-top: 8px; }
+  #menu .seg button { flex: 1; }
+  #menu .wide { width: 100%; margin-top: 8px; }
+  #menu footer { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-top: 1px solid #f2f2e822; }
+  #menu .msg { opacity: .7; }
+  .row { display: grid; grid-template-columns: minmax(9em, 1fr) minmax(7em, 1.3fr) 3.5em; gap: 8px; align-items: center; min-height: 30px; }
+  .row output { text-align: right; opacity: .8; }
+
+  /* MOVER CONTROLES: barra arriba al centro */
+  #editbar { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); box-sizing: border-box; padding: 6px 10px; background: #000c; border: 1px solid #e8c07a66; border-radius: 8px; }
+  #editbar .top { display: flex; align-items: center; gap: 6px; }
+  #editbar .top span { flex: 1; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <div id="hud"></div>
-<details id="tune"><summary>AJUSTES</summary><div id="rows"></div><div class="sub">GARFIO <select id="profile"></select></div><div id="hookrows"></div><div class="sub">CÁMARA</div><div id="camrows"></div><button id="copy">copiar JSON</button> <button id="reset">restablecer</button></details>
+<button id="gear" title="ajustes (Esc)">⚙</button>
+<div id="menu" hidden></div>
+<div id="editbar" hidden><div class="top"><span>Arrastrá el joystick y los botones</span><button class="def">por defecto</button><button class="done">LISTO</button></div><div class="sizes"></div></div>
 <script type="module" src="./src/main.ts"></script>
 </body>
 </html>

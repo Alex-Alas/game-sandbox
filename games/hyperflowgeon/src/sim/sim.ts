@@ -141,11 +141,22 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   if (p.ground) p.groundT = t;
 }
 
-// Mira unitaria: la de la entrada o, sin largo, adelante (face) y arriba con pendiente AIM_UP
+// Las 16 direcciones de PVP (spec §1.8), en tabla: cada 22,5° desde la derecha, en sentido antihorario
+const C1 = 0.9238795325112867, S1 = 0.3826834323650898, R2 = 0.7071067811865476;
+export const DIRS16 = [0, 1, 2, 3].flatMap(q => [[1, 0], [C1, S1], [R2, R2], [S1, C1]].map(([x, y]) =>
+  q === 0 ? [x, y] : q === 1 ? [-y, x] : q === 2 ? [-x, -y] : [y, -x]));
+
+// Mira unitaria: la de la entrada o, sin largo, adelante (face) y arriba con pendiente AIM_UP. Con AIM_16 se reduce a
+// la más cercana de las 16 direcciones: ratón, joystick y teclado apuntan igual.
 export function aimDir(p: Player, i: Input, c: Cfg): [number, number] {
   let x = i.ax ?? 0, y = i.ay ?? 0;
   if (x * x + y * y < 1e-12) x = p.face, y = c.AIM_UP;
   const n = Math.sqrt(x * x + y * y);
+  if (c.AIM_16 > 0.5) {
+    let best = DIRS16[0], dot = -2;
+    for (const d of DIRS16) if (d[0] * x + d[1] * y > dot) dot = d[0] * x + d[1] * y, best = d;
+    return [best[0], best[1]];
+  }
   return [x / n, y / n];
 }
 
@@ -159,12 +170,12 @@ export function cosDeg(deg: number): number {
 // HOOK_LEN más cercano en ángulo a la mira, dentro del cono de gracia (HOOK_CONE grados a cada lado). Ese punto es
 // siempre una esquina de un rect o donde un borde corta el círculo del alcance: a lo largo de un segmento o de un
 // arco el ángulo es monótono, y si la mira lo cruzara ya habría pegado el rayo. Lo tapado lo cubre la esquina que tapa.
+// Con AIM_EDGE (imán, la prioridad del auto-aim: esquina > superficie) una esquina visible dentro del cono gana aunque
+// el rayo pegue: los bordes de vigas y salientes atraen la liga.
 export type Target = { x: number, y: number, d: number, grace: boolean };
 export function hookTarget(w: World, p: Player, i: Input, c: Cfg): Target | null {
   const [dx, dy] = aimDir(p, i, c), ox = p.x, oy = p.y + HAND, L = c.HOOK_LEN;
-  const d = raycast(w, ox, oy, dx, dy, L);
-  if (d >= 0) return { x: ox + dx * d, y: oy + dy * d, d, grace: false };
-  if (c.HOOK_CONE <= 0) return null;
+  const magnet = c.AIM_EDGE > 0.5 && c.HOOK_CONE > 0;
   let best: Target | null = null, bestCos = cosDeg(c.HOOK_CONE);
   const consider = (r: Rect, qx: number, qy: number) => {
     const vx = qx - ox, vy = qy - oy, n = Math.sqrt(vx * vx + vy * vy);
@@ -178,8 +189,13 @@ export function hookTarget(w: World, p: Player, i: Input, c: Cfg): Target | null
     if (h < 0 || h < n - 1e-3) return;
     best = { x: ox + ux / un * h, y: oy + uy / un * h, d: h, grace: true }, bestCos = cs;
   };
+  if (magnet) for (const r of w.rects) for (const qx of [r.x0, r.x1]) for (const qy of [r.y0, r.y1]) consider(r, qx, qy);
+  if (best) return best;
+  const d = raycast(w, ox, oy, dx, dy, L);
+  if (d >= 0) return { x: ox + dx * d, y: oy + dy * d, d, grace: false };
+  if (c.HOOK_CONE <= 0) return null;
   for (const r of w.rects) {
-    for (const qx of [r.x0, r.x1]) for (const qy of [r.y0, r.y1]) consider(r, qx, qy);
+    if (!magnet) for (const qx of [r.x0, r.x1]) for (const qy of [r.y0, r.y1]) consider(r, qx, qy);
     for (const y of [r.y0, r.y1]) {
       const e = L * L - (y - oy) * (y - oy);
       if (e >= 0) for (const x of [ox - Math.sqrt(e), ox + Math.sqrt(e)]) if (x > r.x0 && x < r.x1) consider(r, x, y);

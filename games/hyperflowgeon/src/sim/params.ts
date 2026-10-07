@@ -28,6 +28,8 @@ export const RANGES = {
   HOOK_GROUND: [2, 1, 5, 0.1, 'recarga en suelo ×'],
   HOOK_REFUND: [32, 0, 100, 1, 'devuelve si suelta ≥ m/s'],
   AIM_UP: [1, 0, 4, 0.05, 'mira sola: alto/avance'],
+  AIM_EDGE: [0, 0, 1, 1, 'imán a esquinas'], // casillas (paso C): ver hookTarget y aimDir
+  AIM_16: [0, 0, 1, 1, '16 direcciones (PVP)'],
   ORB_T: [3, 0.5, 20, 0.5, 'chispa reaparece s'],
 } satisfies Record<string, [number, number, number, number, string]>;
 

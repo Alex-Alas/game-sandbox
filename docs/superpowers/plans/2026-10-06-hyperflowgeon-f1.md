@@ -38,6 +38,17 @@ de 35°, prioridades) queda para el paso C.
 Los tres llegan a la simulación igual (`Input.ax/ay`), así que es solo entrada; en PVP se reducen a las mismas 16
 direcciones.
 
+**Cierre de B y paso C hechos (2026-10-07), para que el usuario elija jugando.** Los tres esquemas están en Ajustes →
+CONTROLES. En ARRASTRAR, como la liga se mantiene, soltar el dedo deja la liga **sostenida sola** hasta SALTO o hasta
+tocar GARFIO otra vez (que suelta y, arrastrando, apunta la siguiente: soltar y relanzar es un gesto); volver al centro
+del botón cancela. Auto-aim presentado como opciones en casillas (apagadas por defecto), sobre el cono de gracia de
+cada perfil: **imán a esquinas** (dentro del cono una esquina visible gana aunque el rayo pegue: la prioridad «anclable»
+del spec, ahora que todo es anclable, se vuelve esquina > superficie; amenaza y objeto se suman cuando existan) y **16
+direcciones** (la regla de PVP, en la sim: ratón, joystick y teclado dan el mismo resultado; con test). Táctil: tamaños
+en % (mínimo ≥ 12 mm), lugares arrastrables (MOVER CONTROLES) y zonas muertas ajustables. Los ajustes pasaron de un
+`<details>` a un menú con pestañas (CONTROLES, GARFIO, MOVIMIENTO, CÁMARA) que pausa el juego. Quedan del paso 9:
+gamepad, remapeo y el ancho del cono de 35° del spec (hoy 8–18° según el perfil).
+
 ## Objetivo
 
 Contestar la pregunta más riesgosa del proyecto: **¿el grapple con auto-aim en el pulgar se siente preciso y
