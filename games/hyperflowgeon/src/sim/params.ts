@@ -1,6 +1,6 @@
 // Valores tuneables de la simulación: [valor, mín, máx, paso, etiqueta]. Metros, segundos y cuadros de 60 Hz.
 // Los valores son los calibrados jugando el paso A (2026-10-06: carrera larga y giros lentos a propósito)
-// y el paso B (2026-10-07: la liga larga y blanda, con tirón alto).
+// y el paso B (2026-10-07: la liga larga y blanda, con tirón alto). Los de los dummies (paso D) están sin calibrar.
 // El panel de ajustes (main.ts) se genera de esta tabla; la sim recibe un Cfg plano.
 export const RANGES = {
   RUN: [20, 2, 30, 0.1, 'carrera m/s'],
@@ -30,7 +30,17 @@ export const RANGES = {
   AIM_UP: [1, 0, 4, 0.05, 'mira sola: alto/avance'],
   AIM_EDGE: [0, 0, 1, 1, 'imán a esquinas'], // casillas (paso C): ver hookTarget y aimDir
   AIM_16: [0, 0, 1, 1, '16 direcciones (PVP)'],
+  AIM_FOE: [1, 0, 1, 1, 'imán a enemigos'],
   ORB_T: [3, 0.5, 20, 0.5, 'chispa reaparece s'],
+  // Dummies (paso D): masa por peso × la del héroe; lanzar con ATAQUE enganchado; golpes de LANZADO
+  M_LIGHT: [0.25, 0.05, 5, 0.05, 'liviano × héroe'],
+  M_MID: [1, 0.1, 10, 0.05, 'mediano × héroe'],
+  M_HEAVY: [8, 1, 50, 0.5, 'pesado × héroe'],
+  D_FRIC: [30, 0, 200, 1, 'roce en el suelo m/s²'],
+  THROW_V: [30, 5, 80, 0.5, 'lanzar m/s'],
+  IMPACT_V: [8, 0, 40, 0.5, 'golpe lastima desde m/s'],
+  IMPACT_DMG: [4, 0, 20, 0.5, 'daño por m/s de más'],
+  D_RESPAWN: [3, 0.5, 20, 0.5, 'reaparece s'],
 } satisfies Record<string, [number, number, number, number, string]>;
 
 export type Cfg = { [K in keyof typeof RANGES]: number };

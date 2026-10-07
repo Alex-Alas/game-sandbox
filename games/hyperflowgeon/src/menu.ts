@@ -1,5 +1,5 @@
 // Menú de AJUSTES: pestañas por sección, generadas desde tablas [valor, mín, máx, paso, etiqueta] (las filas
-// [v, 0, 1, 1] son casillas), selectores de botones y botones sueltos. Cada control se vuelve a pintar desde los valores
+// [v, 0, 1, 1] son casillas), selectores de botones y filas de botones sueltos. Cada control se vuelve a pintar desde los valores
 // con refresh() (al cambiar de perfil, restablecer…). Abrirlo pausa el juego (main.ts).
 export type Row = [number, number, number, number, string];
 export type Choice = { id: string, label: string, hint?: string };
@@ -7,7 +7,7 @@ export type Field =
   | { title: string, note?: string }
   | { rows: Record<string, Row>, keys: readonly string[], vals: Record<string, number> }
   | { choice: readonly Choice[], get: () => string, set: (id: string) => void }
-  | { button: string, onClick: () => void };
+  | { buttons: { label: string, onClick: () => void }[] };
 export type Section = { id: string, label: string, fields: Field[], reset: () => void };
 
 const refreshers: (() => void)[] = [];
@@ -65,7 +65,11 @@ export function buildMenu(root: HTMLElement, sections: Section[], o: { changed: 
       if ('title' in f) { page.append(el('h3', '', f.title)); if (f.note) page.append(el('div', 'hint', f.note)); }
       else if ('rows' in f) rows(page, f.rows, f.keys, f.vals, o.changed);
       else if ('choice' in f) choice(page, f, o.changed);
-      else { const b = el('button', 'wide', f.button); b.onclick = f.onClick; page.append(b); }
+      else {
+        const row = el('div', 'seg');
+        for (const x of f.buttons) { const b = el('button', '', x.label); b.onclick = x.onClick; row.append(b); }
+        page.append(row);
+      }
     }
     body.append(page);
     return { id: s.id, t, page };

@@ -2,7 +2,8 @@ import type { Row } from './menu.ts';
 
 // Controles táctiles (solo entrada y dibujo: la sim recibe lo mismo que del teclado). Joystick FIJO abajo a la
 // izquierda: donde se toca es la dirección, sin arrastrar (pedido del usuario), medida desde su centro; mueve y apunta.
-// A la derecha, SALTO y GARFIO. Tres esquemas para apuntar el garfio (Ajustes → CONTROLES):
+// A la derecha, SALTO, GARFIO y ATAQUE (enganchado a un dummy dice LANZAR: lo lanza hacia la mira; deslizar de un
+// botón a otro también los aprieta). Tres esquemas para apuntar el garfio (Ajustes → CONTROLES):
 // - JOYSTICK: la mira sigue al joystick; GARFIO mantenido = enganchado; deslizar de GARFIO a SALTO suelta con impulso.
 // - ARRASTRAR (como Brawl Stars): arrastrar desde GARFIO apunta y soltar dispara (un toque sin arrastrar: hacia el
 //   joystick). La liga queda enganchada sola hasta SALTO o hasta tocar GARFIO otra vez, que suelta y, si se arrastra,
@@ -26,7 +27,9 @@ export const SCHEMES = [
   { id: 'tap', label: 'TOCAR', hint: 'Tocá el mundo: la liga va ahí y queda enganchada mientras mantengas el dedo. El joystick responde solo dentro de su círculo.' },
 ] as const;
 export type Scheme = typeof SCHEMES[number]['id'];
-type Btn = 'stick' | 'jump' | 'hook';
+type Btn = 'stick' | 'jump' | 'hook' | 'atk';
+const RIGHT = ['jump', 'hook', 'atk'] as const;
+type Right = typeof RIGHT[number];
 export type Opts = { scheme: Scheme, pos: Partial<Record<Btn, [number, number]>> };
 
 export const ctl: CtlCfg = { ...CTL_DEFAULTS };
@@ -38,12 +41,18 @@ const d2 = (x: number, y: number, c: { x: number, y: number }) => (x - c.x) * (x
 
 export function layout() {
   const W = innerWidth, Hh = innerHeight, rs = STICK_R * ctl.STICK_SIZE / 100, rb = BTN_R * ctl.BTN_SIZE / 100;
-  const def: Record<Btn, [number, number]> = { stick: [rs + 40, rs + 40], jump: [rb + 36, rb + 36], hook: [3 * rb + 56, rb + 76] };
+  const def: Record<Btn, [number, number]> = { stick: [rs + 40, rs + 40], jump: [rb + 36, rb + 36], hook: [3 * rb + 56, rb + 76],
+    atk: [rb + 56, 3 * rb + 70] };
   const at = (b: Btn, r: number) => {
     const [dx, dy] = opts.pos[b] ?? def[b], left = b === 'stick';
     return { x: clamp(left ? dx : W - dx, left ? r : W / 2 + r, left ? W / 2 - r : W - r), y: clamp(Hh - dy, r, Hh - r), r };
   };
-  return { stick: at('stick', rs), jump: at('jump', rb), hook: at('hook', rb) };
+  return { stick: at('stick', rs), jump: at('jump', rb), hook: at('hook', rb), atk: at('atk', rb) };
+}
+// El botón de la derecha más cercano
+function nearest(x: number, y: number): Right {
+  const L = layout();
+  return RIGHT.reduce((a, b) => d2(x, y, L[b]) < d2(x, y, L[a]) ? b : a);
 }
 
 // Toques: de qué son y, para ARRASTRAR, si salieron de la zona muerta del botón (out), si volvieron (back = cancelar)
@@ -51,7 +60,7 @@ export function layout() {
 type Kind = Btn | 'world';
 type T = { x: number, y: number, kind: Kind, out: boolean, back: boolean, release: boolean };
 const touches = new Map<number, T>();
-let shown = matchMedia('(pointer: coarse)').matches, jumpTap = false, hookTap = false;
+let shown = matchMedia('(pointer: coarse)').matches, jumpTap = false, hookTap = false, atkTap = false;
 // ARRASTRAR: latch = GARFIO sostenido sin dedo; pending = un disparo al soltar, que sale cuando la sim vio GARFIO
 // suelto al menos un cuadro (si no, no sería un apretón nuevo); fireAim = hacia dónde (null: el joystick o la mira sola)
 let latch = false, pending = false, lastOut = false, fireAim: [number, number] | null = null;
@@ -61,7 +70,7 @@ export const visible = () => shown || editing;
 export const isEditing = () => editing;
 export const dragging = () => opts.scheme === 'drag' && [...touches.values()].some(t => t.kind === 'hook' && t.out && !t.back);
 export function clear(all = false) {
-  touches.clear(), grab = null, jumpTap = hookTap = pending = false;
+  touches.clear(), grab = null, jumpTap = hookTap = atkTap = pending = false;
   if (all) latch = false;
 }
 export function setEditing(on: boolean) { clear(); editing = on; }
@@ -70,7 +79,7 @@ export function afterTick(hooked: boolean) { if (latch && !hooked) latch = false
 
 const dragDead = () => 0.45 * layout().hook.r;
 function kindAt(x: number, y: number): Kind {
-  const L = layout(), near: Btn = d2(x, y, L.jump) <= d2(x, y, L.hook) ? 'jump' : 'hook';
+  const L = layout(), near = nearest(x, y);
   if (opts.scheme !== 'tap') return x < innerWidth / 2 ? 'stick' : near;
   if (d2(x, y, L.stick) <= (2 * L.stick.r) ** 2) return 'stick';
   return d2(x, y, L[near]) <= (1.4 * L[near].r) ** 2 ? near : 'world';
@@ -84,6 +93,7 @@ export function bind(cv: HTMLCanvasElement, changed: () => void) {
     const t: T = { x: e.clientX, y: e.clientY, kind: kindAt(e.clientX, e.clientY), out: false, back: false, release: false };
     touches.set(e.pointerId, t);
     if (t.kind === 'jump') jumpTap = true;
+    else if (t.kind === 'atk') atkTap = true;
     else if (t.kind === 'world') hookTap = true;
     else if (t.kind === 'hook') {
       if (opts.scheme !== 'drag') hookTap = true;
@@ -99,9 +109,9 @@ export function bind(cv: HTMLCanvasElement, changed: () => void) {
       const L = layout().hook, out = d2(t.x, t.y, L) > dragDead() ** 2;
       if (out) t.out = true, t.back = false;
       else if (t.out) t.back = true;
-    } else if (t.kind === 'jump' || t.kind === 'hook') {
-      const L = layout(), k: Btn = d2(t.x, t.y, L.jump) <= d2(t.x, t.y, L.hook) ? 'jump' : 'hook';
-      if (k !== t.kind) { t.kind = k; if (k === 'jump') jumpTap = true; else hookTap = true; }
+    } else if (t.kind === 'jump' || t.kind === 'hook' || t.kind === 'atk') {
+      const k = nearest(t.x, t.y);
+      if (k !== t.kind) { t.kind = k; if (k === 'jump') jumpTap = true; else if (k === 'atk') atkTap = true; else hookTap = true; }
     }
   });
   cv.addEventListener('pointerup', e => {
@@ -140,16 +150,17 @@ export function touchAim(world: (x: number, y: number) => [number, number]): [nu
 
 // Entrada táctil de un cuadro (consume los toques sueltos y el disparo pendiente de ARRASTRAR)
 export function touchInput(world: (x: number, y: number) => [number, number]) {
-  let x = 0, jump = jumpTap, hook = hookTap;
+  let x = 0, jump = jumpTap, hook = hookTap, atk = atkTap;
   for (const t of touches.values()) {
     if (t.kind === 'jump') jump = true;
+    else if (t.kind === 'atk') atk = true;
     else if (t.kind === 'world' || (t.kind === 'hook' && opts.scheme !== 'drag')) hook = true;
     else if (t.kind === 'stick') { // correr: nada en la zona muerta, a fondo desde STICK_FULL
       const sx = stickVec(t)[0], a = Math.abs(sx), dz = ctl.STICK_DEAD;
       if (a > dz) x += Math.sign(sx) * Math.min(1, (a - dz) / Math.max(0.01, ctl.STICK_FULL - dz));
     }
   }
-  jumpTap = hookTap = false;
+  jumpTap = hookTap = atkTap = false;
   let aim = touchAim(world);
   if (opts.scheme === 'drag') {
     hook = latch;
@@ -159,14 +170,14 @@ export function touchInput(world: (x: number, y: number) => [number, number]) {
     }
     lastOut = hook;
   }
-  return { x, jump, hook, aim };
+  return { x, jump, hook, atk, aim };
 }
 
 // MOVER CONTROLES: arrastrar el joystick o un botón lo cambia de lugar (ratón también)
 function editDown(e: PointerEvent, cv: HTMLCanvasElement) {
   const L = layout();
   let best: Btn | null = null, bd = Infinity;
-  for (const b of ['stick', 'jump', 'hook'] as const) {
+  for (const b of ['stick', ...RIGHT] as const) {
     const d = d2(e.clientX, e.clientY, L[b]);
     if (d <= (1.3 * L[b].r) ** 2 && d < bd) best = b, bd = d;
   }
@@ -182,7 +193,8 @@ function editMove(e: PointerEvent, changed: () => void) {
   changed();
 }
 
-export function draw(ctx: CanvasRenderingContext2D) {
+// throwable: enganchado a un dummy (ATAQUE lo lanza)
+export function draw(ctx: CanvasRenderingContext2D, throwable = false) {
   if (!visible()) return;
   const L = layout(), ts = [...touches.values()], on = new Set(ts.map(t => t.kind));
   const circle = (x: number, y: number, r: number) => { ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); };
@@ -201,11 +213,12 @@ export function draw(ctx: CanvasRenderingContext2D) {
   ctx.font = `bold ${Math.round(11 * ctl.BTN_SIZE / 100)}px ui-monospace, monospace`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  for (const [kind, label] of [['jump', 'SALTO'], ['hook', 'GARFIO']] as const) {
+  for (const [kind, label] of [['jump', 'SALTO'], ['hook', 'GARFIO'], ['atk', throwable ? 'LANZAR' : 'ATAQUE']] as const) {
     const b = L[kind], held = on.has(kind) || (kind === 'hook' && latch);
     ctx.fillStyle = held ? '#f2f2e855' : '#f2f2e818';
     circle(b.x, b.y, b.r); ctx.fill();
-    ctx.strokeStyle = kind === 'hook' && latch ? '#5ec8ff' : '#f2f2e866'; // enganchada sola (ARRASTRAR): color de la liga
+    // enganchada sola (ARRASTRAR): color de la liga; ATAQUE que lanza: el de LANZADO
+    ctx.strokeStyle = kind === 'hook' && latch ? '#5ec8ff' : kind === 'atk' && throwable ? '#ff9a5b' : '#f2f2e866';
     ctx.stroke();
     ctx.fillStyle = '#f2f2e8cc';
     ctx.fillText(label, b.x, b.y);
@@ -229,7 +242,7 @@ export function draw(ctx: CanvasRenderingContext2D) {
   }
   if (editing) { // contorno punteado de lo que se puede arrastrar
     ctx.setLineDash([6, 5]);
-    for (const b of ['stick', 'jump', 'hook'] as const) {
+    for (const b of ['stick', ...RIGHT] as const) {
       ctx.strokeStyle = grab?.b === b ? '#e8c07a' : '#e8c07a88';
       circle(L[b].x, L[b].y, L[b].r + 6); ctx.stroke();
     }

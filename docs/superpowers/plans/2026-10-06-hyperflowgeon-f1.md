@@ -49,6 +49,30 @@ en % (mínimo ≥ 12 mm), lugares arrastrables (MOVER CONTROLES) y zonas muertas
 `<details>` a un menú con pestañas (CONTROLES, GARFIO, MOVIMIENTO, CÁMARA) que pausa el juego. Quedan del paso 9:
 gamepad, remapeo y el ancho del cono de 35° del spec (hoy 8–18° según el perfil).
 
+**Paso C cerrado (2026-10-07).** El usuario aprobó lo que jugó: quedan por defecto el esquema JOYSTICK y las
+asistencias apagadas (imán a esquinas y 16 direcciones; las 16 se fuerzan en PVP, F4); el cono es el de cada perfil
+(8–18°), no el de 35° del spec; todo es anclable y las superficies lisas quedan como herramienta de diseño de niveles
+para cuando un nivel las pida (F3). Gamepad y remapeo siguen pendientes, sin urgencia.
+
+**Paso D: enganchar dummies (2026-10-07, opción 1 de tres: la misma liga repartida por masa).** Las otras eran un
+tirón con guion tipo Scorpion y el enemigo como ancla que solo te lleva. Hecho en gris, para calibrar jugando:
+- Dummies de tres pesos (liviano 0,25, mediano 1 y pesado 8 veces el héroe; tuneables) con gravedad, roce y el mismo
+  barrido. La liga es la misma fuerza aplicada a las dos puntas y repartida por masa: lo relativo es idéntico a
+  engancharse a una pared (lo calibrado se siente igual) y se conserva el momento. El liviano viene, el pesado te
+  lleva y el mediano se encuentra a mitad de camino, sin casos por peso.
+- Choques entre cajas (héroe y dummies) inelásticos por el eje de menor penetración, repartidos por masa; lo trabado
+  contra el piso o una pared pesa infinito. Por eso el liviano llega y se frena contra vos (el momento total era
+  cero), uno se para y salta sobre un dummy y correr contra uno lo empuja.
+- ATAQUE (J, clic derecho, botón táctil que dice LANZAR) enganchado a un dummy lo lanza por la mira a `THROW_V`
+  (más lento si pesa más que el héroe) y suelta la liga. LANZADO: daña y se daña al chocar, `IMPACT_DMG` por m/s de
+  cambio de velocidad propio por encima de `IMPACT_V`; el golpeado así también queda LANZADO; termina en el suelo y
+  lento. Por la regla del cambio de velocidad, una bala pesada lastima más y el liviano sufre más que el pesado.
+- Mira: prioridad amenaza > esquina > superficie (casilla «imán a enemigos», prendida): dentro del cono gana el dummy
+  visible más cercano en ángulo. Los dummies tapan lo de atrás.
+- El Patio suma el corral (pasando la puerta de x = 200) y AJUSTES → PATIO lleva directo a INICIO, LIGA o CORRAL.
+- Queda para cuando haya golpes: ANCLADO solo se muestra (sus reglas, que los golpes tensan, llegan con el combate),
+  rebotable 0,3 s y el tirón que deja LANZADO. Variantes de ATAQUE: a definir con el usuario después de jugar esto.
+
 ## Objetivo
 
 Contestar la pregunta más riesgosa del proyecto: **¿el grapple con auto-aim en el pulgar se siente preciso y

@@ -8,13 +8,21 @@ const EPS = 1e-6; // tocarse no es solaparse
 const NEVER = -1e9;
 
 export type Rect = { x0: number, y0: number, x1: number, y1: number };
-// orbs: chispas que devuelven una carga del garfio al tocarlas y reaparecen a los ORB_T s
-export type World = { rects: Rect[], spawn: [number, number], orbs?: [number, number][] };
-export const ORB_R = 0.4;
-// x en [-1, 1]; GARFIO mantenido = enganchado; (ax, ay) = mira (sin largo: adelante y arriba)
-export type Input = { x: number, jump: boolean, hook?: boolean, ax?: number, ay?: number };
-// ancla, cuadro en que llega (antes viaja: no tira) y largo en reposo de la liga (se fija al llegar)
-export type Hook = { x: number, y: number, at: number, rest: number };
+// Dummies por peso: media anchura, alto y la clave de su masa en Cfg (× la del héroe, que pesa 1)
+export const KINDS = {
+  liviano: { hw: 0.4, h: 0.9, m: 'M_LIGHT' },
+  mediano: { hw: 0.35, h: 1.8, m: 'M_MID' },
+  pesado: { hw: 0.8, h: 2.6, m: 'M_HEAVY' },
+} as const satisfies Record<string, { hw: number, h: number, m: keyof Cfg }>;
+export type Kind = keyof typeof KINDS;
+// orbs: chispas que devuelven una carga del garfio al tocarlas y reaparecen a los ORB_T s; dummies: dónde aparecen (pies)
+export type World = { rects: Rect[], spawn: [number, number], orbs?: [number, number][], dummies?: { x: number, y: number, kind: Kind }[] };
+export const ORB_R = 0.4, D_HP = 100;
+// x en [-1, 1]; GARFIO mantenido = enganchado; ATAQUE; (ax, ay) = mira (sin largo: adelante y arriba)
+export type Input = { x: number, jump: boolean, hook?: boolean, atk?: boolean, ax?: number, ay?: number };
+// ancla, cuadro en que llega (antes viaja: no tira) y largo en reposo de la liga (se fija al llegar); e = el dummy
+// enganchado (−1: una superficie) y (ox, oy) dónde, desde sus pies: x, y lo siguen
+export type Hook = { x: number, y: number, at: number, rest: number, e: number, ox: number, oy: number };
 // último disparo (para dibujarlo): de dónde salió (la mano), adónde va y en qué cuadro llega
 export type Shot = { x: number, y: number, ox: number, oy: number, t: number, at: number, hit: boolean };
 export type Player = {
@@ -27,17 +35,33 @@ export type Player = {
   rise: boolean,   // subiendo por un salto propio (soltar SALTO lo corta)
   hook: Hook | null,
   hookHeld: boolean, // GARFIO apretado en el cuadro anterior
+  atkHeld: boolean,  // ATAQUE apretado en el cuadro anterior
   hookT: number,     // primer cuadro en que se puede volver a disparar (tras fallar)
   shot: Shot | null,
   charge: number,  // cargas del garfio (con fracción: la parte que se va recargando)
   refundT: number, // último cuadro en que soltar rápido devolvió una carga
 };
-export type State = { t: number, p: Player, orbs: number[] }; // orbs: cuadro en que cada chispa vuelve a estar
+// Un dummy: caja sin control con masa y vida. LANZADO (lz): daña y se daña al chocar; hp ≤ 0: roto hasta el cuadro back.
+export type Dummy = { x: number, y: number, vx: number, vy: number, hp: number, ground: boolean, lz: boolean, hitT: number, back: number };
+export type State = { t: number, p: Player, orbs: number[], d: Dummy[] }; // orbs: cuadro en que cada chispa vuelve a estar
 
+const fresh = (f: { x: number, y: number }): Dummy => ({ x: f.x, y: f.y, vx: 0, vy: 0, hp: D_HP, ground: false, lz: false, hitT: NEVER, back: 0 });
 export function init(w: World, c: Cfg = DEFAULTS): State {
   const [x, y] = w.spawn;
-  return { t: 0, orbs: (w.orbs ?? []).map(() => 0), p: { x, y, vx: 0, vy: 0, ground: false, face: 1, groundT: NEVER,
-    pressT: NEVER, held: false, rise: false, hook: null, hookHeld: false, hookT: NEVER, shot: null, charge: c.HOOK_N, refundT: NEVER } };
+  return { t: 0, orbs: (w.orbs ?? []).map(() => 0), d: (w.dummies ?? []).map(fresh), p: { x, y, vx: 0, vy: 0, ground: false, face: 1,
+    groundT: NEVER, pressT: NEVER, held: false, rise: false, hook: null, hookHeld: false, atkHeld: false, hookT: NEVER, shot: null,
+    charge: c.HOOK_N, refundT: NEVER } };
+}
+
+export const size = (w: World, k: number) => KINDS[w.dummies![k].kind];
+export const mass = (w: World, k: number, c: Cfg) => c[size(w, k).m];
+// Las cajas de los dummies enteros (k = su índice): la liga y la mira las tratan como superficies que se mueven
+export function foes(w: World, s: State): { r: Rect, k: number }[] {
+  return s.d.flatMap((d, k) => {
+    if (d.hp <= 0) return [];
+    const { hw, h } = size(w, k);
+    return [{ r: { x0: d.x - hw, y0: d.y, x1: d.x + hw, y1: d.y + h }, k }];
+  });
 }
 
 // ¿La liga ya llegó al ancla y tira?
@@ -65,16 +89,25 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
     if (c.HOOK_REFUND > 0 && p.vx * p.vx + p.vy * p.vy >= c.HOOK_REFUND * c.HOOK_REFUND) p.charge = Math.min(c.HOOK_N, p.charge + 1), p.refundT = t;
     p.hook = null;
   };
+  // ATAQUE enganchado a un dummy lo lanza por la mira (LANZADO) y suelta la liga: a THROW_V, o más lento si pesa más que
+  // el héroe (el impulso no pasa del de lanzarse a sí mismo). Va antes de soltar GARFIO: deslizar de GARFIO a ATAQUE lanza.
+  if (i.atk && !p.atkHeld && attached(p, t) && p.hook!.e >= 0) {
+    const d = s.d[p.hook!.e], [ax, ay] = aimDir(p, i, c), v = c.THROW_V * Math.min(1, 1 / mass(w, p.hook!.e, c));
+    d.vx = ax * v, d.vy = ay * v, d.lz = true;
+    release();
+  }
+  p.atkHeld = !!i.atk;
   if (attached(p, t) && p.pressT === t) release(), p.vy += c.HOOK_JUMP;
   if (p.hook && !i.hook) {
     if (attached(p, t)) release();
     else p.hook = null, p.charge = Math.min(c.HOOK_N, p.charge + 1), p.shot!.at = t;
   }
   if (i.hook && !p.hookHeld && !p.hook && t >= p.hookT && p.charge >= 1) {
-    const g = hookTarget(w, p, i, c), ox = p.x, oy = p.y + HAND;
+    const g = hookTarget(w, s, i, c), ox = p.x, oy = p.y + HAND;
     if (g) {
-      const at = t + travel(g.d, c);
-      p.shot = { x: g.x, y: g.y, ox, oy, t, at, hit: true }, p.hook = { x: g.x, y: g.y, at, rest: 0 }, p.charge -= 1;
+      const at = t + travel(g.d, c), e = g.e >= 0 ? s.d[g.e] : null;
+      p.shot = { x: g.x, y: g.y, ox, oy, t, at, hit: true }, p.charge -= 1;
+      p.hook = { x: g.x, y: g.y, at, rest: 0, e: g.e, ox: e ? g.x - e.x : 0, oy: e ? g.y - e.y : 0 };
     } else {
       const [dx, dy] = aimDir(p, i, c), at = t + travel(c.HOOK_LEN, c);
       p.shot = { x: ox + dx * c.HOOK_LEN, y: oy + dy * c.HOOK_LEN, ox, oy, t, at, hit: false };
@@ -104,13 +137,17 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   // nunca te acerca más rápido que HOOK_V: la herramienta sola no regala velocidad (pasar de ahí sale del columpio).
   // Es una fuerza central, así que la rapidez cambia según el ángulo (a favor acelera, en contra frena y te
   // devuelve, de costado solo te curva: columpio) y se conserva el momento angular alrededor del ancla.
+  // Enganchada a un dummy, la misma fuerza tira de las dos puntas repartida por masa (el héroe pesa 1; una superficie,
+  // infinito): el liviano viene, el pesado te lleva, y lo relativo es igual que contra una pared. Se conserva el momento.
   if (p.hook && on) {
+    const e = p.hook.e >= 0 ? s.d[p.hook.e] : null, ie = e ? 1 / mass(w, p.hook.e, c) : 0;
     const ex = p.hook.x - p.x, ey = p.hook.y - (p.y + HAND), d = Math.sqrt(ex * ex + ey * ey);
     if (t === p.hook.at) p.hook.rest = d * c.HOOK_REST;
     if (d > p.hook.rest) {
-      const nx = ex / d, ny = ey / d, vr = p.vx * nx + p.vy * ny;
-      const a = Math.max(0, Math.min(c.HOOK_K * (d - p.hook.rest) - c.HOOK_DAMP * vr, (c.HOOK_V - vr) / DT));
-      p.vx += nx * a * DT, p.vy += ny * a * DT;
+      const nx = ex / d, ny = ey / d, vr = (p.vx - (e?.vx ?? 0)) * nx + (p.vy - (e?.vy ?? 0)) * ny;
+      const a = Math.max(0, Math.min(c.HOOK_K * (d - p.hook.rest) - c.HOOK_DAMP * vr, (c.HOOK_V - vr) / DT)) * DT;
+      p.vx += nx * a / (1 + ie), p.vy += ny * a / (1 + ie);
+      if (e) e.vx -= nx * a * ie / (1 + ie), e.vy -= ny * a * ie / (1 + ie);
     }
   }
 
@@ -131,14 +168,100 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   if (p.vy <= 0) p.rise = false;
 
   // Mover por ejes con barrido: no atraviesa nada, por rápido que vaya
-  const wx = p.vx * DT, dx = sweepX(w, p, wx);
+  const wx = p.vx * DT, dx = sweepX(w, p, HW, H, wx);
   p.x += dx;
   if (dx !== wx) p.vx = 0;
-  const wy = (vy0 + p.vy) * 0.5 * DT, dy = sweepY(w, p, wy);
+  const wy = (vy0 + p.vy) * 0.5 * DT, dy = sweepY(w, p, HW, H, wy);
   p.y += dy;
   p.ground = wy < 0 && dy !== wy;
   if (dy !== wy) p.vy = 0, p.rise = false;
+
+  // Dummies: una sola gravedad (la del héroe enganchado), roce en el suelo y el mismo barrido. Un golpe lastima si
+  // involucra a un LANZADO: a cada dummy, IMPACT_DMG por m/s de su cambio de velocidad por encima de IMPACT_V (contra
+  // una pared, todo lo que pierde), y el que lo recibe queda LANZADO. Así el liviano sufre más contra el pesado.
+  const g = 2 * c.JUMP_H / (c.JUMP_T * c.JUMP_T);
+  const hit = (d: Dummy, dv: number) => {
+    if (dv > c.IMPACT_V) d.hp -= (dv - c.IMPACT_V) * c.IMPACT_DMG, d.hitT = t, d.lz = true;
+  };
+  s.d.forEach((d, k) => {
+    const { hw, h } = size(w, k);
+    if (d.hp <= 0) { if (d.back > 0 && t >= d.back) Object.assign(d, fresh(w.dummies![k])); return; } // back = 0: recién roto
+    if (d.ground) d.vx = approach(d.vx, 0, c.D_FRIC * DT);
+    const vy0 = d.vy;
+    d.vy -= g * DT;
+    const wx = d.vx * DT, mx = sweepX(w, d, hw, h, wx);
+    d.x += mx;
+    if (mx !== wx) { if (d.lz) hit(d, Math.abs(d.vx)); d.vx = 0; }
+    const wy = (vy0 + d.vy) * 0.5 * DT, my = sweepY(w, d, hw, h, wy);
+    d.y += my;
+    d.ground = wy < 0 && my !== wy;
+    if (my !== wy) { if (d.lz) hit(d, Math.abs(d.vy)); d.vy = 0; }
+  });
+
+  // Choques entre cajas (ver collide): el héroe con cada dummy y los dummies entre sí. Pararse arriba de uno es suelo.
+  const live = s.d.flatMap((d, k) => d.hp > 0 ? [k] : []);
+  for (const k of live) {
+    const d = s.d[k], { hw, h } = size(w, k), r = collide(w, p, HW, H, 1, d, hw, h, 1 / mass(w, k, c));
+    if (!r) continue;
+    if (r.vert && r.n < 0) p.ground = true, p.rise = false;
+    if (d.lz) hit(d, r.db);
+  }
+  for (const a of live) for (const b of live) {
+    if (b <= a) continue;
+    const A = s.d[a], B = s.d[b], sa = size(w, a), sb = size(w, b), lz = A.lz || B.lz;
+    const r = collide(w, A, sa.hw, sa.h, 1 / mass(w, a, c), B, sb.hw, sb.h, 1 / mass(w, b, c));
+    if (!r) continue;
+    if (r.vert) (r.n < 0 ? A : B).ground = true;
+    if (lz) hit(A, r.da), hit(B, r.db);
+  }
   if (p.ground) p.groundT = t;
+
+  // Fin de LANZADO: en el suelo y más lento de lo que lastima. Roto (o caído del mundo): vuelve a los D_RESPAWN s.
+  // Si el roto era el enganchado, la liga se suelta (y si todavía viajaba, devuelve la carga).
+  for (const d of s.d) {
+    if (d.hp > 0 && d.y < -30) d.hp = 0;
+    if (d.hp <= 0) { if (d.back <= t) d.back = t + Math.round(c.D_RESPAWN * HZ); continue; }
+    if (d.lz && d.ground && d.vx * d.vx + d.vy * d.vy < c.IMPACT_V * c.IMPACT_V) d.lz = false;
+  }
+  const hk = p.hook;
+  if (hk && hk.e >= 0) {
+    const d = s.d[hk.e];
+    if (d.hp <= 0) {
+      if (!attached(p, t)) p.charge = Math.min(c.HOOK_N, p.charge + 1);
+      p.hook = null;
+    } else {
+      hk.x = d.x + hk.ox, hk.y = d.y + hk.oy;
+      if (!attached(p, t) && p.shot) p.shot.x = hk.x, p.shot.y = hk.y; // la punta en viaje lo persigue
+    }
+  }
+}
+
+// Choque entre dos cajas que se solapan (pies en y, media anchura hw, alto h, inversa de la masa i): por el eje de menor
+// penetración, inelástico (sin rebote) y repartido por masa. Lo que no puede moverse hacia ese lado (contra el piso o
+// una pared) cuenta como masa infinita: así uno se para sobre un dummy y lo trabado no se hunde. Separa las cajas con
+// barrido (nunca dentro de un rect). Devuelve el eje, el sentido de A hacia B y cuánto cambió la velocidad de cada uno.
+type Body = { x: number, y: number, vx: number, vy: number };
+function collide(w: World, a: Body, ahw: number, ah: number, ia: number, b: Body, bhw: number, bh: number, ib: number) {
+  const ox = Math.min(a.x + ahw, b.x + bhw) - Math.max(a.x - ahw, b.x - bhw);
+  const oy = Math.min(a.y + ah, b.y + bh) - Math.max(a.y, b.y);
+  if (ox <= EPS || oy <= EPS) return null;
+  const vert = oy < ox, pen = vert ? oy : ox;
+  const n = (vert ? b.y + bh / 2 - a.y - ah / 2 : b.x - a.x) >= 0 ? 1 : -1;
+  const sw = (o: Body, hw: number, h: number, d: number) => vert ? sweepY(w, o, hw, h, d) : sweepX(w, o, hw, h, d);
+  const move = (o: Body, hw: number, h: number, d: number) => {
+    const m = sw(o, hw, h, d);
+    if (vert) o.y += m; else o.x += m;
+    return Math.abs(m);
+  };
+  if (Math.abs(sw(a, ahw, ah, -n * 1e-3)) < 1e-4) ia = 0;
+  if (Math.abs(sw(b, bhw, bh, n * 1e-3)) < 1e-4) ib = 0;
+  if (ia + ib === 0) return null; // apretados entre dos paredes: quedan así
+  const vn = vert ? b.vy - a.vy : b.vx - a.vx, j = vn * n < 0 ? -vn * n / (ia + ib) : 0, da = ia * j, db = ib * j;
+  if (vert) a.vy -= n * da, b.vy += n * db;
+  else a.vx -= n * da, b.vx += n * db;
+  const ma = move(a, ahw, ah, -n * pen * ia / (ia + ib)), mb = move(b, bhw, bh, n * (pen - ma));
+  if (pen - ma - mb > EPS) move(a, ahw, ah, -n * (pen - ma - mb));
+  return { vert, n, da, db };
 }
 
 // Las 16 direcciones de PVP (spec §1.8), en tabla: cada 22,5° desde la derecha, en sentido antihorario
@@ -170,13 +293,25 @@ export function cosDeg(deg: number): number {
 // HOOK_LEN más cercano en ángulo a la mira, dentro del cono de gracia (HOOK_CONE grados a cada lado). Ese punto es
 // siempre una esquina de un rect o donde un borde corta el círculo del alcance: a lo largo de un segmento o de un
 // arco el ángulo es monótono, y si la mira lo cruzara ya habría pegado el rayo. Lo tapado lo cubre la esquina que tapa.
-// Con AIM_EDGE (imán, la prioridad del auto-aim: esquina > superficie) una esquina visible dentro del cono gana aunque
-// el rayo pegue: los bordes de vigas y salientes atraen la liga.
-export type Target = { x: number, y: number, d: number, grace: boolean };
-export function hookTarget(w: World, p: Player, i: Input, c: Cfg): Target | null {
-  const [dx, dy] = aimDir(p, i, c), ox = p.x, oy = p.y + HAND, L = c.HOOK_LEN;
+// Los dummies son superficies más (e = cuál) y tapan lo de atrás. Prioridad del auto-aim (amenaza > esquina >
+// superficie): con AIM_FOE, si el rayo no pega a un dummy, gana el dummy visible cuyo centro quede más cerca en ángulo
+// dentro del cono; con AIM_EDGE (imán) una esquina visible dentro del cono gana aunque el rayo pegue: los bordes de
+// vigas y salientes atraen la liga.
+export type Target = { x: number, y: number, d: number, grace: boolean, e: number };
+export function hookTarget(w: World, s: State, i: Input, c: Cfg): Target | null {
+  const p = s.p, [dx, dy] = aimDir(p, i, c), ox = p.x, oy = p.y + HAND, L = c.HOOK_LEN;
+  const fs = foes(w, s), rs = [...w.rects, ...fs.map(f => f.r)], foe = (j: number) => j < w.rects.length ? -1 : fs[j - w.rects.length].k;
   const magnet = c.AIM_EDGE > 0.5 && c.HOOK_CONE > 0;
   let best: Target | null = null, bestCos = cosDeg(c.HOOK_CONE);
+  const [d, j] = raycast(rs, ox, oy, dx, dy, L);
+  if (d >= 0 && foe(j) >= 0) return { x: ox + dx * d, y: oy + dy * d, d, grace: false, e: foe(j) };
+  if (c.AIM_FOE > 0.5 && c.HOOK_CONE > 0) for (const f of fs) {
+    const vx = (f.r.x0 + f.r.x1) / 2 - ox, vy = (f.r.y0 + f.r.y1) / 2 - oy, n = Math.sqrt(vx * vx + vy * vy);
+    if (n < 1e-6 || (vx * dx + vy * dy) / n <= bestCos) continue;
+    const [h, k] = raycast(rs, ox, oy, vx / n, vy / n, L);
+    if (h >= 0 && foe(k) === f.k) best = { x: ox + vx / n * h, y: oy + vy / n * h, d: h, grace: true, e: f.k }, bestCos = (vx * dx + vy * dy) / n;
+  }
+  if (best) return best;
   const consider = (r: Rect, qx: number, qy: number) => {
     const vx = qx - ox, vy = qy - oy, n = Math.sqrt(vx * vx + vy * vy);
     if (n < 1e-6 || n > L + 1e-6) return;
@@ -185,16 +320,15 @@ export function hookTarget(w: World, p: Player, i: Input, c: Cfg): Target | null
     // Apuntar un pelo hacia adentro del rect, así el rayo no roza la esquina; tiene que pegar ahí mismo (no tapado)
     const mx = (r.x0 + r.x1) / 2 - qx, my = (r.y0 + r.y1) / 2 - qy, mn = Math.sqrt(mx * mx + my * my) || 1;
     const ux = vx + mx / mn * 1e-4, uy = vy + my / mn * 1e-4, un = Math.sqrt(ux * ux + uy * uy);
-    const h = raycast(w, ox, oy, ux / un, uy / un, L + 1e-3);
+    const [h, k] = raycast(rs, ox, oy, ux / un, uy / un, L + 1e-3);
     if (h < 0 || h < n - 1e-3) return;
-    best = { x: ox + ux / un * h, y: oy + uy / un * h, d: h, grace: true }, bestCos = cs;
+    best = { x: ox + ux / un * h, y: oy + uy / un * h, d: h, grace: true, e: foe(k) }, bestCos = cs;
   };
-  if (magnet) for (const r of w.rects) for (const qx of [r.x0, r.x1]) for (const qy of [r.y0, r.y1]) consider(r, qx, qy);
+  if (magnet) for (const r of rs) for (const qx of [r.x0, r.x1]) for (const qy of [r.y0, r.y1]) consider(r, qx, qy);
   if (best) return best;
-  const d = raycast(w, ox, oy, dx, dy, L);
-  if (d >= 0) return { x: ox + dx * d, y: oy + dy * d, d, grace: false };
+  if (d >= 0) return { x: ox + dx * d, y: oy + dy * d, d, grace: false, e: -1 };
   if (c.HOOK_CONE <= 0) return null;
-  for (const r of w.rects) {
+  for (const r of rs) {
     if (!magnet) for (const qx of [r.x0, r.x1]) for (const qy of [r.y0, r.y1]) consider(r, qx, qy);
     for (const y of [r.y0, r.y1]) {
       const e = L * L - (y - oy) * (y - oy);
@@ -208,34 +342,36 @@ export function hookTarget(w: World, p: Player, i: Input, c: Cfg): Target | null
   return best;
 }
 
-// Distancia por el rayo unitario (dx, dy) desde (ox, oy) hasta el primer rect antes de max, o −1 (método de las franjas)
-export function raycast(w: World, ox: number, oy: number, dx: number, dy: number, max: number): number {
-  let best = max, hit = false;
-  for (const r of w.rects) {
+// Distancia por el rayo unitario (dx, dy) desde (ox, oy) hasta el primer rect de rs antes de max y cuál es (su índice),
+// o [−1, −1] (método de las franjas)
+export function raycast(rs: Rect[], ox: number, oy: number, dx: number, dy: number, max: number): [number, number] {
+  let best = max, hit = -1;
+  for (const [k, r] of rs.entries()) {
     let t0 = 0, t1 = best;
     if (dx === 0) { if (ox <= r.x0 || ox >= r.x1) continue; }
     else { const a = (r.x0 - ox) / dx, b = (r.x1 - ox) / dx; t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b)); }
     if (dy === 0) { if (oy <= r.y0 || oy >= r.y1) continue; }
     else { const a = (r.y0 - oy) / dy, b = (r.y1 - oy) / dy; t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b)); }
-    if (t0 > 0 && t0 <= t1) best = t0, hit = true;
+    if (t0 > 0 && t0 <= t1) best = t0, hit = k;
   }
-  return hit ? best : -1;
+  return hit >= 0 ? [best, hit] : [-1, -1];
 }
 
-// Hasta dónde llega la caja moviéndose d por un eje sin entrar en ningún rect
-function sweepX(w: World, p: Player, d: number): number {
+// Hasta dónde llega una caja (centro x, pies y, media anchura hw, alto h) moviéndose d por un eje sin entrar en ningún rect
+type Pos = { x: number, y: number };
+function sweepX(w: World, p: Pos, hw: number, h: number, d: number): number {
   for (const r of w.rects) {
-    if (p.y + H <= r.y0 + EPS || p.y >= r.y1 - EPS) continue; // no comparten altura
-    if (d > 0 && p.x + HW <= r.x0 + EPS) d = Math.min(d, r.x0 - (p.x + HW));
-    if (d < 0 && p.x - HW >= r.x1 - EPS) d = Math.max(d, r.x1 - (p.x - HW));
+    if (p.y + h <= r.y0 + EPS || p.y >= r.y1 - EPS) continue; // no comparten altura
+    if (d > 0 && p.x + hw <= r.x0 + EPS) d = Math.min(d, r.x0 - (p.x + hw));
+    if (d < 0 && p.x - hw >= r.x1 - EPS) d = Math.max(d, r.x1 - (p.x - hw));
   }
   return d;
 }
 
-function sweepY(w: World, p: Player, d: number): number {
+function sweepY(w: World, p: Pos, hw: number, h: number, d: number): number {
   for (const r of w.rects) {
-    if (p.x + HW <= r.x0 + EPS || p.x - HW >= r.x1 - EPS) continue; // no comparten anchura
-    if (d > 0 && p.y + H <= r.y0 + EPS) d = Math.min(d, r.y0 - (p.y + H));
+    if (p.x + hw <= r.x0 + EPS || p.x - hw >= r.x1 - EPS) continue; // no comparten anchura
+    if (d > 0 && p.y + h <= r.y0 + EPS) d = Math.min(d, r.y0 - (p.y + h));
     if (d < 0 && p.y >= r.y1 - EPS) d = Math.max(d, r.y1 - p.y);
   }
   return d;

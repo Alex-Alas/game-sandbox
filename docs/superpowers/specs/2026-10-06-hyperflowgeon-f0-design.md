@@ -111,6 +111,9 @@ combate, carrera de traversal contra un fantasma, cacería de jefe, control de z
 
 Auto-aim: cono de 35° en la dirección del joystick; prioridad amenaza > anclable > objeto. Botones de al menos
 12 mm, reubicables y escalables (como el ajuste de tamaño de VÓRTICE). Todo remapeable.
+*(Cerrado en F1, paso C, 2026-10-07: el cono es de cada perfil del garfio, 8–18°, no 35°; como todo es anclable, la
+prioridad quedó amenaza > esquina > superficie, con el imán a enemigos prendido y el de esquinas y las 16 direcciones
+apagados fuera de PVP.)*
 
 ### Reglas sistémicas
 
@@ -128,7 +131,8 @@ héroe lo gana y gasta distinto (§4). Se pierde al recibir un golpe (−25) y d
 | EN PICADA | caída dirigida | armadura contra ligeros; onda al impactar según velocidad; recuperación cancelable con salto | rompe pisos rompibles |
 
 **Entorno con propiedades legibles** (cada propiedad = un color y una forma; un objeto puede tener varias):
-anclable (ganchos, vigas, cornisas, mástiles), rompible (pisos, tablones, cajas), lanzable (barriles, sillas,
+anclable (ganchos, vigas, cornisas, mástiles; *desde F1 paso B todo es anclable: la propiedad pasa a ser «no
+anclable», una superficie lisa que se agrega solo si un nivel la pide*), rompible (pisos, tablones, cajas), lanzable (barriles, sillas,
 enemigos livianos), rebotable (velas, toldos, colchones, campanas), deslizable (rieles, cables tensos,
 barandas, jarcias, paredes lisas).
 
