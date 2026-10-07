@@ -79,10 +79,11 @@ test('liga: la rapidez cambia según el ángulo (a favor acelera, en contra fren
 });
 
 test('liga: en contra frena, te devuelve y no te acerca más rápido que HOOK_V', () => {
-  const { s, w } = hooked([R(-12, -50, -10, 50)], [-1, 0], 20, { ...G0, HOOK_DAMP: 0 });
+  const c = { ...G0, HOOK_V: 22 }; // un tope que la liga alcanza en 10 m, sea cual sea la calibración
+  const { s, w } = hooked([R(-12, -50, -10, 50)], [-1, 0], 20, { ...c, HOOK_DAMP: 0 });
   let min = 0;
-  for (let k = 0; k < 120 && s.p.hook; k++) step(s, w, { x: 0, jump: false, hook: true }, G0), min = Math.min(min, s.p.vx);
-  assert.ok(min < -C.HOOK_V + 0.01 && min >= -C.HOOK_V - 1e-9, `vuelta a ${min}`);
+  for (let k = 0; k < 120 && s.p.hook; k++) step(s, w, { x: 0, jump: false, hook: true }, c), min = Math.min(min, s.p.vx);
+  assert.ok(min < -c.HOOK_V + 0.01 && min >= -c.HOOK_V - 1e-9, `vuelta a ${min}`);
 });
 
 test('liga: es una fuerza central (conserva el momento angular alrededor del ancla)', () => {

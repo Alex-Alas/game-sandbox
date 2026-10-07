@@ -1,32 +1,43 @@
 import { init, step, aimDir, raycast, DT, HW, H, HAND, type Input, type State } from './sim/sim.ts';
 import { RANGES, DEFAULTS, type Cfg } from './sim/params.ts';
 import { PATIO } from './patio.ts';
+import { CAM_RANGES, CAM_DEFAULTS, newCam, follow, type CamCfg } from './camera.ts';
 
 // HYPERFLOWGEON · F1 paso B: la liga (garfio elástico) en gris. Paso fijo de 60 Hz con render interpolado.
 const cv = document.getElementById('game') as HTMLCanvasElement;
 const ctx = cv.getContext('2d')!;
 const hud = document.getElementById('hud')!;
 
-// Ajustes: deslizadores nativos generados desde RANGES y guardados en localStorage
-const cfg: Cfg = { ...DEFAULTS };
-const keys = Object.keys(RANGES) as (keyof Cfg)[];
-try {
-  const saved = JSON.parse(localStorage.getItem('hfg.cfg') ?? '{}');
-  for (const k of keys) if (typeof saved[k] === 'number') cfg[k] = saved[k];
-} catch { /* sin almacenamiento: valores por defecto */ }
-const save = () => { try { localStorage.setItem('hfg.cfg', JSON.stringify(cfg)); } catch { /* idem */ } };
-const shows = keys.map(k => {
-  const [, min, max, stp, label] = RANGES[k];
-  const row = document.createElement('label');
-  row.innerHTML = `<span title="${k}">${label}</span><input type="range" min="${min}" max="${max}" step="${stp}"><output></output>`;
-  const inp = row.querySelector('input')!, out = row.querySelector('output')!;
-  inp.oninput = () => { cfg[k] = +inp.value; out.textContent = inp.value; save(); };
-  document.getElementById('rows')!.append(row);
-  return () => { inp.value = String(cfg[k]); out.textContent = String(cfg[k]); };
-});
+// Ajustes: deslizadores nativos generados desde RANGES (sim, en hfg.cfg) y CAM_RANGES (vista, en hfg.cam);
+// las filas [v, 0, 1, 1] son casillas. Cada función de `shows` vuelve a pintar su fila desde los valores.
+type Table = Record<string, [number, number, number, number, string]>;
+const cfg: Cfg = { ...DEFAULTS }, camCfg: CamCfg = { ...CAM_DEFAULTS };
+const shows: (() => void)[] = [];
+function panel(table: Table, vals: Record<string, number>, key: string, box: string) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) ?? '{}');
+    for (const k in table) if (typeof saved[k] === 'number') vals[k] = saved[k];
+  } catch { /* sin almacenamiento: valores por defecto */ }
+  const save = () => { try { localStorage.setItem(key, JSON.stringify(vals)); } catch { /* idem */ } };
+  for (const k in table) {
+    const [, min, max, stp, label] = table[k], check = min === 0 && max === 1 && stp === 1;
+    const row = document.createElement('label');
+    row.innerHTML = `<span title="${k}">${label}</span>` + (check ? '<input type="checkbox"><output></output>'
+      : `<input type="range" min="${min}" max="${max}" step="${stp}"><output></output>`);
+    const inp = row.querySelector('input')!, out = row.querySelector('output')!;
+    inp.oninput = () => { vals[k] = check ? +inp.checked : +inp.value; out.textContent = check ? '' : inp.value; save(); };
+    document.getElementById(box)!.append(row);
+    shows.push(() => { if (check) inp.checked = vals[k] > 0.5; else inp.value = out.textContent = String(vals[k]); });
+  }
+  return save;
+}
+const saves = [panel(RANGES, cfg, 'hfg.cfg', 'rows'), panel(CAM_RANGES, camCfg, 'hfg.cam', 'camrows')];
 shows.forEach(f => f());
-document.getElementById('copy')!.onclick = () => navigator.clipboard?.writeText(JSON.stringify(cfg));
-document.getElementById('reset')!.onclick = () => { Object.assign(cfg, DEFAULTS); save(); shows.forEach(f => f()); };
+document.getElementById('copy')!.onclick = () => navigator.clipboard?.writeText(JSON.stringify({ ...cfg, ...camCfg }));
+document.getElementById('reset')!.onclick = () => {
+  Object.assign(cfg, DEFAULTS), Object.assign(camCfg, CAM_DEFAULTS);
+  saves.forEach(f => f()), shows.forEach(f => f());
+};
 document.getElementById('tune')!.addEventListener('click', () => (document.activeElement as HTMLElement | null)?.blur()); // el teclado vuelve al juego
 
 // Teclado: ←/→ A/D corren, las flechas y WASD también apuntan, espacio salta, K o Shift = GARFIO (mantener).
@@ -95,13 +106,13 @@ function stickVec(t: Touch): [number, number] {
 }
 
 // Mira: el joystick si está tocado (en su zona muerta, la mira sola), si no el ratón si se movió, si no las flechas
-let cam = { px: 0, py: 0, k: 1 };
+const cam = newCam();
 function aim(): [number, number] {
   for (const t of touches.values()) if (t.kind === 'stick') {
     const [x, y] = stickVec(t);
     return x * x + y * y > 0.09 ? [x, y] : [0, 0];
   }
-  if (mouseAim) return [cam.px + (mouse.x - innerWidth / 2) / cam.k - s.p.x, cam.py + VIEW_OFF - (mouse.y - innerHeight / 2) / cam.k - s.p.y - HAND];
+  if (mouseAim) return [cam.cx + (mouse.x - innerWidth / 2) / cam.k - s.p.x, cam.cy - (mouse.y - innerHeight / 2) / cam.k - s.p.y - HAND];
   return [+has('ArrowRight', 'KeyD') - +has('ArrowLeft', 'KeyA'), +has('ArrowUp', 'KeyW') - +has('ArrowDown', 'KeyS')];
 }
 
@@ -122,7 +133,7 @@ let s: State, prev = { x: 0, y: 0 }, simMs = 0;
 const trail: { x: number, y: number, c: string }[] = [];
 let air: { x: number, y: number, top: number, t: number } | null = null, lastJump = '';
 let hookMax = 0, lastHook = '';
-function reset() { s = init(PATIO); prev = { x: s.p.x, y: s.p.y }; trail.length = 0; air = null; }
+function reset() { s = init(PATIO); prev = { x: s.p.x, y: s.p.y }; trail.length = 0; air = null; cam.vx = cam.vy = 0; }
 reset();
 
 const speed = () => Math.sqrt(s.p.vx * s.p.vx + s.p.vy * s.p.vy);
@@ -145,8 +156,6 @@ function tick(i: Input) {
   if (!p.hook && hooked) lastHook = `liga: máx ${hookMax.toFixed(1)} m/s · suelta a ${speed().toFixed(1)} m/s`;
 }
 
-// Metros visibles como mínimo (en vertical u horizontal, lo que entre); el héroe va VIEW_OFF m por debajo del centro
-const VIEW_H = 18, VIEW_W = 30, VIEW_OFF = 3;
 // Color de la mira según lo que hará la liga con la velocidad actual: verde acelera, amarillo columpia, rojo frena
 function effect(dx: number, dy: number): string {
   const v = speed();
@@ -154,24 +163,24 @@ function effect(dx: number, dy: number): string {
   const cos = (dx * s.p.vx + dy * s.p.vy) / v;
   return cos > 0.5 ? '#6bd66b' : cos < -0.5 ? '#ff6b5b' : '#ffe14a';
 }
-function draw(a: number) {
+function draw(a: number, dt: number) {
   const dpr = devicePixelRatio || 1, W = innerWidth, Hh = innerHeight;
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(Hh * dpr)) cv.width = Math.round(W * dpr), cv.height = Math.round(Hh * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const k = Math.min(Hh / VIEW_H, W / VIEW_W), p = s.p;
-  const px = prev.x + (p.x - prev.x) * a, py = prev.y + (p.y - prev.y) * a;
-  cam = { px, py, k };
-  const X = (x: number) => W / 2 + (x - px) * k, Y = (y: number) => Hh / 2 - (y - py - VIEW_OFF) * k;
+  const p = s.p, px = prev.x + (p.x - prev.x) * a, py = prev.y + (p.y - prev.y) * a;
+  follow(cam, px, py, p.vx, p.vy, dt, W, Hh, camCfg);
+  const { cx, cy, k } = cam;
+  const X = (x: number) => W / 2 + (x - cx) * k, Y = (y: number) => Hh / 2 - (y - cy) * k;
 
   ctx.fillStyle = '#1b1a1f';
   ctx.fillRect(0, 0, W, Hh);
   // Rejilla de 1 m (más marcada cada 5 m) para medir a ojo
   ctx.lineWidth = 1;
-  for (let x = Math.ceil(px - W / 2 / k); x < px + W / 2 / k; x++) {
+  for (let x = Math.ceil(cx - W / 2 / k); x < cx + W / 2 / k; x++) {
     ctx.strokeStyle = x % 5 === 0 ? '#3a3740' : '#25242a';
     ctx.beginPath(); ctx.moveTo(X(x), 0); ctx.lineTo(X(x), Hh); ctx.stroke();
   }
-  for (let y = Math.ceil(py + VIEW_OFF - Hh / 2 / k); y < py + VIEW_OFF + Hh / 2 / k; y++) {
+  for (let y = Math.ceil(cy - Hh / 2 / k); y < cy + Hh / 2 / k; y++) {
     ctx.strokeStyle = y % 5 === 0 ? '#3a3740' : '#25242a';
     ctx.beginPath(); ctx.moveTo(0, Y(y)); ctx.lineTo(W, Y(y)); ctx.stroke();
   }
@@ -253,15 +262,15 @@ ${lastHook}`;
 
 let acc = 0, last = 0;
 function frame(now: number) {
-  acc = Math.min(acc + (now - last) / 1000, 0.1); // tras una pausa larga no recupera más de 6 cuadros
-  last = now;
+  const dt = Math.min((now - last) / 1000, 0.1); // tras una pausa larga no recupera más de 6 cuadros
+  acc += dt, last = now;
   while (acc >= DT) tick(input()), acc -= DT;
-  draw(acc / DT);
+  draw(acc / DT, dt);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(t => { last = t; frame(t); });
 
 // Depuración: __hfg.advance(n, entrada) simula n cuadros sin rAF
 Object.assign(window, {
-  __hfg: { state: () => s, cfg, reset, advance: (n: number, i: Input = { x: 0, jump: false }) => { for (let k = 0; k < n; k++) tick(i); return s; } },
+  __hfg: { state: () => s, cfg, camCfg, cam, reset, advance: (n: number, i: Input = { x: 0, jump: false }) => { for (let k = 0; k < n; k++) tick(i); return s; } },
 });
