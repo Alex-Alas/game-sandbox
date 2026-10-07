@@ -28,6 +28,16 @@ tiñe según el efecto. Esto cambia el §4.2 y la propiedad «anclable» del spe
 confirmar: superficies lisas (no anclables) como excepción de diseño de niveles. La ayuda de apuntado (esquinas, cono
 de 35°, prioridades) queda para el paso C.
 
+**Pedido del usuario (2026-10-07): los tres esquemas de apuntado del garfio tienen que quedar elegibles en Ajustes**
+(la opción 1 es la de por defecto y la única hecha):
+1. *El mismo joystick que mueve* (hecho): la mira sigue al joystick; sin dirección, adelante y arriba.
+2. *Arrastrar desde el botón, como Brawl Stars*: tocar GARFIO dispara como en la 1; arrastrar desde el botón apunta
+   con el pulgar derecho y soltar dispara. Separa apuntar de moverse (correr a la derecha y lanzar hacia atrás).
+3. *Tocar el punto del mundo*: la liga va hacia donde se toca (como el ratón).
+
+Los tres llegan a la simulación igual (`Input.ax/ay`), así que es solo entrada; en PVP se reducen a las mismas 16
+direcciones.
+
 ## Objetivo
 
 Contestar la pregunta más riesgosa del proyecto: **¿el grapple con auto-aim en el pulgar se siente preciso y
@@ -124,7 +134,8 @@ public/hyperflowgeon/   assets exportados
    velocidad conservada; en este orden: tirón → enganchar enemigo (liviano viene / pesado te lleva /
    ATAQUE lo lanza) → columpio → bowie atado que se clava y vuelve. Cable tenso = deslizable.
 9. **Auto-aim y entrada.** `aim.ts` (cono 35°, prioridad) con las 16 direcciones de PVP; teclado, mouse,
-   gamepad y táctil híbrido (botones de ≥ 12 mm, reubicables y escalables como en VÓRTICE); remapeo.
+   gamepad y táctil híbrido (botones de ≥ 12 mm, reubicables y escalables como en VÓRTICE); remapeo; los tres
+   esquemas de apuntado del garfio elegibles en Ajustes (ver «Pedido del usuario» arriba).
 10. **Personaje y animación.** `tools/export-assets.mjs` produce el héroe y los clips (esqueleto de 65 → ≤ 60
     huesos, ≤ 6 k tris). `anim.ts`: tabla estado → clip, con el clip estirado para que su impacto caiga en el
     cuadro que dice la simulación; poses de tirón y columpio con control de huesos por código.
