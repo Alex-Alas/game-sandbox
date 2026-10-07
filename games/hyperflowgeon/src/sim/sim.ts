@@ -13,8 +13,10 @@ export type World = { rects: Rect[], spawn: [number, number], orbs?: [number, nu
 export const ORB_R = 0.4;
 // x en [-1, 1]; GARFIO mantenido = enganchado; (ax, ay) = mira (sin largo: adelante y arriba)
 export type Input = { x: number, jump: boolean, hook?: boolean, ax?: number, ay?: number };
-export type Hook = { x: number, y: number, rest: number }; // ancla y largo en reposo de la liga
-export type Shot = { x: number, y: number, t: number, hit: boolean }; // último disparo (para dibujarlo)
+// ancla, cuadro en que llega (antes viaja: no tira) y largo en reposo de la liga (se fija al llegar)
+export type Hook = { x: number, y: number, at: number, rest: number };
+// último disparo (para dibujarlo): de dónde salió (la mano), adónde va y en qué cuadro llega
+export type Shot = { x: number, y: number, ox: number, oy: number, t: number, at: number, hit: boolean };
 export type Player = {
   x: number, y: number, vx: number, vy: number,
   ground: boolean,
@@ -38,6 +40,11 @@ export function init(w: World, c: Cfg = DEFAULTS): State {
     pressT: NEVER, held: false, rise: false, hook: null, hookHeld: false, hookT: NEVER, shot: null, charge: c.HOOK_N, refundT: NEVER } };
 }
 
+// ¿La liga ya llegó al ancla y tira?
+export const attached = (p: Player, t: number) => !!p.hook && t >= p.hook.at;
+// Cuadros que tarda la punta en recorrer d m: HOOK_TRAVEL s a todo el alcance, a velocidad constante
+const travel = (d: number, c: Cfg) => Math.ceil(c.HOOK_TRAVEL * HZ * d / c.HOOK_LEN - 1e-9);
+
 const approach = (v: number, to: number, d: number) => v < to ? Math.min(v + d, to) : Math.max(v - d, to);
 
 export function step(s: State, w: World, i: Input, c: Cfg): void {
@@ -50,24 +57,32 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   // Garfio. SALTO enganchado suelta y suma HOOK_JUMP hacia arriba (y sigue siendo un SALTO: en el suelo salta);
   // soltar GARFIO suelta conservando la velocidad. Soltar a HOOK_REFUND m/s o más (sin contar el HOOK_JUMP)
   // devuelve la carga: encadenar bien casi no gasta. Apretarlo con una carga dispara a hookTarget: si pega, la liga
-  // queda enganchada con un largo en reposo de HOOK_REST × la distancia y gasta la carga; si no, HOOK_MISS cuadros
-  // sin poder disparar (fallar no gasta).
+  // gasta la carga y la punta viaja hasta el ancla (travel: más lejos, más tarda); al llegar queda enganchada con
+  // un largo en reposo de HOOK_REST × la distancia de ese momento. Mientras viaja no tira, SALTO es solo un salto y
+  // soltar GARFIO la cancela y devuelve la carga. Si no pega, la punta viaja todo el alcance y después quedan
+  // HOOK_MISS cuadros sin poder disparar (fallar no gasta).
   const release = () => {
     if (c.HOOK_REFUND > 0 && p.vx * p.vx + p.vy * p.vy >= c.HOOK_REFUND * c.HOOK_REFUND) p.charge = Math.min(c.HOOK_N, p.charge + 1), p.refundT = t;
     p.hook = null;
   };
-  if (p.hook && p.pressT === t) release(), p.vy += c.HOOK_JUMP;
-  if (p.hook && !i.hook) release();
+  if (attached(p, t) && p.pressT === t) release(), p.vy += c.HOOK_JUMP;
+  if (p.hook && !i.hook) {
+    if (attached(p, t)) release();
+    else p.hook = null, p.charge = Math.min(c.HOOK_N, p.charge + 1), p.shot!.at = t;
+  }
   if (i.hook && !p.hookHeld && !p.hook && t >= p.hookT && p.charge >= 1) {
-    const g = hookTarget(w, p, i, c);
-    if (g) p.shot = { x: g.x, y: g.y, t, hit: true }, p.hook = { x: g.x, y: g.y, rest: g.d * c.HOOK_REST }, p.charge -= 1;
-    else {
-      const [dx, dy] = aimDir(p, i, c);
-      p.shot = { x: p.x + dx * c.HOOK_LEN, y: p.y + HAND + dy * c.HOOK_LEN, t, hit: false };
-      p.hookT = t + c.HOOK_MISS;
+    const g = hookTarget(w, p, i, c), ox = p.x, oy = p.y + HAND;
+    if (g) {
+      const at = t + travel(g.d, c);
+      p.shot = { x: g.x, y: g.y, ox, oy, t, at, hit: true }, p.hook = { x: g.x, y: g.y, at, rest: 0 }, p.charge -= 1;
+    } else {
+      const [dx, dy] = aimDir(p, i, c), at = t + travel(c.HOOK_LEN, c);
+      p.shot = { x: ox + dx * c.HOOK_LEN, y: oy + dy * c.HOOK_LEN, ox, oy, t, at, hit: false };
+      p.hookT = at + c.HOOK_MISS;
     }
   }
   p.hookHeld = !!i.hook;
+  const on = attached(p, t);
 
   // Cargas: se recargan solas, una cada HOOK_CD s (HOOK_GROUND veces más rápido en el suelo); las chispas devuelven una.
   p.charge = Math.min(c.HOOK_N, p.charge + DT / c.HOOK_CD * (p.ground ? c.HOOK_GROUND : 1));
@@ -82,15 +97,16 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   // Enganchado manda la liga: el suelo no frena.
   const to = c.RUN * i.x;
   const speeding = to * p.vx >= 0 && Math.abs(to) > Math.abs(p.vx);
-  if (p.ground && !p.hook) p.vx = approach(p.vx, to, (speeding ? c.ACC : c.DEC) * DT);
+  if (p.ground && !on) p.vx = approach(p.vx, to, (speeding ? c.ACC : c.DEC) * DT);
   else if (speeding || to * p.vx < 0) p.vx = approach(p.vx, to, c.AIR * DT);
 
   // Liga: solo tira (nunca empuja) hacia el ancla, HOOK_K × lo estirado menos HOOK_DAMP × la velocidad radial, y
   // nunca te acerca más rápido que HOOK_V: la herramienta sola no regala velocidad (pasar de ahí sale del columpio).
   // Es una fuerza central, así que la rapidez cambia según el ángulo (a favor acelera, en contra frena y te
   // devuelve, de costado solo te curva: columpio) y se conserva el momento angular alrededor del ancla.
-  if (p.hook) {
+  if (p.hook && on) {
     const ex = p.hook.x - p.x, ey = p.hook.y - (p.y + HAND), d = Math.sqrt(ex * ex + ey * ey);
+    if (t === p.hook.at) p.hook.rest = d * c.HOOK_REST;
     if (d > p.hook.rest) {
       const nx = ex / d, ny = ey / d, vr = p.vx * nx + p.vy * ny;
       const a = Math.max(0, Math.min(c.HOOK_K * (d - p.hook.rest) - c.HOOK_DAMP * vr, (c.HOOK_V - vr) / DT));
@@ -110,8 +126,8 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   // Gravedad tal que JUMP_H se alcanza en JUMP_T; más fuerte al caer. Paso trapezoidal: la parábola es exacta.
   // Enganchado, una sola gravedad y sin tope de caída: con la de caída más fuerte cada columpio ganaría altura gratis.
   const vy0 = p.vy;
-  p.vy -= 2 * c.JUMP_H / (c.JUMP_T * c.JUMP_T) * (p.vy < 0 && !p.hook ? c.FALL_G : 1) * DT;
-  if (p.vy < -c.MAX_FALL && !p.hook) p.vy = -c.MAX_FALL;
+  p.vy -= 2 * c.JUMP_H / (c.JUMP_T * c.JUMP_T) * (p.vy < 0 && !on ? c.FALL_G : 1) * DT;
+  if (p.vy < -c.MAX_FALL && !on) p.vy = -c.MAX_FALL;
   if (p.vy <= 0) p.rise = false;
 
   // Mover por ejes con barrido: no atraviesa nada, por rápido que vaya

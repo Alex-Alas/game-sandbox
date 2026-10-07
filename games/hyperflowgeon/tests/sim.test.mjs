@@ -60,8 +60,9 @@ test('determinismo: mismas entradas ⇒ mismo estado; serializar a mitad no camb
   assert.equal(JSON.stringify(play(mid, 600, 1200)), end);
 });
 
-// Liga: sin gravedad (JUMP_H = 0) para aislarla. El héroe va a 20 m/s por el aire y engancha algo a 10 m de la mano.
-const G0 = { ...C, JUMP_H: 0 };
+// Liga: sin gravedad (JUMP_H = 0) ni viaje del ancla para aislarla. El héroe va a 20 m/s por el aire y engancha algo
+// a 10 m de la mano.
+const G0 = { ...C, JUMP_H: 0, HOOK_TRAVEL: 0 };
 function hooked(rects, aim, vx = 20, c = G0) {
   const w = { spawn: [0, 0], rects }, s = init(w);
   s.p.vx = vx;
@@ -174,6 +175,32 @@ test('cono de gracia: si el rayo no pega, la esquina visible más cercana a la m
   const g3 = aim(0, 12, [R(-50, -10, 50, -1)]);
   assert.ok(Math.abs(g3.d - C.HOOK_LEN) < 1e-3 && Math.abs(g3.y + 1) < 1e-3, JSON.stringify(g3));
   for (const d of [0, 10, 30, 60, 90]) assert.ok(Math.abs(cosDeg(d) - Math.cos(d * Math.PI / 180)) < 1e-6);
+});
+
+test('viaje del ancla: tarda HOOK_TRAVEL × distancia / alcance y mientras viaja no tira', () => {
+  const c = { ...G0, HOOK_TRAVEL: 0.3, HOOK_LEN: 20 }; // 10 m = 0,15 s = 9 cuadros
+  const { s, w } = hooked([R(10, -50, 12, 50)], [1, 0], 0, c);
+  assert.equal(s.p.hook.at, 1 + 9);
+  for (let k = 0; k < 8; k++) step(s, w, { x: 0, jump: false, hook: true }, c);
+  assert.equal(s.p.vx, 0, 'no tiró en el viaje');
+  step(s, w, { x: 0, jump: false, hook: true }, c);
+  assert.ok(s.p.vx > 0 && Math.abs(s.p.hook.rest - (s.p.hook.x - s.p.x) * c.HOOK_REST) < 0.5, JSON.stringify(s.p.hook));
+});
+
+test('viaje del ancla: soltar antes de llegar cancela y devuelve la carga; SALTO no la suelta', () => {
+  const c = { ...G0, HOOK_TRAVEL: 0.3, HOOK_LEN: 20, HOOK_REFUND: 0, HOOK_CD: 1000 };
+  const { s, w } = hooked([R(10, -50, 12, 50)], [1, 0], 0, c);
+  step(s, w, { x: 0, jump: true, hook: true }, c);
+  assert.ok(s.p.hook, 'SALTO en el viaje no suelta');
+  step(s, w, { x: 0, jump: false, hook: false }, c);
+  assert.equal(s.p.hook, null);
+  assert.ok(s.p.charge > C.HOOK_N - 0.01, `cargas ${s.p.charge}`);
+});
+
+test('viaje del ancla: un disparo fallido viaja todo el alcance y después HOOK_MISS cuadros', () => {
+  const w = { spawn: [0, 0], rects: [] }, s = init(w), c = { ...G0, HOOK_TRAVEL: 0.3 };
+  step(s, w, { x: 0, jump: false, hook: true }, c);
+  assert.equal(s.p.hookT, 1 + 18 + C.HOOK_MISS);
 });
 
 test('perfiles del garfio: todas las claves y dentro de los rangos del panel', () => {
