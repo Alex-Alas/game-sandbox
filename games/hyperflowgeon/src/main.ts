@@ -1,4 +1,4 @@
-import { init, step, aimDir, hookTarget, throwVel, raycast, attached, size, DT, HW, H, HAND, ORB_R, D_HP, type Input, type State } from './sim/sim.ts';
+import { init, step, aimDir, hookTarget, throwVel, raycast, attached, size, atkBox, DT, HW, H, HAND, ORB_R, D_HP, type Input, type State } from './sim/sim.ts';
 import { RANGES, DEFAULTS, PROFILES, HOOK_KEYS, type Cfg, type HookCfg, type Profile } from './sim/params.ts';
 import { PATIO, SPOTS } from './patio.ts';
 import { CAM_RANGES, CAM_DEFAULTS, newCam, follow, type CamCfg } from './camera.ts';
@@ -54,6 +54,7 @@ const MOVE = ['RUN', 'ACC', 'DEC', 'AIR', 'JUMP_H', 'JUMP_T', 'JUMP_CUT', 'FALL_
 const ASSIST = ['AIM_FOE', 'AIM_EDGE', 'AIM_16', 'AIM_UP'] as const;
 const DUMMY = ['M_LIGHT', 'M_MID', 'M_HEAVY', 'D_FRIC', 'D_RESPAWN'] as const;
 const ATTACK = ['THROW_V', 'ANCHOR_M', 'SWING_A', 'SWING_V', 'IMPACT_V', 'IMPACT_DMG'] as const;
+const GOLPE = ['ATK_REACH', 'ATK_L_BASE', 'ATK_H_BASE', 'ATK_CARRY', 'ATK_DMG_L', 'ATK_DMG_H', 'ATK_DIVE'] as const;
 const resetKeys = (ks: readonly (keyof Cfg)[]) => { for (const k of ks) cfg[k] = DEFAULTS[k]; };
 const HINTS: Record<Profile, string> = {
   corto: 'Casi una cuerda: poco estirón, columpio predecible, rígida y de recarga rápida.',
@@ -92,6 +93,9 @@ const SECTIONS: Section[] = [
     { rows: RANGES, keys: MOVE.slice(9, 11), vals: cfg },
   ], reset: () => resetKeys(MOVE) },
   { id: 'ataque', label: 'ATAQUE', fields: [
+    { title: 'Golpe de ATAQUE', note: 'ATAQUE sin liga en un dummy es un golpe: ligero hacia donde mirás; ↑ + ATAQUE = pesado arriba; ↓ en el aire + ATAQUE = picada con pesado abajo. Empuja al dummy con el empuje base más tu rapidez a favor del golpe (sin frenarte), lo congela un momento y lo deja LANZADO. Con la liga enganchada a un dummy, ATAQUE es el modo ancla.' },
+    { rows: RANGES, keys: GOLPE.slice(0, 4), vals: cfg },
+    { rows: RANGES, keys: GOLPE.slice(4), vals: cfg },
     { title: 'Lanzar', note: 'Soltar ATAQUE con la liga en un dummy lo lanza hacia la mira: a esta rapidez (los pesados, más lento) más la que ya llevaba a favor de la mira. Un toque es lanzarlo; la flecha naranja dice hacia dónde y a cuánto.' },
     { rows: RANGES, keys: ATTACK.slice(0, 1), vals: cfg },
     { title: 'Modo ancla (ATAQUE mantenido)', note: 'Con la liga en un dummy, mantener ATAQUE te vuelve el ancla: pesás esto para la liga (el liviano viene sin frenarte) y la mira empuja al dummy, que gira a tu alrededor como un péndulo; lo que golpea, golpea como LANZADO. Más rápido que el tope (respecto de vos), la mira solo lo gira. ATAQUE sostiene la liga aunque sueltes GARFIO (deslizar de GARFIO a ATAQUE se la pasa); apretar GARFIO otra vez la suelta sin lanzar.' },
@@ -99,7 +103,7 @@ const SECTIONS: Section[] = [
     { title: 'A la par', note: 'Mientras mantenés ATAQUE, con o sin liga, los dummies pasan a la par: no chocan con vos (entre ellos sí).' },
     { title: 'Golpes', note: 'Lo LANZADO se lastima al chocar según cuánto cambia su velocidad por encima del umbral; el golpeado así también queda LANZADO.' },
     { rows: RANGES, keys: ATTACK.slice(4), vals: cfg },
-  ], reset: () => resetKeys(ATTACK) },
+  ], reset: () => resetKeys([...GOLPE, ...ATTACK]) },
   { id: 'patio', label: 'PATIO', fields: [
     { title: 'Ir a', note: 'Reinicia todo (también los dummies) en ese lugar. R reinicia en el último elegido.' },
     { buttons: SPOTS.map(([label, x]) => ({ label, onClick: () => { reset(x); menu.close(); } })) },
@@ -345,6 +349,10 @@ function draw(a: number, dt: number) {
     const tag = hooked && p.anchor ? 'PÉNDULO' : d.lz ? 'LANZADO' : hooked ? 'ANCLADO' : '';
     if (tag) tags.push([tag, d.lz ? '#ff9a5b' : '#5ec8ff', X(q.x), top]);
   });
+
+  // Golpe activo: la caja donde pega (atkBox, la misma que usa la sim), con el héroe en su posición interpolada
+  const gb = atkBox({ ...p, x: px, y: py }, cfg, s.t);
+  if (gb) ctx.fillStyle = '#ff9a5b59', ctx.fillRect(X(gb.x0), Y(gb.y1), (gb.x1 - gb.x0) * k, (gb.y1 - gb.y0) * k);
 
   // Liga: tensa más gruesa; floja, tenue. La punta en viaje va de donde salió hacia el ancla (en el tiempo
   // interpolado del render); un disparo fallido viaja todo el alcance y se desvanece unos cuadros.
