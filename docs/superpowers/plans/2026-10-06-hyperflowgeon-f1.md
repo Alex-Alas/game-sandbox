@@ -89,6 +89,16 @@ tirón con guion tipo Scorpion y el enemigo como ancla que solo te lleva. Hecho 
   Pendiente: limitarlo cuando haya proyectiles que lastimen (hoy sería invulnerabilidad).
 - Para probarlo: L o AJUSTES → PATIO → LÁNZAME UNO (un liviano sale hacia el héroe) y la pestaña ATAQUE nueva.
 
+**Paso E (2026-10-07): honda y combate, opción 1 de cada una (elegidas por el usuario).**
+- **A.1, la honda:** la liga hacia anclas por debajo de la mano no sube la rapidez por encima de RUN, y la carga vuelve
+  solo al soltar en columpio (el ancla quedó atrás). Recorta la honda del banco; la recta de 120 m de La Calamidad pasa
+  de ~2,7 s a ~5,1 s, y la larga, de ~5,3 s a ~13,5 s (decisión tomada con esos números a la vista).
+- **Combate 1, «tu velocidad pega»:** ATAQUE es un golpe ligero hacia donde mirás (5 cuadros de startup, 12 en total).
+  ↑ + ATAQUE es pesado hacia arriba y, en el aire, ↓ + ATAQUE es pesado de picada (13 de startup, 24 en total). El
+  empuje es base + `ATK_CARRY` × tu rapidez a favor del golpe, escalado por masa; no te frena. Hitstop por entidad (3 y
+  6 cuadros) solo congela al golpeado, que queda LANZADO. Con la liga a un dummy, ATAQUE sigue siendo el modo ancla.
+- Pendiente: calibrar `ATK_*` jugando (pestaña ATAQUE del menú); el bowie y el combate con momentum, después.
+
 ## Objetivo
 
 Contestar la pregunta más riesgosa del proyecto: **¿el grapple con auto-aim en el pulgar se siente preciso y
