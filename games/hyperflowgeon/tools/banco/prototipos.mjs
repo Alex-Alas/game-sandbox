@@ -9,7 +9,10 @@ export const g = 2 * C.JUMP_H / C.JUMP_T ** 2;
 // Reglas en prueba (las cambia banco.mjs). Las de la liga son la propuesta de la decisión A: SWING_ONLY = la carga vuelve
 // solo si al soltar el ancla quedó atrás; V_PULL = enganchado, la liga solo agrega energía por debajo de esa rapidez;
 // BELOW = ese tope vale solo hacia anclas por debajo de la mano. M1/M2: cuadros a tope para los niveles de Calicó.
-export const REGLAS = { IMP_E: 150, V_CAP: 24, IMP_CD: 0.5, M1: 36, M2: 96, SWING_ONLY: false, V_PULL: 0, BELOW: false, N: 2500 };
+// Cuauhtli (medido con el doble salto de la segunda vuelta del paso D): CAP_LAUNCH = el aleteo saca de pérdida hasta
+// V_OUT pero nunca deja más rápido que al despegar (si no, tope fijo V_CAP); OWN_H = la altura de los propios saltos no
+// se vuelve rapidez en el planeo (presupuesto: rapidez al despegar + altura bajo el despegue + aleteos).
+export const REGLAS = { IMP_E: 150, V_CAP: 24, IMP_CD: 0.5, M1: 36, M2: 96, SWING_ONLY: false, V_PULL: 0, BELOW: false, OWN_H: true, CAP_LAUNCH: true, V_OUT: 12, N: 2500 };
 const NOGRAV = { ...C, JUMP_H: 1e-9, AIR: 0, MAX_FALL: 1e9 };
 const R = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
 
@@ -99,7 +102,7 @@ export const HEROES = {
   cuauhtli: {
     n: 14,
     make(q, course) {
-      let glide = null, imp = GL.IMP_N, dir = 1;
+      let glide = null, imp = GL.IMP_N, dir = 1, y0 = 0, eb = 0, vl = 0; // despegue: altura y energía propia (sin la del salto)
       const ANG = [[1, 0], [0.92, 0.38], [0.71, 0.71], [0.38, 0.92], [0, 1], [0.71, -0.71]];
       const sched = [0, 1, 2].map(k => ({ t: 8 + Math.floor(q[4 + 2 * k] * 200), a: ANG[Math.min(5, Math.floor(q[5 + 2 * k] * 6))] }));
       const cruise = -0.05 - q[0] * 0.35, foldUntil = Math.floor(q[10] * 200), foldAt = Math.floor(q[11] * 100), pullY = q[12] * 20;
@@ -107,12 +110,12 @@ export const HEROES = {
         const p = s.p;
         if (course === 'vuelta' && m.touched) dir = -1;
         imp = Math.min(GL.IMP_N, imp + (p.ground ? DT / REGLAS.IMP_CD : 0));
-        if (p.ground) glide = null;
+        if (p.ground) glide = null, y0 = p.y, eb = p.vx * p.vx / 2, vl = Math.abs(p.vx);
         const jumpNow = p.ground && s.t > q[3] * 30;
         for (const sc of sched) if (s.t === sc.t && !p.ground && imp >= 1) {
           const v0 = Math.hypot(p.vx, p.vy) || 1e-9, sx = dir * sc.a[0], sy = sc.a[1], cth = (p.vx * sx + p.vy * sy) / v0;
-          const v1 = Math.max((1 + cth) / 2 * v0, Math.sqrt(Math.min(v0 * v0 + 2 * REGLAS.IMP_E, REGLAS.V_CAP * REGLAS.V_CAP)));
-          p.vx = sx * v1, p.vy = sy * v1, imp--;
+          const v1 = Math.max((1 + cth) / 2 * v0, Math.sqrt(Math.min(v0 * v0 + 2 * REGLAS.IMP_E, (REGLAS.CAP_LAUNCH ? Math.max(REGLAS.V_OUT, vl) : REGLAS.V_CAP) ** 2)));
+          p.vx = sx * v1, p.vy = sy * v1, imp--, eb += Math.max(0, (v1 * v1 - v0 * v0) / 2);
           if (glide) glide = { ...glide, ux: sx, uy: sy, v: v1 };
         }
         if (!p.ground && imp >= 1 && q[13] > 0.3) for (const f of COURSES[course].foes ?? []) {
@@ -120,8 +123,8 @@ export const HEROES = {
           const ex = f[0] - p.x, ey = f[1] - (p.y + 0.9), d = Math.hypot(ex, ey);
           if (ex * dir > 0 && d < 10 && d > 1.6 && (s.t - (m.lastImp ?? -99)) > 10) {
             const v0 = Math.hypot(p.vx, p.vy) || 1e-9, sx = ex / d, sy = ey / d, cth = (p.vx * sx + p.vy * sy) / v0;
-            const v1 = Math.max((1 + cth) / 2 * v0, Math.sqrt(Math.min(v0 * v0 + 2 * REGLAS.IMP_E, REGLAS.V_CAP * REGLAS.V_CAP)));
-            p.vx = sx * v1, p.vy = sy * v1, imp--, m.lastImp = s.t;
+            const v1 = Math.max((1 + cth) / 2 * v0, Math.sqrt(Math.min(v0 * v0 + 2 * REGLAS.IMP_E, (REGLAS.CAP_LAUNCH ? Math.max(REGLAS.V_OUT, vl) : REGLAS.V_CAP) ** 2)));
+            p.vx = sx * v1, p.vy = sy * v1, imp--, m.lastImp = s.t, eb += Math.max(0, (v1 * v1 - v0 * v0) / 2);
             if (glide) glide = { ...glide, ux: sx, uy: sy, v: v1 };
             break;
           }
@@ -133,6 +136,8 @@ export const HEROES = {
           const tgt = b.fold ? -0.7 : cruise;
           const want = dir * b.ux < 0 ? 1 : (b.uy > tgt ? -1 : 1) * (Math.abs(b.uy - tgt) < 0.05 ? 0.3 : 1);
           glideStep(b, want);
+          // REGLAS.OWN_H: la altura de tus propios saltos no se vuelve rapidez (como el aterrizaje limpio de Calicó)
+          if (REGLAS.OWN_H) { const vm = Math.sqrt(2 * Math.max(0, eb + g * (y0 - b.y))); if (b.v > vm) b.v = Math.max(3, vm); }
           glide = { ux: b.ux, uy: b.uy, v: b.v, fold: b.fold };
           p.vx = b.ux * b.v, p.vy = b.uy * b.v;
           return { cfg: NOGRAV, inp: { x: 0, jump: true } };
@@ -223,10 +228,17 @@ export const HEROES = {
 // Corre una política; devuelve el tiempo hasta cumplir el recorrido (o Infinity)
 export function run(hero, course, q, trace) {
   const { w, done, T } = COURSES[course], s = init(w), m = {}, ctl = HEROES[hero].make(q, course);
+  // Doble salto (de todos desde la segunda vuelta del paso D): el último número de la política dice en qué cuadro del
+  // vuelo se aprieta SALTO otra vez (≥ 0,9: nunca). Va encima de la entrada del héroe, igual para los cuatro.
+  const dj = q[HEROES[hero].n] ?? 1, djAt = dj < 0.9 ? 4 + Math.floor(dj * 60) : -1;
+  let airT = 0;
   for (let k = 0; k < T * 60; k++) {
     let inp, cfg = C, after = null, before = { ...s.p };
     if (typeof ctl === 'function') inp = ctl(s, w, m);
     else { const r = ctl.pre(s, w, m); inp = r.inp; cfg = r.cfg ?? C; after = r.after; }
+    airT = s.p.ground ? 0 : airT + 1;
+    if (djAt > 0 && airT === djAt - 1) inp = { ...inp, jump: false };
+    if (djAt > 0 && airT === djAt) inp = { ...inp, jump: true };
     step(s, w, inp, cfg);
     if (after) after(s);
     // Golpe automático (idealizado): un enemigo vivo a ≤ 1,6 m del pecho se rompe; el héroe rebota (AÉREO: golpear te
@@ -247,7 +259,7 @@ export function run(hero, course, q, trace) {
 export function search(hero, course, N = REGLAS.N) {
   let seed = 7;
   const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-  const n = HEROES[hero].n;
+  const n = HEROES[hero].n + 1; // + el cuadro del doble salto
   let best = { t: Infinity, q: null };
   for (let k = 0; k < N; k++) {
     const q = best.q && k > N / 2 ? best.q.map(v => Math.min(1, Math.max(0, v + (rnd() - 0.5) * 0.2))) : Array.from({ length: n }, rnd);
