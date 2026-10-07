@@ -5,7 +5,7 @@ import { CAM_RANGES, CAM_DEFAULTS, newCam, follow, type CamCfg } from './camera.
 import { buildMenu, rows, refresh, type Section } from './menu.ts';
 import * as T from './touch.ts';
 
-// HYPERFLOWGEON · F1 paso D: enganchar dummies (con doble salto, modo ancla y a la par), en gris. Paso fijo de 60 Hz con render interpolado.
+// HYPERFLOWGEON · F1 paso E: golpes de ATAQUE sobre lo del paso D (dummies, doble salto, modo ancla y a la par), en gris. Paso fijo de 60 Hz con render interpolado.
 const cv = document.getElementById('game') as HTMLCanvasElement;
 const ctx = cv.getContext('2d')!;
 const hud = document.getElementById('hud')!;
@@ -480,11 +480,11 @@ function draw(a: number, dt: number) {
 
   const scheme = T.SCHEMES.find(o => o.id === T.opts.scheme)!.label;
   const assist = [cfg.AIM_FOE > 0.5 && 'imán enemigos', cfg.AIM_EDGE > 0.5 && 'imán esquinas', cfg.AIM_16 > 0.5 && '16 dir.'].filter(Boolean).join(' · ');
-  hud.textContent = `HYPERFLOWGEON · F1 paso D · ⚙ o Esc: ajustes (PATIO: ir al corral)${T.visible() ? `
+  hud.textContent = `HYPERFLOWGEON · F1 paso E · ⚙ o Esc: ajustes (PATIO: ir al corral)${T.visible() ? `
 apuntar: ${scheme}${T.opts.scheme === 'drag' ? ' · arrastrar desde GARFIO y soltar · tocar GARFIO o SALTO suelta' : T.opts.scheme === 'tap' ? ' · tocar el mundo (mantener)' : ' · GARFIO (mantener) · deslizar a SALTO = soltar con impulso'}
-ATAQUE: mantener = a la par (y, con la liga en un dummy, modo ancla: deslizar de GARFIO a ATAQUE) · soltar = lanzar` : ` · R reiniciar · L lanzame uno
+ATAQUE: golpe (joystick ↑ = pesado arriba; ↓ en el aire = picada) · mantener = a la par (y, con la liga en un dummy, modo ancla: deslizar de GARFIO a ATAQUE) · soltar = lanzar` : ` · R reiniciar · L lanzame uno
 teclado: ←/→ A/D correr · espacio saltar (y doble salto) · flechas/WASD apuntan · K o Shift garfio (mantener) · 1/2/3 perfil
-J ataque: mantener = a la par (y, con la liga en un dummy, modo ancla: la mira lo empuja) · soltar = lanzar · K otra vez = soltar sin lanzar
+J ataque: golpe (con ↑ pesado arriba; con ↓ en el aire, picada) · mantener = a la par (y, con la liga en un dummy, modo ancla: la mira lo empuja) · soltar = lanzar · K otra vez = soltar sin lanzar
 ratón: moverlo apunta · clic izq. garfio · clic der. ataque`}
 garfio ${active.toUpperCase()} · cargas ${p.charge.toFixed(1)}/${cfg.HOOK_N}${assist ? ` · ${assist}` : ''}
 vx ${p.vx.toFixed(2).padStart(6)}   vy ${p.vy.toFixed(2).padStart(6)}   |v| ${speed().toFixed(1).padStart(5)}   ${on ? (p.anchor ? 'ancla' : p.hook!.e >= 0 ? 'liga→dummy' : 'liga ') : p.hook ? 'viaje' : p.ground ? 'suelo' : 'aire '}${p.atkHeld ? ' · a la par' : ''}   saltos aire ${p.air}/${cfg.AIR_JUMPS}   sim ${simMs.toFixed(3)} ms

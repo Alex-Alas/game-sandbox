@@ -572,14 +572,15 @@ test('golpes: hitstop: el dummy queda quieto ATK.L.stop cuadros tras el golpe y 
   assert.ok(pos[hit + ATK.L.stop] > 0.8, `después: ${pos[hit + ATK.L.stop]}`);
 });
 
-test('golpes: el pesado ↑ pega al que está arriba de la cabeza y no al de al costado', () => {
-  const w = { spawn: [0, 0], rects: [], dummies: [{ x: 0, y: 1.9, kind: 'liviano' }, { x: 1.2, y: 1.5, kind: 'liviano' }] }, s = init(w, Z);
+test('golpes: el pesado ↑ lanza hacia arriba al de adelante y al de arriba de la cabeza, no al de atrás', () => {
+  const at = (x, y) => ({ x, y, kind: 'liviano' });
+  const w = { spawn: [0, 0], rects: [], dummies: [at(0, 1.9), at(1.2, 0), at(-1.2, 0)] }, s = init(w, Z); // mira a la derecha
   step(s, w, { ...K(), ax: 0, ay: 1 }, Z); // ↑: pesado
   for (let k = 0; k < ATK.H.start + 2; k++) step(s, w, NO, Z);
   assert.equal(s.d[0].hp, 100 - C.ATK_DMG_H, 'arriba');
-  assert.equal(s.d[1].hp, 100, 'al costado');
-  assert.equal(s.d[0].vy, C.ATK_H_BASE, 'sale hacia arriba');
-  assert.ok(s.d[0].lz, 'queda LANZADO');
+  assert.equal(s.d[1].hp, 100 - C.ATK_DMG_H, 'adelante');
+  assert.equal(s.d[2].hp, 100, 'atrás');
+  for (const d of [s.d[0], s.d[1]]) assert.ok(d.vy === C.ATK_H_BASE && d.vx === 0 && d.lz, 'sale hacia arriba, LANZADO');
 });
 
 test('golpes: ↓ en el aire es picada: te baja a ATK_DIVE m/s, y el pesado abajo suma tu caída', () => {

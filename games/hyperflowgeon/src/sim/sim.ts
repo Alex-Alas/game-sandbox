@@ -143,8 +143,8 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
 
   // Golpes de ATAQUE (sin liga en un dummy; con ella, ATAQUE es el modo ancla). Pega una vez a cada dummy que entre en
   // su caja (atkBox) durante f ∈ [start, end): empuja con ATK_*_BASE más tu rapidez a favor del golpe (sin frenarte),
-  // lo congela hitstop cuadros y lo deja LANZADO. Ligero hacia donde mirás; ↑ = pesado arriba; ↓ en el aire = picada
-  // (te baja a ATK_DIVE m/s) y pesado abajo. SALTO cancela solo en la recuperación (f ≥ end).
+  // lo congela hitstop cuadros y lo deja LANZADO. Ligero hacia donde mirás; ↑ = pesado que lanza hacia arriba; ↓ en
+  // el aire = picada (te baja a ATK_DIVE m/s) y pesado abajo. SALTO cancela solo en la recuperación (f ≥ end).
   const onDummy = attached(p, t) && p.hook!.e >= 0;
   const fd = p.atkK === 1 ? ATK.L : ATK.H;
   if (p.atkK && t - p.atkT0 >= fd.total) p.atkK = 0;
@@ -321,16 +321,14 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
 }
 
 // Caja del golpe activo en el cuadro t, o null: donde pega (la sim) y lo que se dibuja (main.ts), la misma geometría.
-// p.x centro, p.y pies; ligero adelante del cuerpo, pesado ↑ sobre la cabeza y pesado ↓ bajo los pies.
+// p.x centro, p.y pies; ligero adelante del cuerpo, pesado ↑ adelante y sobre la cabeza (lanzador: levanta también al
+// que tenés al lado) y pesado ↓ bajo los pies.
 export function atkBox(p: Player, c: Cfg, t: number): Rect | null {
   const f = t - p.atkT0, fd = p.atkK === 1 ? ATK.L : ATK.H;
   if (!p.atkK || f < fd.start || f >= fd.end) return null;
-  const r = c.ATK_REACH;
-  if (p.atkK === 1) {
-    const fwd = p.face > 0;
-    return { x0: fwd ? p.x + HW : p.x - HW - r, y0: p.y + 0.5, x1: fwd ? p.x + HW + r : p.x - HW, y1: p.y + H - 0.2 };
-  }
-  if (p.atkK === 2) return { x0: p.x - HW - 0.3, y0: p.y + H, x1: p.x + HW + 0.3, y1: p.y + H + r + 0.5 };
+  const r = c.ATK_REACH, fwd = p.face > 0;
+  if (p.atkK === 1) return { x0: fwd ? p.x + HW : p.x - HW - r, y0: p.y + 0.5, x1: fwd ? p.x + HW + r : p.x - HW, y1: p.y + H - 0.2 };
+  if (p.atkK === 2) return { x0: fwd ? p.x - HW - 0.3 : p.x - HW - r, y0: p.y + 0.5, x1: fwd ? p.x + HW + r : p.x + HW + 0.3, y1: p.y + H + r + 0.5 };
   return { x0: p.x - HW - 0.3, y0: p.y - r - 0.5, x1: p.x + HW + 0.3, y1: p.y };
 }
 
