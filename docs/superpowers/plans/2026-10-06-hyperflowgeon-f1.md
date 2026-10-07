@@ -73,6 +73,22 @@ tirón con guion tipo Scorpion y el enemigo como ancla que solo te lleva. Hecho 
 - Queda para cuando haya golpes: ANCLADO solo se muestra (sus reglas, que los golpes tensan, llegan con el combate),
   rebotable 0,3 s y el tirón que deja LANZADO. Variantes de ATAQUE: a definir con el usuario después de jugar esto.
 
+**Paso D, segunda vuelta (2026-10-07): lo que pidió el usuario después de jugarlo.** Hecho en gris, para calibrar:
+- SALTO enganchado a un dummy ya no suelta la liga (cortaba las jugadas que usan el momentum para mantenerlo
+  agarrado): es un salto o el doble salto. A una superficie sigue soltando con `HOOK_JUMP`.
+- **Doble salto** (`AIR_JUMPS`, `JUMP2_H`): vertical, sin tocar `vx` ni quitar subida a favor; vuelve al tocar suelo.
+- **ATAQUE mantenido = modo ancla.** Se presentaron tres opciones (péndulo dirigido, órbita de largo fijo,
+  telequinesis) y el usuario eligió el **péndulo dirigido**: la misma liga, con el héroe como ancla (pesa `ANCHOR_M`)
+  y la mira empujando al dummy (`SWING_A`; pasando `SWING_V` solo lo gira). Soltar ATAQUE lanza hacia la mira a
+  `THROW_V` más la rapidez que el dummy ya llevaba a favor de la mira: el timing del péndulo, o tu impulso que lo
+  arrastra, da la fuerza (el «drive-by»). Un toque sigue siendo lanzar. Lo que manejás golpea como LANZADO. ATAQUE
+  sostiene la liga aunque se suelte GARFIO (en táctil, deslizar de GARFIO a ATAQUE se la pasa). Soltar sin lanzar:
+  apretar GARFIO otra vez (la opción decía «soltar GARFIO», pero eso rompía el deslizar y obligaba a mantener los dos).
+- **A la par.** Opciones: mantener ATAQUE, solo el que manejás, durante el doble salto; el usuario eligió **mantener
+  ATAQUE** (con o sin liga): los dummies no chocan con el héroe; el que quedó encimado sigue a la par hasta separarse.
+  Pendiente: limitarlo cuando haya proyectiles que lastimen (hoy sería invulnerabilidad).
+- Para probarlo: L o AJUSTES → PATIO → LÁNZAME UNO (un liviano sale hacia el héroe) y la pestaña ATAQUE nueva.
+
 ## Objetivo
 
 Contestar la pregunta más riesgosa del proyecto: **¿el grapple con auto-aim en el pulgar se siente preciso y
