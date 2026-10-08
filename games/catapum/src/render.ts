@@ -1,7 +1,7 @@
 // Dibujo del mundo en Canvas 2D, en metros con y hacia arriba (setTransform). El HUD va aparte (hud.ts).
 // Interpolación: ip(clave, x, y) da la posición entre el paso anterior y el actual (en el invitado ya viene
 // interpolada desde los estados del anfitrión).
-import { CELL, AIR, ROCK, WOOD, type Terr } from './sim/terrain.ts';
+import { CELL, AIR, ROCK, WOOD, cell, type Terr } from './sim/terrain.ts';
 import { HW, H, HC, HAND_Y, PROP_HW, PROP_H, NEVER, type State, type World, type Pl, type Proj } from './sim/state.ts';
 import { projOf } from './sim/cards.ts';
 import { charOf, PCOLORS, TEAMS } from './sim/chars.ts';
@@ -37,13 +37,14 @@ function background(ctx: CanvasRenderingContext2D, v: View, w: World) {
   g.addColorStop(0, th.sky[0]), g.addColorStop(1, th.sky[1]);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, v.W, v.H);
-  // sol y colinas lejanas con parallax
+  // sol y colinas lejanas con parallax (en la cueva: un resplandor y estalactitas lejanas)
   const par = (f: number) => [v.ox * f, v.oy * f];
   const [sx] = par(0.15);
   ctx.fillStyle = th.sun;
-  ctx.globalAlpha = 0.85;
-  circle(ctx, v.W * 0.78 + sx * 0.2, v.H * 0.2, Math.min(v.W, v.H) * 0.07); ctx.fill();
+  ctx.globalAlpha = th.cave ? 0.18 : 0.85;
+  circle(ctx, v.W * 0.78 + sx * 0.2, v.H * 0.2, Math.min(v.W, v.H) * (th.cave ? 0.28 : 0.07)); ctx.fill();
   ctx.globalAlpha = 1;
+  if (th.cave) caveBackdrop(ctx, v, par(0.3)[0]);
   for (const [k, col, amp, base] of [[0.25, th.far, 0.12, 0.62], [0.45, th.near, 0.09, 0.72]] as [number, string, number, number][]) {
     const [hx] = par(k), wy = toScreen(v, 0, m.water)[1];
     ctx.fillStyle = col;
@@ -60,13 +61,133 @@ function background(ctx: CanvasRenderingContext2D, v: View, w: World) {
   world(ctx, v);
   ctx.fillStyle = th.cloud;
   ctx.globalAlpha = m.theme === 'volcan' ? 0.35 : 0.8;
-  for (const c of R.clouds) {
+  if (!th.cave) for (const c of R.clouds) {
     const x = ((c[0] + R.time * 0.6 * (c[2] / 3)) % (m.w + 40)) - 20, y = c[1], r = c[2];
     circle(ctx, x, y, r * 0.6); ctx.fill();
     circle(ctx, x + r * 0.6, y + r * 0.15, r * 0.5); ctx.fill();
     circle(ctx, x - r * 0.6, y - r * 0.05, r * 0.45); ctx.fill();
   }
   ctx.globalAlpha = 1;
+}
+
+// Cueva: estalactitas y cristales lejanos que se mueven poco con la cámara (en pantalla, no en metros)
+function caveBackdrop(ctx: CanvasRenderingContext2D, v: View, ox: number) {
+  const t = R.time;
+  ctx.fillStyle = 'rgba(14,10,29,0.55)';
+  for (let k = -1; k < v.W / 70 + 2; k++) {
+    const x = k * 70 + ((ox % 70) + 70) % 70 - 70, h = 50 + ((k * 37) % 5 + 5) % 5 * 22, w = 26 + ((k * 53) % 3 + 3) % 3 * 12;
+    ctx.beginPath(); ctx.moveTo(x - w, 0); ctx.lineTo(x + w, 0); ctx.lineTo(x + ((k * 11) % 7 - 3), h); ctx.closePath(); ctx.fill();
+  }
+  for (let k = 0; k < 14; k++) { // cristalitos que brillan
+    const x = (k * 137 + ox * 0.6) % (v.W + 40) - 20, y = v.H * (0.25 + ((k * 61) % 50) / 100);
+    ctx.globalAlpha = 0.25 + 0.25 * Math.sin(t * 2 + k);
+    ctx.fillStyle = k % 2 ? '#8ef2ff' : '#ff9af0';
+    ctx.beginPath(); ctx.moveTo(x, y - 7); ctx.lineTo(x + 3, y); ctx.lineTo(x, y + 7); ctx.lineTo(x - 3, y); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Palos mayores del barco (detrás del terreno): mástil, vela, bandera pirata
+function masts(ctx: CanvasRenderingContext2D, w: World) {
+  if (!w.m.masts) return;
+  const t = R.time;
+  for (const [x, y0, y1] of w.m.masts) {
+    const sw = (y1 - y0) * 0.3;
+    ctx.fillStyle = 'rgba(250,244,230,0.92)'; ctx.strokeStyle = '#2b1a0e'; ctx.lineWidth = 0.08;
+    ctx.beginPath(); // vela cuadra con panza
+    ctx.moveTo(x - sw, y1 - 2.2); ctx.quadraticCurveTo(x, y1 - 3.2 + Math.sin(t * 1.3) * 0.15, x + sw, y1 - 2.2);
+    ctx.lineTo(x + sw * 0.92, y0 + (y1 - y0) * 0.38); ctx.quadraticCurveTo(x, y0 + (y1 - y0) * 0.33 + Math.sin(t * 1.3 + 1) * 0.2, x - sw * 0.92, y0 + (y1 - y0) * 0.38);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#5a3d22'; ctx.fillRect(x - 0.28, y0 - 0.5, 0.56, y1 - y0 + 0.5); ctx.strokeRect(x - 0.28, y0 - 0.5, 0.56, y1 - y0 + 0.5);
+    ctx.fillRect(x - sw - 0.3, y1 - 2.5, sw * 2 + 0.6, 0.3); // verga
+    const fy = y1 + 0.2, fw = Math.sin(t * 5 + x) * 0.25; // bandera negra con calavera
+    ctx.fillStyle = '#17141c'; ctx.beginPath(); ctx.moveTo(x, fy + 1.4); ctx.lineTo(x + 1.9, fy + 1.2 + fw); ctx.lineTo(x + 1.9, fy + 0.2 + fw); ctx.lineTo(x, fy + 0.1); ctx.fill();
+    ctx.fillStyle = '#f4f1ea'; circle(ctx, x + 0.95, fy + 0.75 + fw * 0.5, 0.2); ctx.fill();
+  }
+}
+
+// Ojos de buey a lo largo del casco (solo donde todavía hay madera)
+function portholes(ctx: CanvasRenderingContext2D, w: World) {
+  if (!w.m.masts) return;
+  const T = w.T;
+  ctx.lineWidth = 0.07;
+  for (let x = 20; x <= 64; x += 4.5) {
+    const i = Math.floor(x / CELL), j = Math.floor(12 / CELL);
+    if (![-3, 0, 3].every(d => cell(T, i + d, j) === WOOD)) continue;
+    ctx.fillStyle = '#1a2b3a'; ctx.strokeStyle = '#c9a15a';
+    circle(ctx, x, 12, 0.42); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'; circle(ctx, x - 0.12, 12.12, 0.12); ctx.fill();
+  }
+}
+
+// Racimo de cristales colgando de una punta (x, y): tiembla y brilla cuando va a soltar una esquirla
+function crystals(ctx: CanvasRenderingContext2D, x: number, y: number, charge: number) {
+  const t = R.time, sh = charge > 0 ? Math.sin(t * 70) * 0.07 * charge : 0;
+  ctx.save();
+  ctx.translate(x + sh, y);
+  ctx.lineWidth = 0.05; ctx.strokeStyle = '#0e0a1d';
+  for (const [dx, len, wd, col] of [[-0.42, 0.9, 0.2, '#ff9af0'], [0.4, 0.8, 0.2, '#ff9af0'], [0, 1.45, 0.28, '#8ef2ff']] as [number, number, number, string][]) {
+    ctx.fillStyle = charge > 0.6 && Math.floor(t * 14) % 2 ? '#ffffff' : col;
+    ctx.beginPath(); ctx.moveTo(dx - wd, 0.1); ctx.lineTo(dx + wd, 0.1); ctx.lineTo(dx, -len); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  if (charge > 0) { ctx.globalAlpha = 0.25 * charge; ctx.fillStyle = '#8ef2ff'; circle(ctx, 0, -0.5, 1.4 + charge * 0.6); ctx.fill(); ctx.globalAlpha = 1; }
+  ctx.restore();
+}
+
+// Peligros nuevos (cañonazos, cristales del techo): avisos en el mundo, cañones y lo que vuela
+function hazardsFront(ctx: CanvasRenderingContext2D, s: State, w: World) {
+  const m = w.m, hz = s.hz, now = s.t, t = R.time;
+  const cn = m.hz.cannon;
+  if (cn) {
+    for (const L of hz.lanes ?? []) { // línea roja de punta a punta y el cañón que apunta
+      const left = Math.max(0, L.t - now) / 60, a = 0.35 + 0.4 * Math.abs(Math.sin(t * (6 + 10 * (1 - left / cn.warn))));
+      ctx.strokeStyle = '#ff3a3a'; ctx.lineWidth = 0.14; ctx.globalAlpha = a; ctx.setLineDash([0.7, 0.5]);
+      ctx.beginPath(); ctx.moveTo(-14, L.y); ctx.lineTo(m.w + 14, L.y); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = '#ff3a3a';
+      for (let x = ((t * 14 * L.d) % 6 + 6) % 6; x < m.w; x += 6) { // flechas que corren en el sentido del disparo
+        const xx = L.d > 0 ? x : m.w - x;
+        ctx.beginPath(); ctx.moveTo(xx + L.d * 0.5, L.y); ctx.lineTo(xx - L.d * 0.2, L.y + 0.4); ctx.lineTo(xx - L.d * 0.2, L.y - 0.4); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      const bx = L.d > 0 ? -0.2 : m.w + 0.2; // cañón en el borde de donde sale
+      ctx.save(); ctx.translate(bx, L.y); ctx.scale(L.d, 1);
+      ctx.fillStyle = '#2b2b33'; ctx.strokeStyle = '#0d0d12'; ctx.lineWidth = 0.08;
+      ctx.beginPath(); ctx.roundRect(-3.2, -0.55, 3.4, 1.1, 0.2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = left < 0.6 && Math.floor(t * 20) % 2 ? '#ff7a1a' : '#555'; ctx.fillRect(0.1, -0.35, 0.18, 0.7);
+      ctx.fillStyle = '#6b4a2e'; circle(ctx, -1.6, -0.7, 0.55); ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+  }
+  const cr = m.hz.crystals;
+  if (cr) {
+    for (const [x, y] of cr.at) {
+      const d = (hz.drops ?? []).find(q => q.x === x);
+      crystals(ctx, x, y, d ? 1 - Math.max(0, d.t - now) / (cr.warn * 60) : 0);
+      if (d) { // guía hasta donde va a pegar
+        const gy = groundY(x, y, m.water), left = Math.max(0, d.t - now) / 60;
+        ctx.strokeStyle = '#8ef2ff'; ctx.lineWidth = 0.08; ctx.globalAlpha = 0.5; ctx.setLineDash([0.3, 0.3]);
+        ctx.beginPath(); ctx.moveTo(x, y - 0.4); ctx.lineTo(x, gy + 0.3); ctx.stroke(); ctx.setLineDash([]);
+        ctx.globalAlpha = 0.5 + 0.5 * Math.abs(Math.sin(t * 10));
+        ctx.beginPath(); ctx.ellipse(x, gy + 0.1, 1.6 * (1 - left / cr.warn) + 0.3, 0.3, 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+      }
+    }
+  }
+  for (const b of hz.bolts ?? []) {
+    if (b.k === 'bala') {
+      const sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy) || 1;
+      for (let k = 1; k <= 4; k++) { ctx.globalAlpha = 0.25 - k * 0.05; ctx.fillStyle = '#9a9aa6'; circle(ctx, b.x - b.vx / sp * k * 0.9, b.y, 0.5 - k * 0.06); ctx.fill(); }
+      ctx.globalAlpha = 1; ctx.fillStyle = '#23232b'; ctx.strokeStyle = '#0d0d12'; ctx.lineWidth = 0.08;
+      circle(ctx, b.x, b.y, 0.55); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.35)'; circle(ctx, b.x - 0.18, b.y + 0.2, 0.14); ctx.fill();
+      ctx.fillStyle = Math.floor(t * 20) % 2 ? '#ffe14a' : '#ff7a1a'; circle(ctx, b.x - Math.sign(b.vx) * 0.5, b.y + 0.45, 0.14); ctx.fill();
+    } else if (b.k === 'cristal') {
+      ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx) + Math.PI / 2);
+      ctx.fillStyle = '#8ef2ff'; ctx.strokeStyle = '#0e0a1d'; ctx.lineWidth = 0.07;
+      ctx.beginPath(); ctx.moveTo(0, -0.95); ctx.lineTo(0.32, 0.1); ctx.lineTo(0, 0.7); ctx.lineTo(-0.32, 0.1); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(0, -0.7); ctx.lineTo(0.12, 0); ctx.lineTo(0, 0.1); ctx.fill();
+      ctx.restore();
+    }
+  }
 }
 
 function water(ctx: CanvasRenderingContext2D, v: View, w: World, front: boolean) {
@@ -331,6 +452,8 @@ export function drawWorld(ctx: CanvasRenderingContext2D, v: View, s: State, w: W
   const m = w.m, th = R.theme!, now = s.t;
   background(ctx, v, w);
   water(ctx, v, w, false);
+  world(ctx, v);
+  masts(ctx, w);
   // terreno
   if (R.tc) {
     flush(R.tc);
@@ -350,6 +473,8 @@ export function drawWorld(ctx: CanvasRenderingContext2D, v: View, s: State, w: W
     for (let x = -20; x < m.w + 20; x += 1.2) ctx.fillRect(x, tr.y + 0.65, 0.5, 0.1);
     if (s.hz.trainRun) train(ctx, s.hz.trainX, tr.y + 0.75, s.hz.trainDir, tr.len, '#d63a2a');
   }
+  portholes(ctx, w);
+  hazardsFront(ctx, s, w);
   // trampolines
   for (const pd of m.pads) {
     ctx.fillStyle = '#f4f1ea'; ctx.fillRect(pd.x - 0.15, pd.y - 0.1, 0.3, 0.4);

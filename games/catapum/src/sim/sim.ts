@@ -6,10 +6,11 @@
 import { CARDS, type Card } from './cards.ts';
 import { charOf } from './chars.ts';
 import { BLAST_X, BLAST_TOP } from './maps.ts';
-import { boxFree, groundBelow, carve } from './terrain.ts';
+import { boxFree, groundBelow, carve, solidAt } from './terrain.ts';
 import { rnd, rndInt, rndRange, pick } from './rng.ts';
 import { movePlayer } from './move.ts';
-import { cast, attacks, projectiles, props, zones, contacts, hurt, newProp } from './combat.ts';
+import { cast, attacks, projectiles, props, zones, contacts, hurt, boom, newProp } from './combat.ts';
+import type { Boom } from './cards.ts';
 import { startUlti, ultiStep } from './ulti.ts';
 import { HZ, DT, NEVER, GO, HW, H, NO_INPUT, ev, enemies, inUlti, height, type State, type World, type Pl, type Input } from './state.ts';
 
@@ -117,7 +118,36 @@ function pads(s: State, w: World) {
   }
 }
 
-// Peligros: viento que alterna de lado (con aviso), rocas del volcán (con marcas) y el tren
+// Lo que vuela y lastima (hz.bolts): la bala de cañón (recta) y la esquirla de cristal (cae con gravedad)
+const BOLT: Record<string, { r: number, g: number, boom: Boom }> = {
+  bala: { r: 0.5, g: 0, boom: { r: 2.4, dmg: 14, kb: 14, kg: 12, carve: 1.9 } },
+  cristal: { r: 0.4, g: 26, boom: { r: 2, dmg: 10, kb: 11, kg: 11, carve: 1.4 } },
+};
+function bolts(s: State, w: World) {
+  const hz = s.hz, m = w.m, t = s.t;
+  for (const b of hz.bolts) {
+    const d = BOLT[b.k];
+    b.vy -= d.g * DT;
+    const sp = Math.sqrt(b.vx * b.vx + b.vy * b.vy) || 1, ux = b.vx / sp, uy = b.vy / sp;
+    const n = Math.max(1, Math.ceil(sp * DT / 0.2));
+    let hit = false;
+    for (let k = 0; k < n && !hit; k++) {
+      b.x += b.vx * DT / n, b.y += b.vy * DT / n;
+      if (solidAt(w.T, b.x + ux * d.r, b.y + uy * d.r)) hit = true;
+      else for (const p of s.pl) {
+        if (!p.alive || t < p.invT || inUlti(p)) continue;
+        if (Math.abs(b.x - p.x) < HW + d.r && b.y > p.y - d.r && b.y < p.y + height(p) + d.r) { hit = true; break; }
+      }
+    }
+    if (hit) { boom(s, w, b.x, b.y, d.boom, -1, b.k); b.k = ''; }
+    else if (b.y < m.water) ev(s, 'splash', { x: b.x, y: m.water, r: d.r }), b.k = '';
+    else if (b.x < -25 || b.x > m.w + 25 || b.y > m.h + 25) b.k = '';
+  }
+  hz.bolts = hz.bolts.filter(b => b.k);
+}
+
+// Peligros: viento que alterna de lado (con aviso), rocas del volcán (con marcas), el tren, cañonazos horizontales
+// (líneas rojas y después una bala por línea) y racimos de cristales del techo que sueltan una esquirla
 function hazards(s: State, w: World) {
   const t = s.t, hz = s.hz, m = w.m;
   const wi = m.hz.wind;
@@ -157,6 +187,37 @@ function hazards(s: State, w: World) {
       if (hz.trainDir > 0 ? x0 > m.w + 4 : x1 < -4) hz.trainRun = false, hz.trainDir = -hz.trainDir, hz.trainNext = t + Math.round(tr.every * HZ);
     }
   }
+  const cn = m.hz.cannon;
+  if (cn) {
+    if (t >= hz.cannonNext) { // tanda nueva: n líneas separadas entre sí por lo menos 4 m
+      hz.cannonNext = t + Math.round(cn.every * HZ);
+      for (let k = 0; k < cn.n; k++) {
+        let y = 0;
+        for (let tryN = 0; tryN < 8; tryN++) { y = rndRange(s, cn.y0, cn.y1); if (hz.lanes.every(L => Math.abs(L.y - y) >= 4)) break; }
+        hz.lanes.push({ y: Math.round(y * 4) / 4, d: rnd(s) < 0.5 ? -1 : 1, t: t + Math.round(cn.warn * HZ) });
+      }
+      ev(s, 'cannon', { n: cn.n, y: hz.lanes[hz.lanes.length - 1].y });
+    }
+    for (const L of hz.lanes) if (t === L.t) {
+      hz.bolts.push({ k: 'bala', x: L.d > 0 ? -1.5 : m.w + 1.5, y: L.y, vx: L.d * cn.v, vy: 0 });
+      ev(s, 'shot', { kind: 'bala', x: L.d > 0 ? 0 : m.w, y: L.y, d: L.d }), ev(s, 'rumble');
+    }
+    hz.lanes = hz.lanes.filter(L => t < L.t);
+  }
+  const cr = m.hz.crystals;
+  if (cr) {
+    if (t >= hz.dropNext) { // algunos racimos distintos empiezan a temblar
+      hz.dropNext = t + Math.round(cr.every * HZ);
+      for (let k = 0; k < cr.n; k++) {
+        const a = cr.at[Math.floor(rnd(s) * cr.at.length)];
+        if (!hz.drops.some(d => d.x === a[0])) hz.drops.push({ x: a[0], y: a[1], t: t + Math.round(cr.warn * HZ) });
+      }
+      ev(s, 'crystal', { x: hz.drops[hz.drops.length - 1]?.x ?? 0 }), ev(s, 'rumble');
+    }
+    for (const d of hz.drops) if (t === d.t) hz.bolts.push({ k: 'cristal', x: d.x, y: d.y - 0.3, vx: 0, vy: -3 });
+    hz.drops = hz.drops.filter(d => t < d.t);
+  }
+  bolts(s, w);
 }
 
 // Cajas con paracaídas: una carta extra (gratis, en la ranura 5), o ulti o maná
