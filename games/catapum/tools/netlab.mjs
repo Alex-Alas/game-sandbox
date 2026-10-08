@@ -224,6 +224,9 @@ export function runLab(o = {}) {
   // ---- Informe ------------------------------------------------------------------------------------------------------
   const dur = (END - T0) / 1000;
   const same = (a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)) === 0;
+  // Al cortar el laboratorio, los invitados todavía no dibujaron los últimos ~100 ms: se consumen los estados pendientes
+  // (sus cortes) antes de comparar el terreno.
+  for (const g of G) { const gv = g.gn.gv; if (gv) for (const sn of gv.snaps) if (!sn.used) gv.consume(sn, true); }
   const hostOps = JSON.stringify(match.w.T.ops);
   const guests = G.map(g => {
     const gv = g.gn.gv, T = gv?.w.T;

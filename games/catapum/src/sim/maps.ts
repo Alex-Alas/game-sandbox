@@ -109,7 +109,7 @@ export const MAPS: MapDef[] = [
         rect(T, a, ys[k] + 4, a + 3, ys[k] + 4.5, WOOD);
         rect(T, b - 3, ys[k + 1] + 4, b, ys[k + 1] + 4.5, WOOD);
       }
-      ledge(T, 40, 33.9, 5, 0.5, WOOD);
+      ledge(T, 40, 32.6, 5, 0.5, WOOD);
       // faldas de los extremos: rampas a 45° de tierra sobre piedra (se suben caminando)
       for (const sg of [-1, 1]) {
         const f = xs[sg < 0 ? 0 : 4] + sg * 2.5, top = ys[0], run = 12;

@@ -57,7 +57,7 @@ export const RANGES = {
   HOOK_MISS: [10, 0, 60, 1, 'pausa si falla cuadros'],
   YANK_V: [21, 0, 50, 0.5, 'DASH enganchado a un rival: lanzar m/s'],
   // Golpes y empuje (el % sube el empuje; la fragilidad lo multiplica)
-  KB: [1, 0.2, 3, 0.05, 'empuje ×'],
+  KB: [1.4, 0.2, 3, 0.05, 'empuje ×'],
   KB_DRAG: [0.9, 0, 5, 0.05, 'freno del lanzado 1/s'],
   STUN_K: [1.4, 0, 3, 0.05, 'aturdido cuadros por m/s'],
   DI: [15, 0, 45, 1, 'influencia del joystick °'],
