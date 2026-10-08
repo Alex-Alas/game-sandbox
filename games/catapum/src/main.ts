@@ -4,9 +4,7 @@
 import { HZ, DT, NO_INPUT, newPlayer, type Input, type State, type World, type Ev, type Pl } from './sim/sim.ts';
 import { CHARS, charOf } from './sim/chars.ts';
 import { MAPS } from './sim/maps.ts';
-import { CARD } from './sim/cards.ts';
 import { RULES, type Rules, type Cfg } from './sim/params.ts';
-import { newMem } from './sim/bot.ts';
 import { hookTarget } from './sim/move.ts';
 import { Match, type Seat } from './game.ts';
 import { drawWorld, setWorld, matColor, type View, type IP } from './render.ts';
@@ -19,9 +17,9 @@ import * as T from './touch.ts';
 import { trajectory, autoAim } from './aim.ts';
 import { S, save, deckOf, cfgOf } from './settings.ts';
 import * as UI from './ui.ts';
-import { connect, packState, packFull, unpackFull, packInput, unpackInput, GuestView, randomCode, validCode, ERRORS, GAME, PROTO, type Conn } from './net.ts';
+import { connect, HostNet, GuestNet, GuestView, helloMsg, randomCode, validCode, ERRORS, GAME, PROTO, type Conn } from './net.ts';
+import { bgTicker } from './bgtick.ts';
 import { renderSVG } from 'uqr';
-import { applyOp } from './sim/terrain.ts';
 import { mousePos } from './input.ts';
 import { toWorld } from './render.ts';
 import { AIM_R, HAND_Y } from './sim/state.ts';
@@ -105,14 +103,18 @@ function toMenu() {
 }
 
 // ---- Online -------------------------------------------------------------------------------------------------------
-type Peer = { id: number, name: string, ch: string, deck: string[], on: boolean };
 const net = {
-  conn: null as Conn | null, code: '', host: false, peers: new Map<number, Peer>(), seatOf: new Map<number, number>(),
-  status: '', evAcc: [] as Ev[], opsSent: 0, myPeer: 0, lobby: null as null | { seats: (Seat & { host?: boolean, off?: boolean })[], max: number },
-  qr: '', inBuf: [] as unknown[], inSeq0: 0, info: '',
+  conn: null as Conn | null, code: '', host: false, status: '', lobby: null as null | { seats: (Seat & { host?: boolean, off?: boolean })[], max: number },
+  qr: '', info: '',
+  hn: new HostNet(o => net.conn?.send(o), { diff: () => S.match.diff, lobby: () => hostBroadcastLobby(), now: () => Math.round(performance.now()) }),
+  gn: new GuestNet(o => net.conn?.send(o), gv => {
+    app.guest = gv, app.match = null;
+    begin({ s: gv.s, w: gv.w } as unknown as Match, 'guest');
+    app.match = null;
+  }),
   close() {
     this.conn?.close();
-    this.conn = null, this.peers.clear(), this.seatOf.clear(), this.lobby = null, this.host = false, this.code = '';
+    this.conn = null, this.hn.reset(), this.lobby = null, this.host = false, this.code = '';
   },
 };
 const pidFor = (code: string) => {
@@ -121,11 +123,12 @@ const pidFor = (code: string) => {
   try { v = sessionStorage.getItem(k) ?? ''; if (!v) v = Math.random().toString(36).slice(2), sessionStorage.setItem(k, v); } catch { v = Math.random().toString(36).slice(2); }
   return v;
 };
+const ROOM_MAX = 8; // cupo que pide el anfitrión al crear (el servidor lo recorta si es más viejo: ver `max` del welcome)
 const roomLink = (code: string) => `${location.origin}${location.pathname}?sala=${code}`;
 
 function lobbySeats(): (Seat & { host?: boolean, off?: boolean })[] {
   const seats: (Seat & { host?: boolean, off?: boolean, peer?: number })[] = [{ name: S.name, ch: S.ch, deck: deckOf(S.ch), team: 0, bot: 0, host: true }];
-  for (const p of net.peers.values()) seats.push({ name: p.name, ch: p.ch, deck: p.deck, team: seats.length % 2, bot: 0, peer: p.id, off: !p.on });
+  for (const p of net.hn.peers.values()) seats.push({ name: p.name, ch: p.ch, deck: p.deck, team: seats.length % 2, bot: 0, peer: p.id, off: !p.on });
   const humans = seats.length, bots = Math.max(0, Math.min(S.match.bots, 8 - humans));
   const salt = [...net.code].reduce((a, c) => a * 31 + c.charCodeAt(0), 7);
   seats.push(...botSeats(bots, humans, seats.map(s => s.ch), k => ((Math.sin(salt + k * 12.9898) * 43758.5453) % 1 + 1) % 1).map((s, k) => ({ ...s, team: (humans + k) % 2 })));
@@ -147,112 +150,31 @@ function createRoom() {
   const code = randomCode();
   net.code = code, net.host = true, net.status = 'conectando…';
   net.qr = renderSVG(roomLink(code), { border: 1 });
-  net.conn = connect(code, true, pidFor(code), 8, {
+  net.conn = connect(code, true, pidFor(code), ROOM_MAX, {
     welcome: () => { net.status = 'sala abierta'; hostBroadcastLobby(); UI.showLobby(); },
     status: (st, why) => {
       if (st === 'closed') { const msg = ERRORS[why ?? 'net'] ?? 'Se cortó la conexión.'; net.close(); if (app.mode === 'host') toMenu(); UI.showOnline(msg); }
     },
-    message: m => hostMessage(m),
+    message: m => net.hn.message(m),
   });
   UI.showLobby();
 }
 
-function hostMessage(m: Record<string, unknown>) {
-  if (m.t === 'peer') {
-    const id = m.id as number, p = net.peers.get(id);
-    if (!m.on) {
-      if (p) p.on = false;
-      const k = net.seatOf.get(id);
-      if (app.match && k !== undefined) app.match.s.pl[k].bot = S.match.diff; // mientras no está, juega un bot
-      if (!app.match) net.peers.delete(id);
-      hostBroadcastLobby();
-    } else if (p) { p.on = true; if (app.match) sendStart(id); }
-    return;
-  }
-  if (m.t !== 'from') return;
-  const id = m.id as number, msg = m.m as Record<string, unknown>;
-  if (msg.t === 'hello') {
-    if (msg.g !== GAME) { net.conn?.send({ to: id, m: { t: 'nope', why: 'game' } }); net.conn?.send({ t: 'drop', id }); return; }
-    if (msg.v !== PROTO) { net.conn?.send({ to: id, m: { t: 'nope', why: 'proto' } }); net.conn?.send({ t: 'drop', id }); return; }
-    const ch = CHARS.some(c => c.id === msg.ch) ? msg.ch as string : 'bombin';
-    const deck = Array.isArray(msg.deck) && msg.deck.length === 8 && msg.deck.every(c => typeof c === 'string' && CARD[c]) ? msg.deck as string[] : charOf(ch).deck;
-    const old = net.peers.get(id);
-    net.peers.set(id, { id, name: String(msg.name ?? 'Invitado').slice(0, 14), ch, deck, on: true });
-    if (app.match && app.mode === 'host') {
-      if (!old && net.seatOf.get(id) === undefined) addLatePlayer(id);
-      sendStart(id);
-    }
-    hostBroadcastLobby();
-  } else if (msg.t === 'pick') {
-    const p = net.peers.get(id);
-    if (!p) return;
-    if (CHARS.some(c => c.id === msg.ch)) p.ch = msg.ch as string;
-    if (Array.isArray(msg.deck) && msg.deck.length === 8 && msg.deck.every(c => typeof c === 'string' && CARD[c])) p.deck = msg.deck as string[];
-    if (typeof msg.name === 'string') p.name = msg.name.slice(0, 14);
-    hostBroadcastLobby();
-  } else if (msg.t === 'in') {
-    const k = net.seatOf.get(id);
-    if (!app.match || k === undefined || !Array.isArray(msg.f)) return;
-    const ins = (msg.f as unknown[]).map(unpackInput).filter((x): x is Input => !!x).slice(0, 8);
-    app.match.s.pl[k].bot = 0;
-    app.match.push(k, Number(msg.q) || 0, ins);
-  }
-}
-// Alguien entra a mitad de partida: un jugador nuevo
-function addLatePlayer(peer: number) {
-  const m = app.match!, p = net.peers.get(peer)!, id = m.s.pl.length;
-  if (id >= 8) return;
-  const seat: Seat = { name: p.name, ch: p.ch, deck: p.deck, team: id % 2, bot: 0, peer };
-  m.seats.push(seat);
-  m.s.pl.push(newPlayer(id, seat, m.w.c, m.s.rules));
-  m.s.pl[id].spawnT = m.s.t + 1;
-  m.mems.push(newMem(id));
-  net.seatOf.set(peer, id);
-  net.conn?.send({ m: { t: 'seat', k: id, seat: { name: seat.name, ch: seat.ch, deck: seat.deck, team: seat.team, bot: 0, peer } } });
-}
-function startMsg(m: Match) {
-  return { t: 'start', map: m.s.map, seed: m.seed, rules: m.s.rules, c: m.w.c, seats: m.seats.map(s => ({ name: s.name, ch: s.ch, deck: s.deck, team: s.team, bot: s.bot, peer: s.peer ?? -1 })) };
-}
-function sendStart(peer: number) {
-  const m = app.match!;
-  net.conn?.send({ to: peer, m: startMsg(m) });
-  const ops = m.w.T.ops;
-  for (let k = 0; k < ops.length; k += 150) net.conn?.send({ to: peer, m: { t: 'sync', ops: ops.slice(k, k + 150) } });
-}
 function startOnline() {
   if (!net.host || !net.conn) return;
-  const seats = lobbySeats();
-  net.seatOf.clear();
-  seats.forEach((s, k) => { if (s.peer !== undefined) net.seatOf.set(s.peer, k); });
-  const m = new Match(pickMap(), (Math.random() * 1e9) >>> 0, seats, rulesFromSettings(), cfgOf(), 0);
-  net.evAcc = [], net.opsSent = 0;
-  net.conn.send({ m: startMsg(m) });
+  const m = new Match(pickMap(), (Math.random() * 1e9) >>> 0, lobbySeats(), rulesFromSettings(), cfgOf(), 0);
+  net.hn.begin(m);
   begin(m, 'host');
 }
-function hostAfterTick(evs: Ev[]) {
-  const m = app.match!;
-  net.evAcc.push(...evs);
-  if (m.s.t % 3 !== 0 || !net.conn) return;
-  const ops = m.w.T.ops.slice(net.opsSent);
-  net.opsSent = m.w.T.ops.length;
-  net.conn.send({ m: packState(m.s, net.evAcc, ops) });
-  net.evAcc = [];
-  for (const [peer, k] of net.seatOf) {
-    const p = net.peers.get(peer);
-    if (!p?.on) continue;
-    net.conn.send({ to: peer, m: { t: 'me', k: m.s.t, a: m.ack.get(k) ?? 0, p: packFull(m.s.pl[k]) } });
-  }
-}
-
 function joinRoom(code: string) {
   if (!validCode(code)) { UI.showOnline('Código inválido (4 letras).'); return; }
   net.close();
   net.code = code, net.host = false, net.status = 'conectando…';
   net.qr = renderSVG(roomLink(code), { border: 1 });
-  net.conn = connect(code, false, pidFor(code), 8, {
-    welcome: w => { net.myPeer = w.id; net.status = 'conectado'; net.conn!.send({ t: 'hello', g: GAME, v: PROTO, name: S.name, ch: S.ch, deck: deckOf(S.ch) }); },
+  net.conn = connect(code, false, pidFor(code), ROOM_MAX, {
+    welcome: w => { net.gn.myPeer = w.id; net.status = 'conectado'; net.conn!.send(helloMsg(S.name, S.ch, deckOf(S.ch))); },
     status: (st, why) => {
-      if (st === 'reconnecting') net.status = 'reconectando…';
+      if (st === 'reconnecting') net.status = 'reconectando…', net.gn.lost();
       if (st === 'closed') { const msg = ERRORS[why ?? 'net'] ?? 'Se cortó la conexión.'; net.close(); app.match = null, app.guest = null; if (app.mode === 'guest') { app.mode = 'menu'; pauseBtn.hidden = true; startDemo(); } UI.showOnline(msg); }
       if (UI.current === 'lobby') UI.showLobby();
     },
@@ -269,24 +191,8 @@ function guestMessage(m: Record<string, unknown>) {
     if (app.mode !== 'guest' && (UI.current !== 'chars' && UI.current !== 'settings')) UI.showLobby();
     return;
   }
-  if (m.t === 'start') {
-    const seats = m.seats as (Seat & { peer: number })[];
-    const me = seats.findIndex(s => s.peer === net.myPeer);
-    const gv = new GuestView(m.map as string, m.seed as number, seats, m.rules as Rules, m.c as Cfg, me);
-    app.guest = gv, app.match = null;
-    begin({ s: gv.s, w: gv.w } as unknown as Match, 'guest');
-    app.match = null;
-    net.inBuf = [], net.inSeq0 = gv.seq + 1;
-    return;
-  }
-  const gv = app.guest;
-  if (!gv) return;
-  if (m.t === 'seat') { const k = m.k as number; if (!gv.s.pl[k]) gv.s.pl[k] = newPlayer(k, m.seat as Seat, gv.w.c, gv.s.rules); return; }
-  if (m.t === 'sync') { for (const op of m.ops as number[][]) { gv.w.T.ops.push(op); applyOpNoFx(gv.w, op); } }
-  else if (m.t === 'st') gv.push(m, performance.now());
-  else if (m.t === 'me') gv.reconcile(m.k as number, m.a as number, unpackFull(m.p as Record<string, unknown>));
+  net.gn.message(m, performance.now());
 }
-const applyOpNoFx = (w: World, op: number[]) => { applyOp(w.T, op); w.T.fall.length = 0; };
 
 function leaveRoom() { net.close(); app.mode = 'menu'; UI.showOnline(); }
 function pickChanged() {
@@ -325,28 +231,26 @@ const UI_free = () => (UI.current === '' || UI.current === 'pause') && !T.isEdit
 function tick() {
   const i = localInput();
   if (app.mode === 'guest') {
-    const gv = app.guest!;
-    const evs = gv.local(i);
+    const gv = app.guest!, evs = net.gn.tick(i);
     fxEvents(evs, gv.view(), gv.me, gv.w.m.water), A.fromEvents(evs, gv.view(), gv.me);
-    net.inBuf.push(packInput(i));
-    if (net.inBuf.length >= 2) { net.conn?.send({ t: 'in', q: net.inSeq0, f: net.inBuf }); net.inSeq0 += net.inBuf.length; net.inBuf = []; }
     return;
   }
   const m = app.match ?? app.demo;
   if (!m) return;
   const evs = m.tick(i);
-  if (app.mode === 'host') hostAfterTick(evs);
+  if (app.mode === 'host') net.hn.afterTick(evs);
+  if (document.hidden) return; // oculto no se dibuja ni suena: los efectos se acumularían sin que nadie los consuma
   if (app.match) { fxEvents(evs, m.s, m.me, m.w.m.water), A.fromEvents(evs, m.s, m.me); }
   else fxEvents(evs.filter(e => e.k !== 'ko' && e.k !== 'go' && e.k !== 'sudden' && e.k !== 'whistle' && e.k !== 'wind' && e.k !== 'ulti'), m.s, -1, m.w.m.water);
   if (app.match) T.afterTick(!!me()?.hook);
 }
 
 const OWN_PRED = new Set(['jump', 'dash', 'slide', 'pound', 'land', 'hook', 'trick']);
-function loop(now: number) {
-  requestAnimationFrame(loop);
-  let dt = Math.min(0.1, (now - app.last) / 1000);
+// Avanza la simulación hasta `now` a pasos fijos. Lo llama el bucle de dibujo y, con el anfitrión de una sala en una pestaña
+// oculta (sin requestAnimationFrame), el reloj del Worker. Devuelve los segundos que pasaron.
+function pump(now: number): number {
+  const dt = Math.min(0.1, (now - app.last) / 1000);
   app.last = now;
-  if (DESK.pauseReq) { DESK.pauseReq = false; togglePause(); }
   const running = app.mode !== 'menu' && !(app.mode === 'solo' && app.paused);
   if (app.mode === 'menu' || running) {
     const scale = app.mode === 'solo' && FX.slow > 0 ? 0.35 : 1;
@@ -355,6 +259,14 @@ function loop(now: number) {
     while (app.acc >= DT && n < 8) { app.acc -= DT, n++; tick(); }
     if (n >= 8) app.acc = 0;
   }
+  return dt;
+}
+// Pestaña oculta: el anfitrión sigue simulando (sin dibujar ni sonar) con el reloj del Worker; los demás modos se quedan quietos
+const bg = bgTicker(() => { if (!document.hidden || app.mode !== 'host') bg.stop(); else pump(performance.now()); });
+function loop(now: number) {
+  requestAnimationFrame(loop);
+  if (DESK.pauseReq) { DESK.pauseReq = false; togglePause(); }
+  const dt = pump(now);
   // invitado: avanzar la vista hacia el tiempo del anfitrión
   if (app.mode === 'guest' && app.guest) {
     const gv = app.guest, evs = gv.advance(now).filter(e => !(e.p === gv.me && OWN_PRED.has(e.k)));
@@ -411,7 +323,7 @@ function draw(dt: number) {
   drawWorld(ctx, v, s, w, ip, { me: app.mode === 'menu' ? -1 : meK, aim, hookAim }, dt);
   if (app.mode !== 'menu') {
     drawHud(ctx, v, s, w, ip, { me: meK, touch: T.visible(), aimSlot: T.draggingSlot() >= 0 ? T.draggingSlot() : DESK.aimSlot, selected: DESK.selected,
-      table: DESK.showTable, online: app.mode === 'host' ? `SALA ${net.code} · anfitrión` : app.mode === 'guest' ? `SALA ${net.code} · ${net.status}` : '', ping: 0 });
+      table: DESK.showTable, online: app.mode === 'host' ? `SALA ${net.code} · anfitrión` : app.mode === 'guest' ? `SALA ${net.code} · ${net.status}${app.guest?.rtt ? ` · ${Math.round(app.guest.rtt)} ms` : ''}` : '', ping: 0 });
     ctx.setTransform(app.dpr, 0, 0, app.dpr, 0, 0);
     if (p && UI_free()) T.drawTouch(ctx, p.ulti, !!p.hook, p.charge, p.dashN >= 1);
   }
@@ -450,7 +362,12 @@ function resume() {
   A.volumes();
 }
 pauseBtn.onclick = () => togglePause();
-document.addEventListener('visibilitychange', () => { if (document.hidden && app.mode === 'solo' && !app.paused && UI.current === '') togglePause(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && app.mode === 'solo' && !app.paused && UI.current === '') togglePause();
+  if (document.hidden && (app.mode === 'host' || app.mode === 'guest')) clearDesktop(), T.clearTouch(); // sin keyup, el personaje seguiría corriendo
+  if (document.hidden && app.mode === 'host') bg.start(); else bg.stop();
+  app.last = performance.now();
+});
 
 // MOVER CONTROLES: se ve el juego (pausado si es solo) con los controles punteados; arriba los tamaños y LISTO
 const editbar = document.getElementById('editbar')!;
@@ -480,7 +397,7 @@ UI.initUI({
   resume, quit, rematch, editControls,
   online: () => net.conn || net.code ? { host: net.host, code: net.code, seats: (net.host ? lobbySeats() : net.lobby?.seats ?? []).map(s => ({
     name: s.name, ch: s.ch, team: s.team ?? 0, bot: s.bot ?? 0, host: !!(s as { host?: boolean }).host, off: !!(s as { off?: boolean }).off,
-    me: net.host ? !!(s as { host?: boolean }).host : (s as { peer?: number }).peer === net.myPeer })), max: net.conn?.max ?? 4, status: net.status, link: roomLink(net.code), qr: net.qr, info: net.info } : null,
+    me: net.host ? !!(s as { host?: boolean }).host : (s as { peer?: number }).peer === net.gn.myPeer })), max: net.conn?.max ?? 4, asked: ROOM_MAX, status: net.status, link: roomLink(net.code), qr: net.qr, info: net.info } : null,
 });
 
 // Arranque: demo de fondo y título (o directo a una sala con ?sala=CODE)
