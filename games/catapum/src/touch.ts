@@ -26,18 +26,41 @@ export const setShown = (v: boolean) => { shown = v; };
 export const STICK_R = 60, BTN_R = 42;
 const d2 = (x: number, y: number, c: { x: number, y: number }) => (x - c.x) ** 2 + (y - c.y) ** 2;
 
-export function layout() {
+// Lugares: por defecto, o los de MOVER CONTROLES (S.touch.pos: distancia a la esquina de abajo de su lado, así
+// sobreviven a girar la pantalla). Zurdo: todo espejado.
+type Spot = { x: number, y: number, r: number };
+export function layout(): Record<'stick' | Btn, Spot> {
   const W = innerWidth, H = innerHeight, rs = STICK_R * S.touch.stick / 100, rb = BTN_R * S.touch.btn / 100;
-  const L = S.touch.left; // zurdo: espejado
-  const sx = (x: number) => L ? W - x : x;
+  const L = S.touch.left;
   const pad = Math.max(14, Math.min(40, W * 0.03));
-  return {
-    stick: { x: sx(rs + pad + 6), y: H - rs - pad, r: rs },
-    jump: { x: sx(W - rb * 1.15 - pad), y: H - rb * 1.15 - pad, r: rb * 1.15 },
-    dash: { x: sx(W - rb * 3.5 - pad), y: H - rb * 0.95 - pad, r: rb * 0.9 },
-    hook: { x: sx(W - rb * 1.1 - pad), y: H - rb * 3.55 - pad, r: rb * 0.9 },
-    ulti: { x: sx(W - rb * 3.3 - pad), y: H - rb * 3.2 - pad, r: rb * 0.85 },
+  const def: Record<'stick' | Btn, [number, number, number]> = { // [desde el borde de su lado, desde abajo, radio]
+    stick: [rs + pad + 6, rs + pad, rs], jump: [rb * 1.15 + pad, rb * 1.15 + pad, rb * 1.15], dash: [rb * 3.5 + pad, rb * 0.95 + pad, rb * 0.9],
+    hook: [rb * 1.1 + pad, rb * 3.55 + pad, rb * 0.9], ulti: [rb * 3.3 + pad, rb * 3.2 + pad, rb * 0.85],
   };
+  const out = {} as Record<'stick' | Btn, Spot>;
+  for (const k of ['stick', ...RIGHT] as const) {
+    const [d0, b0, r] = def[k], [dx, dy] = S.touch.pos[k] ?? [d0, b0];
+    const leftSide = (k === 'stick') !== L, x = leftSide ? dx : W - dx;
+    out[k] = { x: Math.max(r, Math.min(W - r, x)), y: Math.max(r, Math.min(H - r, H - dy)), r };
+  }
+  return out;
+}
+
+// MOVER CONTROLES: arrastrar el joystick o un botón lo cambia de lugar
+let editing = false, grab: { id: number, k: 'stick' | Btn, ox: number, oy: number } | null = null;
+export const isEditing = () => editing;
+export function setEditing(on: boolean) { editing = on, grab = null; clearTouch(); if (on) shown = true; }
+function editDown(e: PointerEvent) {
+  const L = layout();
+  let best: 'stick' | Btn | null = null, bd = Infinity;
+  for (const k of ['stick', ...RIGHT] as const) { const d = d2(e.clientX, e.clientY, L[k]); if (d < (1.4 * L[k].r) ** 2 && d < bd) best = k, bd = d; }
+  if (best) grab = { id: e.pointerId, k: best, ox: L[best].x - e.clientX, oy: L[best].y - e.clientY };
+}
+function editMove(e: PointerEvent) {
+  if (!grab || grab.id !== e.pointerId) return;
+  const W = innerWidth, H = innerHeight, x = e.clientX + grab.ox, y = e.clientY + grab.oy;
+  const leftSide = (grab.k === 'stick') !== S.touch.left;
+  S.touch.pos[grab.k] = [Math.round(leftSide ? x : W - x), Math.round(H - y)];
 }
 function nearestBtn(x: number, y: number): Btn {
   const L = layout();
@@ -61,6 +84,7 @@ let changed: () => void = () => {};
 export function bindTouch(cv: HTMLCanvasElement, onAny: () => void) {
   changed = onAny;
   cv.addEventListener('pointerdown', e => {
+    if (editing) { editDown(e); return; }
     if (e.pointerType === 'mouse') return;
     shown = true, changed();
     const { kind, slot } = kindAt(e.clientX, e.clientY);
@@ -80,6 +104,7 @@ export function bindTouch(cv: HTMLCanvasElement, onAny: () => void) {
     if (S.vibrate && kind !== 'stick' && kind !== 'none') navigator.vibrate?.(8);
   });
   cv.addEventListener('pointermove', e => {
+    if (editing) { editMove(e); return; }
     const t = touches.get(e.pointerId);
     if (!t) return;
     t.x = e.clientX, t.y = e.clientY;
@@ -96,6 +121,7 @@ export function bindTouch(cv: HTMLCanvasElement, onAny: () => void) {
     }
   });
   const up = (e: PointerEvent) => {
+    if (editing) { grab = null; changed(); return; }
     const t = touches.get(e.pointerId);
     touches.delete(e.pointerId);
     if (!t) return;
@@ -201,6 +227,11 @@ export function drawTouch(ctx: CanvasRenderingContext2D, ulti: number, hooked: b
     ctx.fillStyle = '#fff';
     ctx.font = `bold ${Math.round(b.r * 0.36)}px system-ui, sans-serif`;
     ctx.fillText(lab[k], b.x, b.y);
+  }
+  if (editing) { // contorno punteado de lo que se puede arrastrar
+    ctx.setLineDash([6, 5]); ctx.lineWidth = 2;
+    for (const k of ['stick', ...RIGHT] as const) { ctx.strokeStyle = grab?.k === k ? '#ffd23f' : 'rgba(255,210,63,0.6)'; circle(L[k].x, L[k].y, L[k].r + 6); ctx.stroke(); }
+    ctx.setLineDash([]);
   }
   // arrastre de GARFIO (esquema ARRASTRAR)
   const hd = ts.find(t => t.kind === 'hook' && S.touch.scheme === 'drag' && t.out);

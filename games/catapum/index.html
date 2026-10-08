@@ -102,6 +102,14 @@
   .map { border: 3px solid #0d0820; border-radius: 12px; overflow: hidden; cursor: pointer; background: var(--panel2); font-size: 11px; font-weight: 900; text-align: center; }
   .map canvas { width: 100%; display: block; aspect-ratio: 16/9; }
   .map[aria-pressed=true] { border-color: var(--yellow); }
+  @media (max-height: 520px) {
+    .mapgrid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+    .map { font-size: 9.5px; }
+    .hero canvas { width: 64px; height: 64px; } .hero .nm { font-size: 18px; }
+    .cards { grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); } .card { min-height: 76px; } .card .art { font-size: 22px; line-height: 38px; height: 38px; }
+    h1.logo { font-size: clamp(44px, 11vw, 96px); } .menu { margin-top: 8px; gap: 8px; } .btn.big { min-height: 48px; font-size: 18px; }
+  }
+  #rotate { position: fixed; left: 50%; bottom: 46%; transform: translateX(-50%); background: rgba(10,6,24,0.85); padding: 8px 14px; border-radius: 12px; font-weight: 800; font-size: 13px; pointer-events: none; z-index: 6; }
   #editbar { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); width: min(560px, calc(100% - 16px)); padding: 8px 10px; background: rgba(10,6,24,0.92); border: 2px solid var(--yellow); border-radius: 12px; z-index: 30; }
 </style>
 </head>
@@ -111,6 +119,7 @@
 <button id="pausebtn" hidden title="pausa (Esc)">⏸</button>
 <div id="toast" hidden></div>
 <div id="editbar" hidden></div>
+<div id="rotate" hidden>📱↻ Girá el teléfono: se juega acostado</div>
 <script type="module" src="./src/main.ts"></script>
 </body>
 </html>

@@ -7,7 +7,8 @@ import { RANGES, DEFAULTS, type Cfg } from './sim/params.ts';
 import { DIFFS } from './sim/bot.ts';
 import { standings } from './sim/sim.ts';
 import type { State } from './sim/state.ts';
-import { S, save, deckOf, resetAll } from './settings.ts';
+import { S, save, deckOf, resetAll, KEYS, KEY_LABEL, keyName } from './settings.ts';
+import { DESK } from './input.ts';
 import { drawPortrait, drawMapThumb } from './render.ts';
 import { ICON } from './hud.ts';
 import { TYPE_COLOR } from './aim.ts';
@@ -18,7 +19,7 @@ export type App = {
   startSolo(): void,
   createRoom(): void, joinRoom(code: string): void, leaveRoom(): void, startOnline(): void, lobbyChanged(): void, pickChanged(): void,
   resume(): void, quit(): void, rematch(): void, editControls(): void,
-  online(): null | { host: boolean, code: string, seats: LobbySeat[], max: number, status: string, link: string, qr: string },
+  online(): null | { host: boolean, code: string, seats: LobbySeat[], max: number, status: string, link: string, qr: string, info: string },
 };
 
 const ui = document.getElementById('ui')!;
@@ -212,7 +213,7 @@ export function showLobby() {
         <div class="row c" style="margin-top:8px"><button class="btn sm orange" data-a="chars">MI PERSONAJE Y MAZO</button></div>
       </div>
       <div class="panel">${o.host ? optionsHtml(true, maxBots) + `<div class="row c" style="margin-top:10px"><button class="btn big" data-a="start">¡EMPEZAR!</button></div>`
-        : `<h3>Esperando al anfitrión…</h3><p class="note">Elige el mapa y las reglas. Mientras tanto podés cambiar de personaje o de mazo.</p>`}</div>
+        : `<h3>Esperando al anfitrión…</h3><p class="note">Elige el mapa y las reglas. Mientras tanto podés cambiar de personaje o de mazo.</p>${o.info ? `<div class="ulti"><b>${esc(o.info)}</b></div>` : ''}`}</div>
     </div>`);
   click('[data-a=leave]', () => app.leaveRoom());
   click('[data-a=copy]', () => { navigator.clipboard?.writeText(o.link).then(() => toast('Enlace copiado'), () => toast(o.link, 5000)); });
@@ -237,7 +238,10 @@ const ADV_GROUPS: [string, (keyof Cfg)[]][] = [
   const listed = new Set(ADV_GROUPS.flatMap(g => g[1]));
   for (const k of Object.keys(RANGES)) if (!listed.has(k as keyof Cfg)) console.warn(`ajuste sin grupo: ${k}`);
 }
+let listening = '';
+export let settingsBack: () => void = () => {};
 export function showSettings(back: () => void, tab0 = 'juego') {
+  settingsBack = back;
   let tab = tab0;
   const render = () => {
     const T = S.touch;
@@ -259,11 +263,14 @@ export function showSettings(back: () => void, tab0 = 'juego') {
         <label class="chk"><input type="checkbox" data-t="auto" ${T.auto ? 'checked' : ''}> Tocar una carta la lanza con auto-apuntado (arrastrar apunta a mano)</label>
         <label class="chk"><input type="checkbox" data-t="left" ${T.left ? 'checked' : ''}> Zurdo (joystick a la derecha)</label>
         ${sl('stick', 'joystick %', T.stick, 60, 160, 5)}${sl('btn', 'botones %', T.btn, 60, 160, 5)}${sl('card', 'cartas %', T.card, 60, 160, 5)}${sl('dead', 'zona muerta', T.dead, 0, 0.6, 0.01)}
+        <div class="row" style="margin-top:6px"><button class="btn sm alt" data-a="move">MOVER CONTROLES</button><button class="btn sm ghost" data-a="touchreset">LUGARES POR DEFECTO</button></div>
         <h3>Teclado y ratón</h3>
-        <p class="note"><kbd>A</kbd><kbd>D</kbd> correr · <kbd>W</kbd><kbd>S</kbd> dirección (↓ corriendo = barrida) · <kbd>ESPACIO</kbd> salto · <kbd>SHIFT</kbd> dash ·
-          clic izq. o <kbd>K</kbd> garfio · <kbd>1</kbd>–<kbd>4</kbd> cartas y <kbd>5</kbd> la de la caja (mantener = apuntar con el ratón, soltar = lanzar) ·
-          clic der. la carta elegida (rueda cambia) · <kbd>Q</kbd> ulti · <kbd>TAB</kbd> tabla · <kbd>ESC</kbd> pausa</p>
-        <label class="chk"><input type="checkbox" data-s="wJump" ${S.wJump ? 'checked' : ''}> <kbd>W</kbd> / <kbd>↑</kbd> también saltan</label>
+        <p class="note">Las cartas se apuntan manteniendo su tecla (la trayectoria sigue al ratón) y salen al soltarla. La rueda elige la carta del botón del ratón.</p>
+        <div class="opt"><span>RATÓN</span>${seg('mouse', [[0, 'IZQ. GARFIO · DER. CARTA'], [1, 'IZQ. CARTA · DER. GARFIO']], S.mouseSwap ? 1 : 0)}</div>
+        <label class="chk"><input type="checkbox" data-s="wJump" ${S.wJump ? 'checked' : ''}> La tecla de arriba también salta</label>
+        <div class="keys">${Object.keys(KEYS).map(a => `<div class="opt"><span>${KEY_LABEL[a].toUpperCase()}</span><div class="row">${(S.keys[a] ?? []).map(k => `<kbd>${keyName(k)}</kbd>`).join(' ')}
+          <button class="btn sm ghost" data-key="${a}">${listening === a ? 'APRETÁ UNA TECLA…' : 'CAMBIAR'}</button></div></div>`).join('')}</div>
+        <div class="row"><button class="btn sm ghost" data-a="keyreset">TECLAS POR DEFECTO</button></div>
         <h3>Mando</h3>
         <p class="note">Stick izq. mover · stick der. apuntar · A salto · B dash · LT garfio · X o RT carta elegida (mantener y soltar) · LB/RB cambiar carta · Y ulti · START pausa</p>`,
       sonido: `${sl('sfx', 'efectos', S.sfx, 0, 1, 0.05)}${sl('music', 'música', S.music, 0, 1, 0.05)}`,
@@ -275,8 +282,8 @@ export function showSettings(back: () => void, tab0 = 'juego') {
       <div class="row"><h2 class="grow">AJUSTES</h2><button class="btn sm" data-a="back">LISTO</button></div>
       <div class="tabs">${Object.keys(tabs).map(k => `<button data-tab="${k}" aria-selected="${k === tab}">${k.toUpperCase()}</button>`).join('')}</div>
       <div class="panel">${tabs[tab]}</div>`);
-    click('[data-a=back]', () => back());
-    click('[data-tab]', el => { tab = el.dataset.tab!; render(); });
+    click('[data-a=back]', () => { listening = '', DESK.onKey = null; back(); });
+    click('[data-tab]', el => { tab = el.dataset.tab!; listening = '', DESK.onKey = null; render(); });
     on('input.name', 'change', (_e, el) => { S.name = (el as HTMLInputElement).value.trim().slice(0, 14) || S.name; save(); });
     bindSeg('cam', v => { S.cam = v as 'todos' | 'yo'; save(); });
     bindSeg('quality', v => { S.quality = +v; save(); });
@@ -296,6 +303,20 @@ export function showSettings(back: () => void, tab0 = 'juego') {
       if (v === DEFAULTS[k]) delete S.adv[k]; else S.adv[k] = v;
       save();
     });
+    bindSeg('mouse', v => { S.mouseSwap = v === '1'; save(); });
+    click('[data-key]', el => {
+      listening = el.dataset.key!;
+      DESK.onKey = code => {
+        if (code !== 'Escape' || listening === 'pause') S.keys[listening] = [code];
+        listening = '', DESK.onKey = null;
+        save(), render();
+        return true;
+      };
+      render();
+    });
+    click('[data-a=keyreset]', () => { S.keys = { ...KEYS }; save(); render(); });
+    click('[data-a=move]', () => app.editControls());
+    click('[data-a=touchreset]', () => { S.touch.pos = {}; save(); toast('Controles en su lugar'); });
     click('[data-a=advreset]', () => { S.adv = {}; save(); render(); });
     click('[data-a=advcopy]', () => navigator.clipboard?.writeText(JSON.stringify({ ...DEFAULTS, ...S.adv }, null, 1)).then(() => toast('Copiado')));
     click('[data-a=wipe]', () => { if (confirm('¿Borrar nombre, mazos y ajustes guardados?')) resetAll(); });

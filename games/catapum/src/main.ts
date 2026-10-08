@@ -13,7 +13,7 @@ import { drawWorld, setWorld, matColor, type View, type IP } from './render.ts';
 import { newCam, frame } from './camera.ts';
 import { FX, fromEvents as fxEvents, stepFx, debris, clearFx } from './fx.ts';
 import * as A from './audio.ts';
-import { drawHud } from './hud.ts';
+import { drawHud, handRects } from './hud.ts';
 import { bindDesktop, readDesktop, DESK, clearDesktop, lastDevice, setDevice } from './input.ts';
 import * as T from './touch.ts';
 import { trajectory, autoAim } from './aim.ts';
@@ -29,6 +29,7 @@ import { AIM_R, HAND_Y } from './sim/state.ts';
 const cv = document.getElementById('game') as HTMLCanvasElement;
 const ctx = cv.getContext('2d', { alpha: false })!;
 const pauseBtn = document.getElementById('pausebtn')!;
+const rotateHint = document.getElementById('rotate')!;
 
 type Mode = 'menu' | 'solo' | 'host' | 'guest';
 const app = {
@@ -54,10 +55,11 @@ addEventListener('keydown', () => A.unlock(), { once: true });
 const rulesFromSettings = (): Rules => ({ ...RULES, time: S.match.time, teams: S.match.teams, friendly: S.match.friendly, crates: S.match.crates, infinite: S.match.infinite, startDmg: S.match.startDmg });
 const pickMap = () => S.match.map === 'azar' || !MAPS.some(m => m.id === S.match.map) ? MAPS[Math.floor(Math.random() * MAPS.length)].id : S.match.map;
 const botNames = ['Pum', 'Chispa', 'Tronco', 'Mecha', 'Petardo', 'Ñoqui', 'Bólido', 'Turrón', 'Garra', 'Tuerca'];
-function botSeats(n: number, start: number, used: string[]): Seat[] {
+// Bots con personajes que no estén en uso. rnd: el azar (en la sala, uno fijo por sala para que no cambien en cada vista)
+function botSeats(n: number, start: number, used: string[], rnd: (k: number) => number = () => Math.random()): Seat[] {
   const out: Seat[] = [];
   for (let k = 0; k < n; k++) {
-    const free = CHARS.filter(c => !used.includes(c.id)), ch = (free.length ? free : CHARS)[Math.floor(Math.random() * (free.length || CHARS.length))];
+    const free = CHARS.filter(c => !used.includes(c.id)), ch = (free.length ? free : CHARS)[Math.floor(rnd(start + k) * (free.length || CHARS.length))];
     used.push(ch.id);
     out.push({ name: botNames[(start + k) % botNames.length], ch: ch.id, team: (start + k) % 2, bot: S.match.diff });
   }
@@ -103,7 +105,7 @@ type Peer = { id: number, name: string, ch: string, deck: string[], on: boolean 
 const net = {
   conn: null as Conn | null, code: '', host: false, peers: new Map<number, Peer>(), seatOf: new Map<number, number>(),
   status: '', evAcc: [] as Ev[], opsSent: 0, myPeer: 0, lobby: null as null | { seats: (Seat & { host?: boolean, off?: boolean })[], max: number },
-  qr: '', inBuf: [] as unknown[], inSeq0: 0,
+  qr: '', inBuf: [] as unknown[], inSeq0: 0, info: '',
   close() {
     this.conn?.close();
     this.conn = null, this.peers.clear(), this.seatOf.clear(), this.lobby = null, this.host = false, this.code = '';
@@ -121,14 +123,18 @@ function lobbySeats(): (Seat & { host?: boolean, off?: boolean })[] {
   const seats: (Seat & { host?: boolean, off?: boolean, peer?: number })[] = [{ name: S.name, ch: S.ch, deck: deckOf(S.ch), team: 0, bot: 0, host: true }];
   for (const p of net.peers.values()) seats.push({ name: p.name, ch: p.ch, deck: p.deck, team: seats.length % 2, bot: 0, peer: p.id, off: !p.on });
   const humans = seats.length, bots = Math.max(0, Math.min(S.match.bots, 8 - humans));
-  seats.push(...botSeats(bots, humans, seats.map(s => s.ch)).map((s, k) => ({ ...s, team: (humans + k) % 2 })));
+  const salt = [...net.code].reduce((a, c) => a * 31 + c.charCodeAt(0), 7);
+  seats.push(...botSeats(bots, humans, seats.map(s => s.ch), k => ((Math.sin(salt + k * 12.9898) * 43758.5453) % 1 + 1) % 1).map((s, k) => ({ ...s, team: (humans + k) % 2 })));
   return seats;
 }
 function hostBroadcastLobby() {
   if (!net.host || !net.conn) return;
   const seats = lobbySeats();
   net.lobby = { seats, max: net.conn.max };
-  net.conn.send({ m: { t: 'lobby', g: GAME, v: PROTO, seats: seats.map(s => ({ name: s.name, ch: s.ch, team: s.team, bot: s.bot, host: !!s.host, off: !!s.off, peer: s.peer ?? -1 })), max: net.conn.max, teams: S.match.teams } });
+  const mp = MAPS.find(m => m.id === S.match.map), tm = S.match.time;
+  const info = `${mp ? mp.name : 'MAPA AL AZAR'} · ${tm ? `${Math.floor(tm / 60)}:${String(tm % 60).padStart(2, '0')}` : 'sin límite'} · ${S.match.teams ? 'EQUIPOS' : 'TODOS CONTRA TODOS'}${S.match.infinite ? ' · maná infinito' : ''}`;
+  net.info = info;
+  net.conn.send({ m: { t: 'lobby', g: GAME, v: PROTO, seats: seats.map(s => ({ name: s.name, ch: s.ch, team: s.team, bot: s.bot, host: !!s.host, off: !!s.off, peer: s.peer ?? -1 })), max: net.conn.max, teams: S.match.teams, info } });
   if (UI.current === 'lobby') UI.showLobby();
 }
 
@@ -198,6 +204,7 @@ function addLatePlayer(peer: number) {
   m.s.pl[id].spawnT = m.s.t + 1;
   m.mems.push(newMem(id));
   net.seatOf.set(peer, id);
+  net.conn?.send({ m: { t: 'seat', k: id, seat: { name: seat.name, ch: seat.ch, deck: seat.deck, team: seat.team, bot: 0, peer } } });
 }
 function startMsg(m: Match) {
   return { t: 'start', map: m.s.map, seed: m.seed, rules: m.s.rules, c: m.w.c, seats: m.seats.map(s => ({ name: s.name, ch: s.ch, deck: s.deck, team: s.team, bot: s.bot, peer: s.peer ?? -1 })) };
@@ -254,7 +261,7 @@ function guestMessage(m: Record<string, unknown>) {
   if (m.t === 'lobby') {
     if (m.g !== GAME) { net.close(); UI.showOnline(ERRORS.game); return; }
     net.lobby = { seats: (m.seats as (Seat & { host?: boolean, off?: boolean, peer: number })[]), max: m.max as number };
-    S.match.teams = !!m.teams;
+    S.match.teams = !!m.teams, net.info = String(m.info ?? '');
     if (app.mode !== 'guest' && (UI.current !== 'chars' && UI.current !== 'settings')) UI.showLobby();
     return;
   }
@@ -270,6 +277,7 @@ function guestMessage(m: Record<string, unknown>) {
   }
   const gv = app.guest;
   if (!gv) return;
+  if (m.t === 'seat') { const k = m.k as number; if (!gv.s.pl[k]) gv.s.pl[k] = newPlayer(k, m.seat as Seat, gv.w.c, gv.s.rules); return; }
   if (m.t === 'sync') { for (const op of m.ops as number[][]) { gv.w.T.ops.push(op); applyOpNoFx(gv.w, op); } }
   else if (m.t === 'st') gv.push(m, performance.now());
   else if (m.t === 'me') gv.reconcile(m.k as number, m.a as number, unpackFull(m.p as Record<string, unknown>));
@@ -307,7 +315,7 @@ function localInput(): Input {
   }
   return d;
 }
-const UI_free = () => UI.current === '' || UI.current === 'pause';
+const UI_free = () => (UI.current === '' || UI.current === 'pause') && !T.isEditing();
 
 // ---- Bucle --------------------------------------------------------------------------------------------------------
 function tick() {
@@ -362,6 +370,7 @@ function loop(now: number) {
     }
   }
   if (app.mode !== 'menu' && s && !s.over) A.music(S.music > 0, s.sudden);
+  rotateHint.hidden = !(app.mode !== 'menu' && T.visible() && app.H > app.W && UI.current === '');
 }
 
 function ipFor(): IP {
@@ -402,6 +411,11 @@ function draw(dt: number) {
     ctx.setTransform(app.dpr, 0, 0, app.dpr, 0, 0);
     if (p && UI_free()) T.drawTouch(ctx, p.ulti, !!p.hook, p.charge, p.dashN >= 1);
   }
+  if (T.isEditing()) { ctx.setTransform(app.dpr, 0, 0, app.dpr, 0, 0); T.drawTouch(ctx, 60, false, 2, true); drawHandPreview(); }
+}
+// En MOVER CONTROLES se ven también los lugares de las cartas
+function drawHandPreview() {
+  for (const r of handRects(true)) { ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.setLineDash([4, 4]); ctx.strokeRect(r.x, r.y, r.w, r.h); ctx.setLineDash([]); }
 }
 // Mira del ratón o del stick derecho, sin consumir eventos (para dibujar la trayectoria y la mira de la liga)
 function readAimOnly(p: Pl): [number, number] {
@@ -417,7 +431,7 @@ function readAimOnly(p: Pl): [number, number] {
 }
 
 function togglePause() {
-  if (app.mode === 'menu') return;
+  if (app.mode === 'menu' || T.isEditing()) return;
   if (UI.current === 'results') return;
   if (UI.current === 'pause' || UI.current === 'settings' || UI.current === 'howto') { resume(); return; }
   app.paused = true;
@@ -434,6 +448,20 @@ function resume() {
 pauseBtn.onclick = () => togglePause();
 document.addEventListener('visibilitychange', () => { if (document.hidden && app.mode === 'solo' && !app.paused && UI.current === '') togglePause(); });
 
+// MOVER CONTROLES: se ve el juego (pausado si es solo) con los controles punteados; arriba los tamaños y LISTO
+const editbar = document.getElementById('editbar')!;
+function editControls() {
+  UI.hideUI();
+  T.setEditing(true);
+  const sl = (k: 'stick' | 'btn' | 'card', l: string) => `<label class="slider"><span>${l}</span><input type="range" data-ts="${k}" min="60" max="160" step="5" value="${S.touch[k]}"><output>${S.touch[k]}</output></label>`;
+  editbar.innerHTML = `<div class="row"><b class="grow">Arrastrá el joystick y los botones</b><button class="btn sm ghost" data-e="def">POR DEFECTO</button><button class="btn sm" data-e="ok">LISTO</button></div>
+    ${sl('stick', 'joystick %')}${sl('btn', 'botones %')}${sl('card', 'cartas %')}`;
+  editbar.hidden = false;
+  for (const el of editbar.querySelectorAll<HTMLInputElement>('[data-ts]')) el.oninput = () => { S.touch[el.dataset.ts as 'stick'] = +el.value; (el.nextElementSibling as HTMLOutputElement).textContent = el.value; save(); };
+  (editbar.querySelector('[data-e=def]') as HTMLButtonElement).onclick = () => { S.touch.pos = {}, S.touch.stick = S.touch.btn = S.touch.card = 100; save(); editControls(); };
+  (editbar.querySelector('[data-e=ok]') as HTMLButtonElement).onclick = () => { T.setEditing(false); editbar.hidden = true; save(); UI.showSettings(UI.settingsBack, 'controles'); };
+}
+
 function quit() {
   if (app.mode === 'host' || app.mode === 'guest') { if (!confirm('¿Salir de la sala?')) return; }
   toMenu();
@@ -445,10 +473,10 @@ function rematch() {
 
 UI.initUI({
   startSolo, createRoom, joinRoom, leaveRoom, startOnline, lobbyChanged: hostBroadcastLobby, pickChanged,
-  resume, quit, rematch, editControls: () => {},
+  resume, quit, rematch, editControls,
   online: () => net.conn || net.code ? { host: net.host, code: net.code, seats: (net.host ? lobbySeats() : net.lobby?.seats ?? []).map(s => ({
     name: s.name, ch: s.ch, team: s.team ?? 0, bot: s.bot ?? 0, host: !!(s as { host?: boolean }).host, off: !!(s as { off?: boolean }).off,
-    me: net.host ? !!(s as { host?: boolean }).host : (s as { peer?: number }).peer === net.myPeer })), max: net.conn?.max ?? 4, status: net.status, link: roomLink(net.code), qr: net.qr } : null,
+    me: net.host ? !!(s as { host?: boolean }).host : (s as { peer?: number }).peer === net.myPeer })), max: net.conn?.max ?? 4, status: net.status, link: roomLink(net.code), qr: net.qr, info: net.info } : null,
 });
 
 // Arranque: demo de fondo y título (o directo a una sala con ?sala=CODE)
