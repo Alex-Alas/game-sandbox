@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { init, step, hookTarget, aimDir, cosDeg, throwVel, DT } from '../src/sim/sim.ts';
+import { init, step, hookTarget, aimDir, cosDeg, throwVel, atkBox, ATK, DT } from '../src/sim/sim.ts';
 import { DEFAULTS as C, RANGES, PROFILES, HOOK_KEYS } from '../src/sim/params.ts';
 import { PATIO } from '../src/patio.ts';
 
@@ -115,8 +115,15 @@ test('liga: es una fuerza central (conserva el momento angular alrededor del anc
   const { s, w } = hooked([R(-0.1, 11.2, 0.1, 11.4)], [0, 1], 37, c);
   const L = p => (p.x - p.hook.x) * p.vy - (p.y + 1.2 - p.hook.y) * p.vx;
   const L0 = L(s.p);
-  for (let k = 0; k < 300; k++) step(s, w, { x: 0, jump: false, hook: true }, c);
-  assert.ok(s.p.hook && Math.abs(L(s.p) - L0) < Math.abs(L0) * 1e-9, `L ${L0} → ${L(s.p)}`);
+  // Mientras el ancla queda por encima de la mano: cuando la mano pasa por encima del ancla empieza la honda (tope de
+  // RUN, ver step) y ahí el momento ya no se conserva a propósito.
+  let k = 0;
+  for (; k < 300; k++) {
+    step(s, w, { x: 0, jump: false, hook: true }, c);
+    if (s.p.hook.y < s.p.y + 1.2) break;
+    assert.ok(Math.abs(L(s.p) - L0) < Math.abs(L0) * 1e-9, `cuadro ${k}: L ${L0} → ${L(s.p)}`);
+  }
+  assert.ok(k > 10 && s.p.hook, `solo ${k} cuadros antes de la honda`);
 });
 
 test('liga: soltar GARFIO conserva la velocidad; SALTO enganchado suelta y suma HOOK_JUMP', () => {
@@ -124,7 +131,7 @@ test('liga: soltar GARFIO conserva la velocidad; SALTO enganchado suelta y suma 
   const { s, w } = hooked([R(-50, 11.2, 50, 12)], [0, 1], 20, c);
   for (let k = 0; k < 10; k++) step(s, w, { x: 0, jump: false, hook: true }, c);
   const free = structuredClone(s);
-  free.p.hook = null;
+  free.p.hook = null, free.p.relT = free.t + 1; // soltar de una superficie marca el cuadro (coyote del SALTO)
   const rel = structuredClone(s), jmp = structuredClone(s);
   step(free, w, { x: 0, jump: false, hook: false }, c);
   step(rel, w, { x: 0, jump: false, hook: false }, c);
@@ -168,12 +175,48 @@ test('cargas: enganchar gasta una, fallar no; sin cargas no dispara; se recargan
   assert.equal(miss.p.charge, C.HOOK_N);
 });
 
-test('cargas: soltar a HOOK_REFUND m/s o más devuelve la carga', () => {
-  for (const [vx, back] of [[C.HOOK_REFUND + 1, true], [C.HOOK_REFUND - 5, false]]) {
-    const { s, w } = hooked([R(-50, 11.2, 50, 12)], [0, 1], vx);
-    step(s, w, { x: 0, jump: false, hook: false }, G0);
-    assert.equal(s.p.charge > C.HOOK_N - 1 + 0.5, back, `a ${vx} m/s quedan ${s.p.charge}`);
-  }
+test('cargas: soltar rápido con el ancla delante no devuelve la carga', () => {
+  const { s, w } = hooked([R(-50, 11.2, 50, 12)], [0, 1], C.HOOK_REFUND + 1); // el tirón la sube hacia el ancla
+  assert.ok(s.p.vx ** 2 + s.p.vy ** 2 >= C.HOOK_REFUND ** 2, `rapidez ${s.p.vx}, ${s.p.vy}`);
+  const before = s.p.charge;
+  step(s, w, { x: 0, jump: false, hook: false }, G0);
+  assert.ok(s.p.charge < before + 0.5, `${before} → ${s.p.charge}`);
+});
+
+test('cargas: un columpio que pasa el ancla y suelta a HOOK_REFUND m/s o más devuelve la carga', () => {
+  const { s, w } = hooked([R(-50, 11.2, 50, 12)], [0, 1], C.HOOK_REFUND + 1);
+  const behind = () => (s.p.hook.x - s.p.x) * s.p.vx + (s.p.hook.y - (s.p.y + 1.2)) * s.p.vy < 0; // te alejás del ancla
+  const fast = () => s.p.vx ** 2 + s.p.vy ** 2 >= C.HOOK_REFUND ** 2;
+  for (let k = 0; k < 600 && !(behind() && fast()); k++) step(s, w, { x: 0, jump: false, hook: true }, G0);
+  assert.ok(s.p.hook && behind() && fast(), 'el columpio no pasó el ancla');
+  const before = s.p.charge;
+  step(s, w, { x: 0, jump: false, hook: false }, G0);
+  assert.ok(s.p.charge > before + 0.5, `${before} → ${s.p.charge}`);
+});
+
+// Honda: enganchado a un ancla por debajo de la mano, la liga no sube la rapidez por encima de RUN (ver step)
+test('honda: un piso adelante y abajo no deja pasar RUN, y soltar antes de llegar no devuelve la carga', () => {
+  const w = { spawn: [0, 0], rects: [R(-50, -1, 50, 0)] }, hold = { x: 0, jump: false, hook: true, ax: 1, ay: -0.2 };
+  const s = init(w, C); // parado en el piso; el garfio apunta adelante y abajo, al piso a unos 6 m
+  let max = 0;
+  for (let k = 0; k < 120; k++) step(s, w, hold, C), max = Math.max(max, Math.sqrt(s.p.vx ** 2 + s.p.vy ** 2));
+  assert.ok(s.p.hook && s.p.hook.e === -1, 'enganchado al piso');
+  assert.ok(max <= C.RUN + 1e-6, `rapidez máxima ${max}`);
+  const r = init(w, C); // soltar antes de llegar al ancla (todavía te acercás): no devuelve
+  for (let k = 0; k < 20; k++) step(r, w, hold, C);
+  assert.ok(r.p.hook && r.p.hook.x > r.p.x, 'todavía no llegó al ancla');
+  const before = r.p.charge;
+  step(r, w, { x: 0, jump: false, hook: false }, C);
+  assert.ok(r.p.hook === null && r.p.charge < before + 0.5, `${before} → ${r.p.charge}`);
+});
+
+test('honda: el tope no toca las anclas de arriba: por encima de la mano, la liga sí sube la rapidez sobre RUN', () => {
+  const w = { spawn: [0, 0], rects: [R(10, 2, 12, 50)] }, s = init(w, G0);
+  s.p.vx = 25;
+  let max = 0;
+  for (let k = 0; k < 12; k++) step(s, w, { x: 0, jump: false, hook: true, ax: 1, ay: 0.3 }, G0), max = Math.max(max, Math.sqrt(s.p.vx ** 2 + s.p.vy ** 2));
+  assert.ok(s.p.hook && s.p.hook.y > s.p.y + 1.2, 'el ancla quedó por encima de la mano');
+  assert.ok(max > C.RUN + 1, `rapidez máxima ${max}`);
 });
 
 test('chispas: devuelven una carga y reaparecen a los ORB_T s', () => {
@@ -355,7 +398,7 @@ test('enganchado a un dummy, SALTO no suelta la liga: en el suelo salta y en el 
 });
 
 test('modo ancla: con ATAQUE mantenido el héroe pesa ANCHOR_M para la liga (el liviano viene sin frenarte)', () => {
-  const c = { ...Z, SWING_A: 0 }, { s, w } = grab('liviano', c, 0);
+  const c = Z, { s, w } = grab('liviano', c, 0);
   const v0 = { p: s.p.vx, d: s.d[0].vx };
   for (let k = 0; k < 10; k++) step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 1, ay: 0 }, c);
   const dp = s.p.vx - v0.p, dd = s.d[0].vx - v0.d;
@@ -363,16 +406,44 @@ test('modo ancla: con ATAQUE mantenido el héroe pesa ANCHOR_M para la liga (el 
   assert.ok(dd < -5 && Math.abs(c.ANCHOR_M * dp + c.M_LIGHT * dd) < 1e-9, `héroe ${dp}, dummy ${dd}`);
 });
 
-test('modo ancla: la mira empuja al dummy con SWING_A y, pasando SWING_V, solo lo gira', () => {
-  const c = { ...Z, HOOK_K: 0, HOOK_DAMP: 0 }, { s, w } = grab('liviano', c, 0); // sin liga que tire: solo la mira
-  const i = { x: 0, jump: false, hook: true, atk: true, ax: 0, ay: 1 }, rel = () => Math.sqrt(s.d[0].vx ** 2 + s.d[0].vy ** 2);
-  step(s, w, i, c);
-  assert.ok(s.d[0].vx === 0 && Math.abs(s.d[0].vy - c.SWING_A * DT) < 1e-12, JSON.stringify(s.d[0]));
-  for (let k = 0; k < 60; k++) step(s, w, i, c);
-  const top = rel();
-  assert.ok(top >= c.SWING_V && top <= c.SWING_V + c.SWING_A * DT, `rapidez ${top}`);
-  for (let k = 0; k < 30; k++) step(s, w, { ...i, ax: 1, ay: 0 }, c); // de costado: gira hacia la mira sin acelerar
-  assert.ok(Math.abs(rel() - top) < 1e-9 && s.d[0].vx > s.d[0].vy, JSON.stringify(s.d[0]));
+test('modo ancla: mantener la mira quieta no empuja y el momento total se conserva (sin motor)', () => {
+  for (const kind of ['pesado', 'mediano', 'liviano']) {
+    const w = dum(kind), s = init(w, Z), m = C[{ pesado: 'M_HEAVY', mediano: 'M_MID', liviano: 'M_LIGHT' }[kind]]; // ancla desde el primer cuadro
+    for (let k = 0; k < 600; k++) step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 1, ay: 0 }, Z);
+    const P = Z.ANCHOR_M * s.p.vx + m * s.d[0].vx;
+    assert.ok(s.p.anchor && Math.abs(P) < 1e-6, `${kind}: momento ${P}, héroe ${s.p.vx}`);
+    assert.ok(Math.abs(s.p.vx) < 40, `${kind}: héroe a ${s.p.vx} m/s`);
+  }
+});
+
+test('flick: un cambio brusco de la mira da UN empujón al dummy (el pesado, menos), con reacción y pausa', () => {
+  const tap = (s, w, ax, ay) => step(s, w, { x: 0, jump: false, hook: true, atk: true, ax, ay }, Z);
+  for (const [kind, key] of [['liviano', 'M_LIGHT'], ['pesado', 'M_HEAVY']]) {
+    const { s, w } = grab(kind, Z, 2), m = Z[key];
+    for (let k = 0; k < 5; k++) tap(s, w, 1, 0); // mira quieta: sin flick
+    assert.ok(s.p.flickT < -1e8, 'sin flick');
+    const P0 = Z.ANCHOR_M * s.p.vx + m * s.d[0].vx, v0 = { d: s.d[0].vy, h: s.p.vy };
+    tap(s, w, 0, 1); // ↑: flick
+    const dv = Z.SWING_FLICK * Math.min(1, 1 / m);
+    assert.ok(Math.abs(s.d[0].vy - v0.d - dv) < 1e-6 && s.p.vy < v0.h, `${kind}: dummy +${s.d[0].vy - v0.d}, esperado ${dv}`);
+    assert.ok(Math.abs(Z.ANCHOR_M * s.p.vx + m * s.d[0].vx - P0) < 1e-6, 'conserva el momento horizontal');
+    const t0 = s.p.flickT, vy = s.d[0].vy;
+    tap(s, w, 1, 0), tap(s, w, 0, 1); // otro flick dentro de la pausa: no
+    assert.equal(s.p.flickT, t0, 'pausa');
+    for (let k = 0; k < Z.FLICK_CD; k++) tap(s, w, 0, 1);
+    tap(s, w, 1, 0);
+    assert.ok(s.p.flickT > t0, 'pasada la pausa, flick de nuevo');
+  }
+});
+
+test('flick: girar la mira despacio no es un flick; sin mira o sin ancla tampoco', () => {
+  const { s, w } = grab('liviano', Z, 2);
+  let a = 0; // de (1, 0) a (0, 1) en 60 cuadros
+  for (let k = 0; k <= 60; k++) { const f = k / 60; step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 1 - f, ay: f }, Z); }
+  assert.ok(s.p.flickT < -1e8, 'giro lento');
+  const g = grab('liviano', Z, 2);
+  step(g.s, g.w, { x: 0, jump: false, hook: true, atk: false, ax: 0, ay: 1 }, Z);
+  assert.ok(g.s.p.flickT < -1e8, 'sin ATAQUE no hay ancla ni flick');
 });
 
 test('modo ancla: ATAQUE sostiene la liga sin GARFIO; apretar GARFIO otra vez la suelta sin lanzar', () => {
@@ -471,4 +542,140 @@ test('la simulación no usa Math no exacto (D11)', () => {
     const src = readFileSync(new URL(f, dir), 'utf8');
     assert.doesNotMatch(src, /Math\.(a?(sin|cos|tan)h?|atan2|exp|expm1|log\w*|pow|hypot|cbrt|random)\b|[\w)\]]\s*\*\*/, f);
   }
+});
+
+// Golpes de ATAQUE (paso E). Con Z (sin gravedad ni roce) los dummies quedan quietos hasta que los golpean.
+const K = (ax = 1, ay = 0) => ({ x: 0, jump: false, atk: true, ax, ay }); // ATAQUE apretado
+const NO = { x: 0, jump: false };
+// ATAQUE mantenido hasta el golpe ligero (pega en f = ATK.L.start): el dummy pasa a la par y el héroe puede correr contra él
+function pegar(kind, x, y, vx = 0) {
+  const w = dum(kind, x, y), s = init(w, Z);
+  s.p.vx = vx;
+  for (let k = 0; k < ATK.L.start + 2; k++) step(s, w, K(), Z);
+  return s;
+}
+
+test('golpes: el ligero pega en f = 5 a 8 (no antes ni después), atkBox coincide y baja la vida ATK_DMG_L', () => {
+  for (let f = 1; f <= 12; f++) {
+    const w = dum('liviano', 50, 0), s = init(w, Z); // lejos de la caja
+    step(s, w, K(), Z); // pulsación: f = 0
+    while (s.t < f) step(s, w, NO, Z);
+    s.d[0].x = 0.8; // entra a la caja justo en el cuadro f
+    step(s, w, NO, Z);
+    const on = f >= 5 && f < 9; // frame data fija (no se lee de ATK: el test la verifica)
+    assert.equal(s.d[0].hp < 100, on, `f = ${f}`);
+    if (on) assert.equal(s.d[0].hp, 100 - C.ATK_DMG_L);
+    assert.equal(atkBox(s.p, Z, s.t) !== null, on, `caja en f = ${f}`);
+  }
+});
+
+test('golpes: cada dummy se golpea una sola vez por golpe, aunque siga en la caja varios cuadros', () => {
+  const w = dum('liviano', 0.8, 0), s = init(w, Z);
+  step(s, w, K(), Z);
+  let hits = 0, hp = s.d[0].hp;
+  for (let k = 0; k < 20; k++) {
+    step(s, w, NO, Z);
+    if (s.d[0].hp < hp) hits++, hp = s.d[0].hp;
+  }
+  assert.equal(hits, 1);
+  assert.equal(s.d[0].hp, 100 - C.ATK_DMG_L);
+});
+
+test('golpes: el empuje es ATK_L_BASE quieto, más tu rapidez a favor (sin frenarte), y el pesado se mueve 1/8', () => {
+  const quieto = pegar('mediano', 0.8, 0), corre = pegar('mediano', 2.55, 0, 10), pesado = pegar('pesado', 1.2, 0);
+  assert.equal(quieto.d[0].vx, C.ATK_L_BASE, 'quieto: el mediano pesa 1');
+  assert.equal(corre.d[0].vx, C.ATK_L_BASE + C.ATK_CARRY * 10, 'corriendo a 10 m/s');
+  assert.equal(corre.p.vx, 10, 'el héroe no se frena');
+  assert.ok(Math.abs(pesado.d[0].vx - C.ATK_L_BASE / C.M_HEAVY) < 1e-9, `pesado ${pesado.d[0].vx}`);
+  for (const s of [quieto, corre, pesado]) assert.equal(s.d[0].hp, 100 - C.ATK_DMG_L);
+});
+
+test('golpes: hitstop: el dummy queda quieto ATK.L.stop cuadros tras el golpe y después se mueve', () => {
+  const w = dum('liviano', 0.8, 0), s = init(w, Z), pos = [];
+  step(s, w, K(), Z);
+  for (let k = 0; k < ATK.L.start + ATK.L.stop + 5; k++) step(s, w, NO, Z), pos[s.t] = s.d[0].x;
+  const hit = 1 + ATK.L.start; // el golpe pega en este cuadro
+  assert.equal(s.d[0].hp, 100 - C.ATK_DMG_L);
+  for (let t = hit; t < hit + ATK.L.stop; t++) assert.equal(pos[t], 0.8, `cuadro ${t}`);
+  assert.ok(pos[hit + ATK.L.stop] > 0.8, `después: ${pos[hit + ATK.L.stop]}`);
+});
+
+test('golpes: el pesado ↑ lanza hacia arriba al de adelante y al de arriba de la cabeza, no al de atrás', () => {
+  const at = (x, y) => ({ x, y, kind: 'liviano' });
+  const w = { spawn: [0, 0], rects: [], dummies: [at(0, 1.9), at(1.2, 0), at(-1.2, 0)] }, s = init(w, Z); // mira a la derecha
+  step(s, w, { ...K(), ax: 0, ay: 1 }, Z); // ↑: pesado
+  for (let k = 0; k < ATK.H.start + 2; k++) step(s, w, NO, Z);
+  assert.equal(s.d[0].hp, 100 - C.ATK_DMG_H, 'arriba');
+  assert.equal(s.d[1].hp, 100 - C.ATK_DMG_H, 'adelante');
+  assert.equal(s.d[2].hp, 100, 'atrás');
+  for (const d of [s.d[0], s.d[1]]) assert.ok(d.vy === C.ATK_H_BASE && d.vx === 0 && d.lz, 'sale hacia arriba, LANZADO');
+});
+
+test('golpes: ↓ en el aire es picada: te baja a ATK_DIVE m/s, y el pesado abajo suma tu caída', () => {
+  const w = { spawn: [0, 3], rects: [], dummies: [{ x: 0.8, y: -1.5, kind: 'liviano' }] }, s = init(w, Z);
+  step(s, w, { x: 0, jump: false, atk: true, ax: 0, ay: -1 }, Z);
+  assert.ok(s.p.vy <= -C.ATK_DIVE, `picada: vy ${s.p.vy}`);
+  let hitAt = -1;
+  for (let k = 0; k < 20 && hitAt < 0; k++) step(s, w, NO, Z), s.d[0].hp < 100 && (hitAt = s.t);
+  assert.equal(hitAt, 1 + ATK.H.start, 'pega en la startup del pesado');
+  assert.equal(s.d[0].vy, -(C.ATK_H_BASE + C.ATK_CARRY * -s.p.vy), 'pesado abajo: ATK_H_BASE más tu caída');
+  assert.ok(s.d[0].lz && s.d[0].hp === 100 - C.ATK_DMG_H);
+});
+
+test('golpes: con la liga enganchada a un dummy, ATAQUE no empieza un golpe (sigue el modo ancla)', () => {
+  const { s, w } = grab('liviano', Z, 2);
+  step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 1, ay: 0 }, Z);
+  assert.ok(s.p.hook && s.p.anchor, 'modo ancla');
+  assert.equal(s.p.atkK, 0, 'no hay golpe');
+});
+
+test('golpes: SALTO cancela el golpe solo en la recuperación (f ≥ end), no en la startup', () => {
+  const w = { spawn: [0, 0], rects: [R(-50, -1, 50, 0)] };
+  for (const [f, cancel] of [[3, false], [ATK.L.end + 1, true]]) {
+    const s = init(w, C);
+    step(s, w, { ...NO, atk: true, ax: 1, ay: 0 }, C); // pulsación: f = 0
+    while (s.t < f) step(s, w, NO, C);
+    step(s, w, { x: 0, jump: true }, C); // SALTO en el cuadro f
+    assert.equal(s.p.atkK === 0, cancel, `SALTO en f = ${f}`);
+  }
+});
+
+test('golpes: init deja los campos nuevos y el estado sigue yendo y viniendo por JSON', () => {
+  const s = init(PATIO);
+  assert.ok(s.d.length > 0);
+  assert.deepEqual([s.p.atkK, s.p.atkT0, s.p.atkHit], [0, -1e9, []]);
+  assert.ok(s.d.every(d => d.stopT === -1e9));
+  assert.deepEqual(JSON.parse(JSON.stringify(s)), s);
+});
+
+test('coyote de la liga: soltarla deja HOOK_COYOTE cuadros en que SALTO todavía suma HOOK_JUMP (y no es el doble salto)', () => {
+  const c = { ...C, FALL_G: 1 };
+  for (const n of [1, c.HOOK_COYOTE, c.HOOK_COYOTE + 1]) {
+    const { s, w } = hooked([R(-50, 11.2, 50, 12)], [0, 1], 20, c);
+    for (let k = 0; k < 10; k++) step(s, w, { x: 0, jump: false, hook: true }, c);
+    step(s, w, { x: 0, jump: false, hook: false }, c); // suelta
+    const free = structuredClone(s), jmp = structuredClone(s);
+    for (let k = 1; k < n; k++) step(free, w, NO, c), step(jmp, w, NO, c);
+    step(free, w, NO, c), step(jmp, w, { x: 0, jump: true }, c); // SALTO el cuadro n después de soltar
+    const gain = jmp.p.vy - free.p.vy;
+    if (n <= c.HOOK_COYOTE) assert.ok(Math.abs(gain - c.HOOK_JUMP) < 1e-9 && jmp.p.air === c.AIR_JUMPS, `n=${n}: +${gain}, saltos ${jmp.p.air}`);
+    else assert.ok(Math.abs(gain - c.HOOK_JUMP) > 1e-3 && jmp.p.air === c.AIR_JUMPS - 1, `n=${n}: pasado el coyote es el doble salto`);
+  }
+});
+
+test('coyote de la liga: un salto con liga no se repite (relT se gasta) y soltar de un dummy no da coyote', () => {
+  const { s, w } = hooked([R(-50, 11.2, 50, 12)], [0, 1], 20);
+  for (let k = 0; k < 10; k++) step(s, w, { x: 0, jump: false, hook: true }, C);
+  step(s, w, { x: 0, jump: true, hook: true }, C); // SALTO enganchado: suelta + HOOK_JUMP
+  assert.equal(s.p.relT < -1e8, true, 'gastado');
+  const g = grab('liviano', Z, 2);
+  step(g.s, g.w, { x: 0, jump: false, hook: false }, Z); // soltar el dummy
+  assert.ok(g.s.p.relT < -1e8, 'un dummy no da coyote');
+});
+
+test('ancla en el aire: la gravedad baja a ANCHOR_G mientras ATAQUE sostiene la liga a un dummy; en el suelo no', () => {
+  const c = { ...C, HOOK_TRAVEL: 0, ANCHOR_G: 0.25 }, w = { spawn: [0, 5], rects: [], dummies: [{ x: 6, y: 5, kind: 'pesado' }] };
+  const vyAfter = hold => { const s = init(w, c); for (let k = 0; k < 6; k++) step(s, w, { x: 0, jump: false, hook: hold, atk: hold, ax: 1, ay: 0 }, c); return s.p.vy; };
+  const flot = vyAfter(true), caida = vyAfter(false);
+  assert.ok(flot > caida * 0.5 && caida < 0, `con ancla vy ${flot}, sin ella ${caida}`);
 });

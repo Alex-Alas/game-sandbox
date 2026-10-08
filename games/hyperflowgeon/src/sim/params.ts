@@ -26,6 +26,7 @@ export const RANGES = {
   HOOK_JUMP: [10, 0, 30, 0.5, 'impulso al soltar m/s'],
   HOOK_MISS: [12, 0, 60, 1, 'pausa si falla cuadros'],
   HOOK_CONE: [12, 0, 45, 1, 'cono de gracia °'],
+  HOOK_COYOTE: [8, 0, 20, 1, 'coyote de la liga cuadros'],
   HOOK_N: [3, 1, 8, 1, 'cargas'],
   HOOK_CD: [2.5, 0.2, 15, 0.1, 'recarga s/carga'],
   HOOK_GROUND: [2, 1, 5, 0.1, 'recarga en suelo ×'],
@@ -43,11 +44,21 @@ export const RANGES = {
   THROW_V: [30, 5, 80, 0.5, 'lanzar m/s'],
   // Modo ancla (ATAQUE mantenido con la liga a un dummy): el héroe pesa ANCHOR_M para la liga y la mira empuja al dummy
   ANCHOR_M: [10, 1, 50, 0.5, 'masa del héroe como ancla ×'],
-  SWING_A: [80, 0, 300, 1, 'la mira empuja m/s²'],
-  SWING_V: [25, 0, 80, 0.5, 'empuja hasta m/s'],
+  SWING_FLICK: [25, 0, 80, 0.5, 'flick: empujón m/s (liviano)'],
+  FLICK_V: [0.6, 0.1, 1.9, 0.05, 'flick: cambio de mira'],
+  FLICK_CD: [12, 0, 60, 1, 'flick: pausa cuadros'],
+  ANCHOR_G: [0.35, 0, 1, 0.05, 'gravedad en el aire como ancla ×'],
   IMPACT_V: [8, 0, 40, 0.5, 'golpe lastima desde m/s'],
   IMPACT_DMG: [4, 0, 20, 0.5, 'daño por m/s de más'],
   D_RESPAWN: [3, 0.5, 20, 0.5, 'reaparece s'],
+  // Golpes (paso E): sin calibrar
+  ATK_REACH: [1.1, 0.3, 3, 0.05, 'alcance del golpe m'],
+  ATK_L_BASE: [5, 0, 30, 0.5, 'ligero: empuje m/s'],
+  ATK_H_BASE: [12, 0, 40, 0.5, 'pesado: empuje m/s'],
+  ATK_CARRY: [1, 0, 2, 0.05, 'tu rapidez a favor suma ×'],
+  ATK_DMG_L: [8, 0, 100, 1, 'daño ligero (de 100)'],
+  ATK_DMG_H: [25, 0, 100, 1, 'daño pesado (de 100)'],
+  ATK_DIVE: [20, 0, 60, 0.5, 'picada ↓ en el aire m/s'],
 } satisfies Record<string, [number, number, number, number, string]>;
 
 export type Cfg = { [K in keyof typeof RANGES]: number };
