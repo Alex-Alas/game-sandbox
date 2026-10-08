@@ -6,6 +6,7 @@ export const HZ = 60, DT = 1 / HZ;
 export const HW = 0.35, H = 1.8, HAND = 1.2; // media anchura y alto del héroe; altura de la mano, de donde sale la liga
 const EPS = 1e-6; // tocarse no es solaparse
 const NEVER = -1e9;
+const FLICK_FOLLOW = 0.3; // cuánto de la distancia a la mira recorre la referencia del flick por cuadro
 // Golpes de ATAQUE (paso E), frame data en cuadros desde la pulsación (f = 0): pega si start ≤ f < end; el golpe dura
 // total (SALTO lo cancela solo en la recuperación, f ≥ end). UP: umbral de la mira unitaria para ↑ y ↓.
 export const ATK = { L: { start: 5, end: 9, total: 12, stop: 3 }, H: { start: 13, end: 18, total: 24, stop: 6 }, UP: 0.8 };
@@ -50,6 +51,9 @@ export type Player = {
   atkK: number,     // golpe en curso: 0 ninguno, 1 ligero, 2 pesado ↑, 3 pesado ↓
   atkT0: number,    // cuadro de la pulsación del golpe
   atkHit: number[], // dummies ya golpeados en este golpe
+  fx: number,       // referencia de la mira unitaria (la sigue de a poco): un cambio brusco contra ella es un flick
+  fy: number,
+  flickT: number,   // último cuadro en que hubo un flick
 };
 // Un dummy: caja sin control con masa y vida. LANZADO (lz): daña y se daña al chocar; hp ≤ 0: roto hasta el cuadro back;
 // par: está pasando a la par del héroe (no chocan hasta que se separen); stopT: congelado por hitstop hasta ese cuadro
@@ -63,7 +67,7 @@ export function init(w: World, c: Cfg = DEFAULTS): State {
   const [x, y] = w.spawn;
   return { t: 0, orbs: (w.orbs ?? []).map(() => 0), d: (w.dummies ?? []).map(fresh), p: { x, y, vx: 0, vy: 0, ground: false, face: 1,
     groundT: NEVER, pressT: NEVER, held: false, rise: false, air: c.AIR_JUMPS, hook: null, hookHeld: false, atkHeld: false,
-    anchor: false, hookT: NEVER, shot: null, charge: c.HOOK_N, refundT: NEVER, relT: NEVER, atkK: 0, atkT0: NEVER, atkHit: [] } };
+    anchor: false, hookT: NEVER, shot: null, charge: c.HOOK_N, refundT: NEVER, relT: NEVER, atkK: 0, atkT0: NEVER, atkHit: [], fx: 0, fy: 0, flickT: NEVER } };
 }
 
 export const size = (w: World, k: number) => KINDS[w.dummies![k].kind];
@@ -88,6 +92,7 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   const p = s.p, t = ++s.t, g = 2 * c.JUMP_H / (c.JUMP_T * c.JUMP_T); // gravedad tal que JUMP_H se alcanza en JUMP_T
   const e0 = (p.vx * p.vx + p.vy * p.vy) / 2 + g * p.y, on0 = attached(p, t); // energía al empezar el cuadro (ver la honda)
   const atkPress = !!i.atk && !p.atkHeld; // antes de que el garfio cambie atkHeld
+  const ax0 = i.ax ?? 0, ay0 = i.ay ?? 0, an = Math.sqrt(ax0 * ax0 + ay0 * ay0), ux = an > 1e-9 ? ax0 / an : 0, uy = an > 1e-9 ? ay0 / an : 0; // mira unitaria (0: sin mira)
   if (i.x > 0) p.face = 1;
   else if (i.x < 0) p.face = -1;
   if (i.jump && !p.held) p.pressT = t;
@@ -207,17 +212,22 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
       p.vx += nx * a * ih / (ih + ie), p.vy += ny * a * ih / (ih + ie);
       if (e) e.vx -= nx * a * ie / (ih + ie), e.vy -= ny * a * ie / (ih + ie);
     }
-    // Modo ancla: la mira empuja al dummy con SWING_A (junto con la gravedad y la liga, un péndulo que va hacia donde
-    // apuntás) y lo que golpea, golpea como LANZADO. Ya más rápido que SWING_V respecto del héroe, la mira solo lo
-    // dobla y no le suma rapidez: girarlo más rápido sale de tu impulso, no de la herramienta.
+    // Modo ancla: el péndulo es libre (gravedad y liga) y lo que golpea, golpea como LANZADO. La mira no lo guía: un
+    // cambio brusco de la mira (un flick: tocar una flecha, mover rápido el stick o el ratón) le da UN empujón hacia
+    // donde flickeaste, con pausa de FLICK_CD cuadros. Es un intercambio: el dummy sale a SWING_FLICK (el pesado, más
+    // lento) y el héroe, que pesa ANCHOR_M, retrocede lo que conserva el momento (así no hay un motor).
     if (e && p.anchor) {
-      const [ax, ay] = aimDir(p, i, c), rx = e.vx - p.vx, ry = e.vy - p.vy, v2 = rx * rx + ry * ry;
-      let qx = rx + ax * c.SWING_A * DT, qy = ry + ay * c.SWING_A * DT;
-      const q2 = qx * qx + qy * qy;
-      if (q2 > v2 && v2 >= c.SWING_V * c.SWING_V) { const k = Math.sqrt(v2 / q2); qx *= k, qy *= k; } // solo gira
-      e.vx = p.vx + qx, e.vy = p.vy + qy, e.lz = true;
+      e.lz = true;
+      if ((ux !== 0 || uy !== 0) && (ux - p.fx) * (ux - p.fx) + (uy - p.fy) * (uy - p.fy) >= c.FLICK_V * c.FLICK_V && t - p.flickT >= c.FLICK_CD) {
+        const m = mass(w, p.hook.e, c), dv = c.SWING_FLICK * Math.min(1, 1 / m), back = dv * m / c.ANCHOR_M;
+        e.vx += ux * dv, e.vy += uy * dv, p.vx -= ux * back, p.vy -= uy * back;
+        p.flickT = t, p.fx = ux, p.fy = uy;
+      }
     }
   }
+
+  p.fx += (ux - p.fx) * FLICK_FOLLOW, p.fy += (uy - p.fy) * FLICK_FOLLOW; // la referencia sigue a la mira
+  if (ux === 0 && uy === 0) p.fx = p.fy = 0;
 
   // Salto: un SALTO apretado hasta BUFFER cuadros antes, con suelo hasta COYOTE cuadros atrás.
   // groundT = t − 1 es estar en el suelo, así que el aire empieza en t − groundT = 2.

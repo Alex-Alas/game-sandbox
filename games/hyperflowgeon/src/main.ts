@@ -53,7 +53,7 @@ function useProfile(n: Profile) {
 const MOVE = ['RUN', 'ACC', 'DEC', 'AIR', 'JUMP_H', 'JUMP_T', 'JUMP_CUT', 'FALL_G', 'MAX_FALL', 'COYOTE', 'BUFFER', 'AIR_JUMPS', 'JUMP2_H'] as const;
 const ASSIST = ['AIM_FOE', 'AIM_EDGE', 'AIM_16', 'AIM_UP'] as const;
 const DUMMY = ['M_LIGHT', 'M_MID', 'M_HEAVY', 'D_FRIC', 'D_RESPAWN'] as const;
-const ATTACK = ['THROW_V', 'ANCHOR_M', 'SWING_A', 'SWING_V', 'ANCHOR_G', 'IMPACT_V', 'IMPACT_DMG'] as const;
+const ATTACK = ['THROW_V', 'ANCHOR_M', 'SWING_FLICK', 'FLICK_V', 'FLICK_CD', 'ANCHOR_G', 'IMPACT_V', 'IMPACT_DMG'] as const;
 const GOLPE = ['ATK_REACH', 'ATK_L_BASE', 'ATK_H_BASE', 'ATK_CARRY', 'ATK_DMG_L', 'ATK_DMG_H', 'ATK_DIVE'] as const;
 const resetKeys = (ks: readonly (keyof Cfg)[]) => { for (const k of ks) cfg[k] = DEFAULTS[k]; };
 const HINTS: Record<Profile, string> = {
@@ -100,11 +100,11 @@ const SECTIONS: Section[] = [
     { rows: RANGES, keys: GOLPE.slice(4), vals: cfg },
     { title: 'Lanzar', note: 'Soltar ATAQUE con la liga en un dummy lo lanza hacia la mira: a esta rapidez (los pesados, más lento) más la que ya llevaba a favor de la mira. Un toque es lanzarlo; la flecha naranja dice hacia dónde y a cuánto.' },
     { rows: RANGES, keys: ATTACK.slice(0, 1), vals: cfg },
-    { title: 'Modo ancla (ATAQUE mantenido)', note: 'Con la liga en un dummy, mantener ATAQUE te vuelve el ancla: pesás esto para la liga (el liviano viene sin frenarte) y la mira empuja al dummy, que gira a tu alrededor como un péndulo; lo que golpea, golpea como LANZADO. Más rápido que el tope (respecto de vos), la mira solo lo gira. ATAQUE sostiene la liga aunque sueltes GARFIO (deslizar de GARFIO a ATAQUE se la pasa); apretar GARFIO otra vez la suelta sin lanzar.' },
-    { rows: RANGES, keys: ATTACK.slice(1, 5), vals: cfg },
+    { title: 'Modo ancla (ATAQUE mantenido)', note: 'Con la liga en un dummy, mantener ATAQUE te vuelve el ancla: pesás esto para la liga (el liviano viene sin frenarte), el péndulo queda libre y en el aire flotás (gravedad reducida). La mira ya no lo guía: un FLICK (tocar una flecha, mover rápido el stick o el ratón) le da UN empujón hacia donde flickeaste, con una pausa entre flicks, y vos retrocedés lo que conserva el momento. Lo que golpea, golpea como LANZADO. ATAQUE sostiene la liga aunque sueltes GARFIO (deslizar de GARFIO a ATAQUE se la pasa); apretar GARFIO otra vez la suelta sin lanzar; soltar ATAQUE lanza.' },
+    { rows: RANGES, keys: ATTACK.slice(1, 7), vals: cfg },
     { title: 'A la par', note: 'Mientras mantenés ATAQUE, con o sin liga, los dummies pasan a la par: no chocan con vos (entre ellos sí).' },
     { title: 'Golpes', note: 'Lo LANZADO se lastima al chocar según cuánto cambia su velocidad por encima del umbral; el golpeado así también queda LANZADO.' },
-    { rows: RANGES, keys: ATTACK.slice(5), vals: cfg },
+    { rows: RANGES, keys: ATTACK.slice(7), vals: cfg },
   ], reset: () => resetKeys([...GOLPE, ...ATTACK]) },
   { id: 'patio', label: 'PATIO', fields: [
     { title: 'Ir a', note: 'Reinicia todo (también los dummies) en ese lugar. R reinicia en el último elegido.' },
@@ -486,7 +486,7 @@ function draw(a: number, dt: number) {
 apuntar: ${scheme}${T.opts.scheme === 'drag' ? ' · arrastrar desde GARFIO y soltar · tocar GARFIO o SALTO suelta' : T.opts.scheme === 'tap' ? ' · tocar el mundo (mantener)' : ' · GARFIO (mantener) · deslizar a SALTO = soltar con impulso'}
 ATAQUE: golpe (joystick ↑ = pesado arriba; ↓ en el aire = picada) · mantener = a la par (y, con la liga en un dummy, modo ancla: deslizar de GARFIO a ATAQUE) · soltar = lanzar` : ` · R reiniciar · L lanzame uno
 teclado: ←/→ A/D correr · espacio saltar (y doble salto) · flechas/WASD apuntan · K o Shift garfio (mantener) · 1/2/3 perfil
-J ataque: golpe (con ↑ pesado arriba; con ↓ en el aire, picada) · mantener = a la par (y, con la liga en un dummy, modo ancla: la mira lo empuja) · soltar = lanzar · K otra vez = soltar sin lanzar
+J ataque: golpe (con ↑ pesado arriba; con ↓ en el aire, picada) · mantener = a la par (y, con la liga en un dummy, modo ancla: flick de la mira) · soltar = lanzar · K otra vez = soltar sin lanzar
 ratón: moverlo apunta · clic izq. garfio · clic der. ataque`}
 garfio ${active.toUpperCase()} · cargas ${p.charge.toFixed(1)}/${cfg.HOOK_N}${assist ? ` · ${assist}` : ''}
 vx ${p.vx.toFixed(2).padStart(6)}   vy ${p.vy.toFixed(2).padStart(6)}   |v| ${speed().toFixed(1).padStart(5)}   ${on ? (p.anchor ? 'ancla' : p.hook!.e >= 0 ? 'liga→dummy' : 'liga ') : p.hook ? 'viaje' : p.ground ? 'suelo' : 'aire '}${p.atkHeld ? ' · a la par' : ''}   saltos aire ${p.air}/${cfg.AIR_JUMPS}   sim ${simMs.toFixed(3)} ms

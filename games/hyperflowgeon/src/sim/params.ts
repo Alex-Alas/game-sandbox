@@ -44,8 +44,9 @@ export const RANGES = {
   THROW_V: [30, 5, 80, 0.5, 'lanzar m/s'],
   // Modo ancla (ATAQUE mantenido con la liga a un dummy): el héroe pesa ANCHOR_M para la liga y la mira empuja al dummy
   ANCHOR_M: [10, 1, 50, 0.5, 'masa del héroe como ancla ×'],
-  SWING_A: [80, 0, 300, 1, 'la mira empuja m/s²'],
-  SWING_V: [25, 0, 80, 0.5, 'empuja hasta m/s'],
+  SWING_FLICK: [25, 0, 80, 0.5, 'flick: empujón m/s (liviano)'],
+  FLICK_V: [0.6, 0.1, 1.9, 0.05, 'flick: cambio de mira'],
+  FLICK_CD: [12, 0, 60, 1, 'flick: pausa cuadros'],
   ANCHOR_G: [0.35, 0, 1, 0.05, 'gravedad en el aire como ancla ×'],
   IMPACT_V: [8, 0, 40, 0.5, 'golpe lastima desde m/s'],
   IMPACT_DMG: [4, 0, 20, 0.5, 'daño por m/s de más'],

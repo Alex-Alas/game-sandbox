@@ -398,7 +398,7 @@ test('enganchado a un dummy, SALTO no suelta la liga: en el suelo salta y en el 
 });
 
 test('modo ancla: con ATAQUE mantenido el héroe pesa ANCHOR_M para la liga (el liviano viene sin frenarte)', () => {
-  const c = { ...Z, SWING_A: 0 }, { s, w } = grab('liviano', c, 0);
+  const c = Z, { s, w } = grab('liviano', c, 0);
   const v0 = { p: s.p.vx, d: s.d[0].vx };
   for (let k = 0; k < 10; k++) step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 1, ay: 0 }, c);
   const dp = s.p.vx - v0.p, dd = s.d[0].vx - v0.d;
@@ -406,16 +406,44 @@ test('modo ancla: con ATAQUE mantenido el héroe pesa ANCHOR_M para la liga (el 
   assert.ok(dd < -5 && Math.abs(c.ANCHOR_M * dp + c.M_LIGHT * dd) < 1e-9, `héroe ${dp}, dummy ${dd}`);
 });
 
-test('modo ancla: la mira empuja al dummy con SWING_A y, pasando SWING_V, solo lo gira', () => {
-  const c = { ...Z, HOOK_K: 0, HOOK_DAMP: 0 }, { s, w } = grab('liviano', c, 0); // sin liga que tire: solo la mira
-  const i = { x: 0, jump: false, hook: true, atk: true, ax: 0, ay: 1 }, rel = () => Math.sqrt(s.d[0].vx ** 2 + s.d[0].vy ** 2);
-  step(s, w, i, c);
-  assert.ok(s.d[0].vx === 0 && Math.abs(s.d[0].vy - c.SWING_A * DT) < 1e-12, JSON.stringify(s.d[0]));
-  for (let k = 0; k < 60; k++) step(s, w, i, c);
-  const top = rel();
-  assert.ok(top >= c.SWING_V && top <= c.SWING_V + c.SWING_A * DT, `rapidez ${top}`);
-  for (let k = 0; k < 30; k++) step(s, w, { ...i, ax: 1, ay: 0 }, c); // de costado: gira hacia la mira sin acelerar
-  assert.ok(Math.abs(rel() - top) < 1e-9 && s.d[0].vx > s.d[0].vy, JSON.stringify(s.d[0]));
+test('modo ancla: mantener la mira quieta no empuja y el momento total se conserva (sin motor)', () => {
+  for (const kind of ['pesado', 'mediano', 'liviano']) {
+    const w = dum(kind), s = init(w, Z), m = C[{ pesado: 'M_HEAVY', mediano: 'M_MID', liviano: 'M_LIGHT' }[kind]]; // ancla desde el primer cuadro
+    for (let k = 0; k < 600; k++) step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 1, ay: 0 }, Z);
+    const P = Z.ANCHOR_M * s.p.vx + m * s.d[0].vx;
+    assert.ok(s.p.anchor && Math.abs(P) < 1e-6, `${kind}: momento ${P}, héroe ${s.p.vx}`);
+    assert.ok(Math.abs(s.p.vx) < 40, `${kind}: héroe a ${s.p.vx} m/s`);
+  }
+});
+
+test('flick: un cambio brusco de la mira da UN empujón al dummy (el pesado, menos), con reacción y pausa', () => {
+  const tap = (s, w, ax, ay) => step(s, w, { x: 0, jump: false, hook: true, atk: true, ax, ay }, Z);
+  for (const [kind, key] of [['liviano', 'M_LIGHT'], ['pesado', 'M_HEAVY']]) {
+    const { s, w } = grab(kind, Z, 2), m = Z[key];
+    for (let k = 0; k < 5; k++) tap(s, w, 1, 0); // mira quieta: sin flick
+    assert.ok(s.p.flickT < -1e8, 'sin flick');
+    const P0 = Z.ANCHOR_M * s.p.vx + m * s.d[0].vx, v0 = { d: s.d[0].vy, h: s.p.vy };
+    tap(s, w, 0, 1); // ↑: flick
+    const dv = Z.SWING_FLICK * Math.min(1, 1 / m);
+    assert.ok(Math.abs(s.d[0].vy - v0.d - dv) < 1e-6 && s.p.vy < v0.h, `${kind}: dummy +${s.d[0].vy - v0.d}, esperado ${dv}`);
+    assert.ok(Math.abs(Z.ANCHOR_M * s.p.vx + m * s.d[0].vx - P0) < 1e-6, 'conserva el momento horizontal');
+    const t0 = s.p.flickT, vy = s.d[0].vy;
+    tap(s, w, 1, 0), tap(s, w, 0, 1); // otro flick dentro de la pausa: no
+    assert.equal(s.p.flickT, t0, 'pausa');
+    for (let k = 0; k < Z.FLICK_CD; k++) tap(s, w, 0, 1);
+    tap(s, w, 1, 0);
+    assert.ok(s.p.flickT > t0, 'pasada la pausa, flick de nuevo');
+  }
+});
+
+test('flick: girar la mira despacio no es un flick; sin mira o sin ancla tampoco', () => {
+  const { s, w } = grab('liviano', Z, 2);
+  let a = 0; // de (1, 0) a (0, 1) en 60 cuadros
+  for (let k = 0; k <= 60; k++) { const f = k / 60; step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 1 - f, ay: f }, Z); }
+  assert.ok(s.p.flickT < -1e8, 'giro lento');
+  const g = grab('liviano', Z, 2);
+  step(g.s, g.w, { x: 0, jump: false, hook: true, atk: false, ax: 0, ay: 1 }, Z);
+  assert.ok(g.s.p.flickT < -1e8, 'sin ATAQUE no hay ancla ni flick');
 });
 
 test('modo ancla: ATAQUE sostiene la liga sin GARFIO; apretar GARFIO otra vez la suelta sin lanzar', () => {
