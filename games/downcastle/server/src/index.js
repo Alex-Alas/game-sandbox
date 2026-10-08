@@ -23,6 +23,7 @@ export class DowncastleRoom {
       code: url.searchParams.get('sala'),
       create: url.searchParams.get('create') === '1',
       pid: url.searchParams.get('pid'),
+      max: url.searchParams.get('max'),
     });
     if (h) {
       server.addEventListener('message', (e) => h.message(typeof e.data === 'string' ? e.data : ''));

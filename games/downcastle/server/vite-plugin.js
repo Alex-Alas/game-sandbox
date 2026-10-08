@@ -21,6 +21,7 @@ async function attach(httpServer, base) {
         code: url.searchParams.get('sala'),
         create: url.searchParams.get('create') === '1',
         pid: url.searchParams.get('pid'),
+        max: url.searchParams.get('max'),
       });
       if (!h) return;
       ws.on('message', (data) => h.message(data.toString()));
