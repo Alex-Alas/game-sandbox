@@ -25,6 +25,7 @@ import { applyOp } from './sim/terrain.ts';
 import { mousePos } from './input.ts';
 import { toWorld } from './render.ts';
 import { AIM_R, HAND_Y } from './sim/state.ts';
+import { initFullscreen, autoFs, fsInGame } from './fullscreen.ts';
 
 const cv = document.getElementById('game') as HTMLCanvasElement;
 const ctx = cv.getContext('2d', { alpha: false })!;
@@ -66,7 +67,9 @@ function botSeats(n: number, start: number, used: string[], rnd: (k: number) => 
   return out;
 }
 
+initFullscreen(document.getElementById('fsbtn') as HTMLButtonElement, m => UI.toast(m, 4000));
 function begin(m: Match, mode: Mode) {
+  autoFs(), fsInGame(true);
   app.match = m, app.mode = mode, app.paused = false, app.overT = 0, app.shownResults = false, app.acc = 0;
   app.cam = newCam();
   clearFx(), clearDesktop(), T.clearTouch(true);
@@ -92,6 +95,7 @@ function startDemo() {
 }
 
 function toMenu() {
+  fsInGame(false);
   net.close();
   app.match = null, app.guest = null, app.mode = 'menu', app.paused = false;
   pauseBtn.hidden = true;

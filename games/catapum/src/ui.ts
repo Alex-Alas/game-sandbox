@@ -255,6 +255,7 @@ export function showSettings(back: () => void, tab0 = 'juego') {
         <label class="chk"><input type="checkbox" data-s="shake" ${S.shake ? 'checked' : ''}> Sacudones de pantalla</label>
         <label class="chk"><input type="checkbox" data-s="nums" ${S.nums ? 'checked' : ''}> % sobre los personajes</label>
         <label class="chk"><input type="checkbox" data-s="vibrate" ${S.vibrate ? 'checked' : ''}> Vibración (teléfono)</label>
+        <label class="chk"><input type="checkbox" data-s="fsAuto" ${S.fsAuto ? 'checked' : ''}> Pantalla completa al empezar una partida (también está el botón ⛶ arriba)</label>
         <div class="row" style="margin-top:10px"><button class="btn sm red" data-a="wipe">BORRAR TODO LO GUARDADO</button></div>`,
       controles: `
         <h3>Táctil</h3>

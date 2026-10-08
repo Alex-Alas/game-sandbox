@@ -6,7 +6,7 @@ import { validDeck } from './sim/cards.ts';
 
 export type Settings = {
   name: string, ch: string, decks: Record<string, string[]>,
-  sfx: number, music: number, shake: boolean, quality: number, nums: boolean, vibrate: boolean,
+  sfx: number, music: number, shake: boolean, quality: number, nums: boolean, vibrate: boolean, fsAuto: boolean,
   wJump: boolean, cam: 'todos' | 'yo', mouseSwap: boolean, keys: Record<string, string[]>,
   touch: { scheme: 'stick' | 'drag', stick: number, btn: number, card: number, dead: number, auto: boolean, left: boolean, pos: Record<string, [number, number]> },
   match: { map: string, bots: number, diff: number, time: number, teams: boolean, crates: number, infinite: boolean, startDmg: number, friendly: boolean },
@@ -14,7 +14,7 @@ export type Settings = {
 };
 const DEF: Settings = {
   name: '', ch: 'bombin', decks: {},
-  sfx: 0.8, music: 0.5, shake: true, quality: 1, nums: true, vibrate: true,
+  sfx: 0.8, music: 0.5, shake: true, quality: 1, nums: true, vibrate: true, fsAuto: matchMedia('(pointer: coarse)').matches,
   wJump: false, cam: 'todos', mouseSwap: false, keys: {},
   touch: { scheme: 'stick', stick: 100, btn: 100, card: 100, dead: 0.25, auto: true, left: false, pos: {} },
   match: { map: 'islas', bots: 3, diff: 2, time: 180, teams: false, crates: 11, infinite: false, startDmg: 0, friendly: false },
