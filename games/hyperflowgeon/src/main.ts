@@ -53,7 +53,7 @@ function useProfile(n: Profile) {
 const MOVE = ['RUN', 'ACC', 'DEC', 'AIR', 'JUMP_H', 'JUMP_T', 'JUMP_CUT', 'FALL_G', 'MAX_FALL', 'COYOTE', 'BUFFER', 'AIR_JUMPS', 'JUMP2_H'] as const;
 const ASSIST = ['AIM_FOE', 'AIM_EDGE', 'AIM_16', 'AIM_UP'] as const;
 const DUMMY = ['M_LIGHT', 'M_MID', 'M_HEAVY', 'D_FRIC', 'D_RESPAWN'] as const;
-const ATTACK = ['THROW_V', 'ANCHOR_M', 'SWING_A', 'SWING_V', 'IMPACT_V', 'IMPACT_DMG'] as const;
+const ATTACK = ['THROW_V', 'ANCHOR_M', 'SWING_A', 'SWING_V', 'ANCHOR_G', 'IMPACT_V', 'IMPACT_DMG'] as const;
 const GOLPE = ['ATK_REACH', 'ATK_L_BASE', 'ATK_H_BASE', 'ATK_CARRY', 'ATK_DMG_L', 'ATK_DMG_H', 'ATK_DIVE'] as const;
 const resetKeys = (ks: readonly (keyof Cfg)[]) => { for (const k of ks) cfg[k] = DEFAULTS[k]; };
 const HINTS: Record<Profile, string> = {
@@ -79,9 +79,11 @@ const SECTIONS: Section[] = [
     { rows: RANGES, keys: ['HOOK_LEN', 'HOOK_TRAVEL', 'HOOK_K', 'HOOK_REST', 'HOOK_V', 'HOOK_DAMP', 'HOOK_JUMP'], vals: cfg },
     { title: 'Puntería' },
     { rows: RANGES, keys: ['HOOK_CONE', 'HOOK_MISS'], vals: cfg },
+    { title: 'Salto con la liga', note: 'Coyote: cuadros después de soltar la liga de una superficie en que SALTO todavía suma el impulso de la liga (más fácil en el celular).' },
+    { rows: RANGES, keys: ['HOOK_COYOTE'], vals: cfg },
     { title: 'Cargas' },
     { rows: RANGES, keys: ['HOOK_N', 'HOOK_CD', 'HOOK_GROUND', 'HOOK_REFUND', 'ORB_T'], vals: cfg },
-  ], reset: () => { profs[active] = { ...PROFILES[active] }; Object.assign(cfg, profs[active]); cfg.ORB_T = DEFAULTS.ORB_T; } },
+  ], reset: () => { profs[active] = { ...PROFILES[active] }; Object.assign(cfg, profs[active]); cfg.ORB_T = DEFAULTS.ORB_T; cfg.HOOK_COYOTE = DEFAULTS.HOOK_COYOTE; } },
   { id: 'movimiento', label: 'MOVIMIENTO', fields: [
     { title: 'Carrera' },
     { rows: RANGES, keys: MOVE.slice(0, 4), vals: cfg },
@@ -99,10 +101,10 @@ const SECTIONS: Section[] = [
     { title: 'Lanzar', note: 'Soltar ATAQUE con la liga en un dummy lo lanza hacia la mira: a esta rapidez (los pesados, más lento) más la que ya llevaba a favor de la mira. Un toque es lanzarlo; la flecha naranja dice hacia dónde y a cuánto.' },
     { rows: RANGES, keys: ATTACK.slice(0, 1), vals: cfg },
     { title: 'Modo ancla (ATAQUE mantenido)', note: 'Con la liga en un dummy, mantener ATAQUE te vuelve el ancla: pesás esto para la liga (el liviano viene sin frenarte) y la mira empuja al dummy, que gira a tu alrededor como un péndulo; lo que golpea, golpea como LANZADO. Más rápido que el tope (respecto de vos), la mira solo lo gira. ATAQUE sostiene la liga aunque sueltes GARFIO (deslizar de GARFIO a ATAQUE se la pasa); apretar GARFIO otra vez la suelta sin lanzar.' },
-    { rows: RANGES, keys: ATTACK.slice(1, 4), vals: cfg },
+    { rows: RANGES, keys: ATTACK.slice(1, 5), vals: cfg },
     { title: 'A la par', note: 'Mientras mantenés ATAQUE, con o sin liga, los dummies pasan a la par: no chocan con vos (entre ellos sí).' },
     { title: 'Golpes', note: 'Lo LANZADO se lastima al chocar según cuánto cambia su velocidad por encima del umbral; el golpeado así también queda LANZADO.' },
-    { rows: RANGES, keys: ATTACK.slice(4), vals: cfg },
+    { rows: RANGES, keys: ATTACK.slice(5), vals: cfg },
   ], reset: () => resetKeys([...GOLPE, ...ATTACK]) },
   { id: 'patio', label: 'PATIO', fields: [
     { title: 'Ir a', note: 'Reinicia todo (también los dummies) en ese lugar. R reinicia en el último elegido.' },

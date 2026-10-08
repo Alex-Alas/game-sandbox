@@ -131,7 +131,7 @@ test('liga: soltar GARFIO conserva la velocidad; SALTO enganchado suelta y suma 
   const { s, w } = hooked([R(-50, 11.2, 50, 12)], [0, 1], 20, c);
   for (let k = 0; k < 10; k++) step(s, w, { x: 0, jump: false, hook: true }, c);
   const free = structuredClone(s);
-  free.p.hook = null;
+  free.p.hook = null, free.p.relT = free.t + 1; // soltar de una superficie marca el cuadro (coyote del SALTO)
   const rel = structuredClone(s), jmp = structuredClone(s);
   step(free, w, { x: 0, jump: false, hook: false }, c);
   step(rel, w, { x: 0, jump: false, hook: false }, c);
@@ -618,4 +618,36 @@ test('golpes: init deja los campos nuevos y el estado sigue yendo y viniendo por
   assert.deepEqual([s.p.atkK, s.p.atkT0, s.p.atkHit], [0, -1e9, []]);
   assert.ok(s.d.every(d => d.stopT === -1e9));
   assert.deepEqual(JSON.parse(JSON.stringify(s)), s);
+});
+
+test('coyote de la liga: soltarla deja HOOK_COYOTE cuadros en que SALTO todavía suma HOOK_JUMP (y no es el doble salto)', () => {
+  const c = { ...C, FALL_G: 1 };
+  for (const n of [1, c.HOOK_COYOTE, c.HOOK_COYOTE + 1]) {
+    const { s, w } = hooked([R(-50, 11.2, 50, 12)], [0, 1], 20, c);
+    for (let k = 0; k < 10; k++) step(s, w, { x: 0, jump: false, hook: true }, c);
+    step(s, w, { x: 0, jump: false, hook: false }, c); // suelta
+    const free = structuredClone(s), jmp = structuredClone(s);
+    for (let k = 1; k < n; k++) step(free, w, NO, c), step(jmp, w, NO, c);
+    step(free, w, NO, c), step(jmp, w, { x: 0, jump: true }, c); // SALTO el cuadro n después de soltar
+    const gain = jmp.p.vy - free.p.vy;
+    if (n <= c.HOOK_COYOTE) assert.ok(Math.abs(gain - c.HOOK_JUMP) < 1e-9 && jmp.p.air === c.AIR_JUMPS, `n=${n}: +${gain}, saltos ${jmp.p.air}`);
+    else assert.ok(Math.abs(gain - c.HOOK_JUMP) > 1e-3 && jmp.p.air === c.AIR_JUMPS - 1, `n=${n}: pasado el coyote es el doble salto`);
+  }
+});
+
+test('coyote de la liga: un salto con liga no se repite (relT se gasta) y soltar de un dummy no da coyote', () => {
+  const { s, w } = hooked([R(-50, 11.2, 50, 12)], [0, 1], 20);
+  for (let k = 0; k < 10; k++) step(s, w, { x: 0, jump: false, hook: true }, C);
+  step(s, w, { x: 0, jump: true, hook: true }, C); // SALTO enganchado: suelta + HOOK_JUMP
+  assert.equal(s.p.relT < -1e8, true, 'gastado');
+  const g = grab('liviano', Z, 2);
+  step(g.s, g.w, { x: 0, jump: false, hook: false }, Z); // soltar el dummy
+  assert.ok(g.s.p.relT < -1e8, 'un dummy no da coyote');
+});
+
+test('ancla en el aire: la gravedad baja a ANCHOR_G mientras ATAQUE sostiene la liga a un dummy; en el suelo no', () => {
+  const c = { ...C, HOOK_TRAVEL: 0, ANCHOR_G: 0.25 }, w = { spawn: [0, 5], rects: [], dummies: [{ x: 6, y: 5, kind: 'pesado' }] };
+  const vyAfter = hold => { const s = init(w, c); for (let k = 0; k < 6; k++) step(s, w, { x: 0, jump: false, hook: hold, atk: hold, ax: 1, ay: 0 }, c); return s.p.vy; };
+  const flot = vyAfter(true), caida = vyAfter(false);
+  assert.ok(flot > caida * 0.5 && caida < 0, `con ancla vy ${flot}, sin ella ${caida}`);
 });

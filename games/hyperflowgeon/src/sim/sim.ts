@@ -46,6 +46,7 @@ export type Player = {
   shot: Shot | null,
   charge: number,  // cargas del garfio (con fracción: la parte que se va recargando)
   refundT: number, // último cuadro en que soltar rápido devolvió una carga
+  relT: number,    // último cuadro en que soltó la liga de una superficie (coyote del SALTO con liga)
   atkK: number,     // golpe en curso: 0 ninguno, 1 ligero, 2 pesado ↑, 3 pesado ↓
   atkT0: number,    // cuadro de la pulsación del golpe
   atkHit: number[], // dummies ya golpeados en este golpe
@@ -62,7 +63,7 @@ export function init(w: World, c: Cfg = DEFAULTS): State {
   const [x, y] = w.spawn;
   return { t: 0, orbs: (w.orbs ?? []).map(() => 0), d: (w.dummies ?? []).map(fresh), p: { x, y, vx: 0, vy: 0, ground: false, face: 1,
     groundT: NEVER, pressT: NEVER, held: false, rise: false, air: c.AIR_JUMPS, hook: null, hookHeld: false, atkHeld: false,
-    anchor: false, hookT: NEVER, shot: null, charge: c.HOOK_N, refundT: NEVER, atkK: 0, atkT0: NEVER, atkHit: [] } };
+    anchor: false, hookT: NEVER, shot: null, charge: c.HOOK_N, refundT: NEVER, relT: NEVER, atkK: 0, atkT0: NEVER, atkHit: [] } };
 }
 
 export const size = (w: World, k: number) => KINDS[w.dummies![k].kind];
@@ -105,6 +106,7 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
     const ex = p.hook!.x - p.x, ey = p.hook!.y - (p.y + HAND); // ancla atrás: la distancia crece (r·v < 0)
     if (c.HOOK_REFUND > 0 && p.vx * p.vx + p.vy * p.vy >= c.HOOK_REFUND * c.HOOK_REFUND && ex * p.vx + ey * p.vy < 0)
       p.charge = Math.min(c.HOOK_N, p.charge + 1), p.refundT = t;
+    if (p.hook!.e < 0) p.relT = t;
     p.hook = null;
   };
   // ATAQUE con la liga enganchada a un dummy. Mantenerlo es el modo ancla: el héroe es el ancla (pesa ANCHOR_M para la
@@ -119,8 +121,11 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
     release();
   } else if (toDummy() && p.anchor && i.atk && i.hook && !p.hookHeld) release(), dropped = true;
   p.atkHeld = !!i.atk;
-  const hookJump = attached(p, t) && p.hook!.e < 0 && p.pressT === t;
-  if (hookJump) release(), p.vy += c.HOOK_JUMP;
+  // Coyote de la liga: soltarla de una superficie deja HOOK_COYOTE cuadros en que un SALTO todavía cuenta como el de la
+  // liga (suelta HOOK_JUMP): en el celular soltar y saltar no caen en el mismo cuadro.
+  const coyote = !p.hook && t - p.relT <= c.HOOK_COYOTE;
+  const hookJump = p.pressT === t && (coyote || (attached(p, t) && p.hook!.e < 0));
+  if (hookJump) { if (p.hook) release(); p.vy += c.HOOK_JUMP, p.relT = NEVER; }
   if (p.hook && !i.hook && !(toDummy() && i.atk)) {
     if (attached(p, t)) release();
     else p.hook = null, p.charge = Math.min(c.HOOK_N, p.charge + 1), p.shot!.at = t;
@@ -232,7 +237,8 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   // Gravedad g; más fuerte al caer. Paso trapezoidal: la parábola es exacta.
   // Enganchado, una sola gravedad y sin tope de caída: con la de caída más fuerte cada columpio ganaría altura gratis.
   const vy0 = p.vy;
-  p.vy -= g * (p.vy < 0 && !on ? c.FALL_G : 1) * DT;
+  // Como ancla en el aire (ATAQUE mantenido con la liga en un dummy) la gravedad baja a ANCHOR_G: flotás mientras lo girás.
+  p.vy -= g * (p.vy < 0 && !on ? c.FALL_G : p.anchor && !p.ground ? c.ANCHOR_G : 1) * DT;
   if (p.vy < -c.MAX_FALL && !on) p.vy = -c.MAX_FALL;
   if (p.vy <= 0) p.rise = false;
 
