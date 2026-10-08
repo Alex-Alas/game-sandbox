@@ -6,7 +6,7 @@
 import { CARDS, type Card } from './cards.ts';
 import { charOf } from './chars.ts';
 import { BLAST_X, BLAST_TOP } from './maps.ts';
-import { boxFree, groundBelow } from './terrain.ts';
+import { boxFree, groundBelow, carve } from './terrain.ts';
 import { rnd, rndInt, rndRange, pick } from './rng.ts';
 import { movePlayer } from './move.ts';
 import { cast, attacks, projectiles, props, zones, contacts, hurt, newProp } from './combat.ts';
@@ -32,6 +32,7 @@ export function step(s: State, w: World, inputs: (Input | undefined)[]) {
     if (p.u && ultiStep(s, w, p, i, press && t > p.u.t0)) { p.held = i.jump, p.dashHeld = i.dash, p.hookHeld = i.hook; continue; }
     if (i.cast >= 0) cast(s, w, p, i.cast, i);
     if (p.atk && p.atk.k === 'katana') { attacks(s, w, p); continue; }
+    unstick(s, w, p);
     movePlayer(s, w, p, i);
     attacks(s, w, p);
   }
@@ -51,6 +52,17 @@ export function step(s: State, w: World, inputs: (Input | undefined)[]) {
   }
   crates(s, w);
   clock(s, w);
+}
+
+// Si quedó dentro del terreno (al bajarse del tren, un intercambio entre alturas distintas…): al lugar libre más
+// cercano hacia arriba o a los costados; si no hay, se rompe la tierra alrededor (la piedra no: ahí sigue buscando).
+function unstick(s: State, w: World, p: Pl) {
+  const h = height(p);
+  if (boxFree(w.T, p.x, p.y, HW, h)) return;
+  for (let d = 0.25; d <= 4; d += 0.25) for (const [dx, dy] of [[0, d], [d, 0], [-d, 0], [0, -d]]) {
+    if (boxFree(w.T, p.x + dx, p.y + dy, HW, h)) { p.x += dx, p.y += dy; return; }
+  }
+  carve(w.T, [0, p.x, p.y + h / 2, 1]);
 }
 
 // Reaparecer: en el punto del mapa más lejos de los rivales vivos, sobre una nube, invulnerable un rato

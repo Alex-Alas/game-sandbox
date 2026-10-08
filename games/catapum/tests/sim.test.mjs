@@ -237,3 +237,13 @@ test('red: el estado compacto y las entradas van y vuelven', () => {
   const full = unpackFull(JSON.parse(JSON.stringify(packFull(s.pl[0]))));
   assert.equal(full.pressT === NEVER || full.pressT > 0, true);
 });
+
+test('desatascar: un personaje metido en la tierra sale al lugar libre más cercano', () => {
+  const { s, w } = newState('islas', 2, [{ name: 'A', ch: 'bombin' }, { name: 'B', ch: 'lia' }]);
+  for (let k = 0; k < GO * HZ + 2; k++) step(s, w, []);
+  const p = s.pl[0];
+  p.x = 40, p.y = 12, p.cloudT = NEVER; // adentro de la isla del centro
+  step(s, w, []);
+  const T = w.T, free = (() => { for (let i = Math.floor((p.x - HW) / CELL + 1e-6); i <= Math.floor((p.x + HW) / CELL - 1e-6); i++) for (let j = Math.floor(p.y / CELL + 1e-6); j <= Math.floor((p.y + H) / CELL - 1e-6); j++) if (cell(T, i, j)) return false; return true; })();
+  assert.ok(free, `quedó en ${p.x}, ${p.y}`);
+});
