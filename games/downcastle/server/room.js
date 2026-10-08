@@ -2,7 +2,7 @@
    plugin de Vite (desarrollo). No sabe de transporte: cada conexión es un objeto con
    send(texto) y close(código, motivo).
 
-   - El primero (create=1) es el anfitrión; hasta 4 lugares. Un lugar queda reservado al
+   - El primero (create=1) es el anfitrión; hasta 4 lugares (o `max`, de 2 a 8, si lo pide al crear: CATAPUM). Un lugar queda reservado al
      desconectarse (el personaje cuelga como peso muerto) y se recupera con el mismo pid.
    - Invitado → servidor: cualquier JSON; se le reenvía al anfitrión como { t:'from', id, m }.
    - Anfitrión → servidor: { to?, m } (a uno o a todos los invitados) o { t:'drop', id }
@@ -10,7 +10,7 @@
    - Servidor → anfitrión: { t:'peer', id, on } cuando un invitado entra o sale.
    - Si se va el anfitrión, la sesión termina con un aviso ({ t:'end' }).
    - La sala se cierra si queda vacía 2 min. */
-export const MAX_PLAYERS = 4;
+export const MAX_PLAYERS = 4, MAX_CAP = 8;
 export const MAX_MSG = 16 * 1024;
 export const EMPTY_CLOSE_MS = 2 * 60 * 1000;
 export const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // sin I ni O
@@ -34,13 +34,14 @@ export class Room {
     this.hostId = null;
     this.nextId = 1;
     this.closed = false;
+    this.max = MAX_PLAYERS;
     this.timer = null;
     this.onClose = onClose;
     this.setTimer = setTimer;
     this.clearTimer = clearTimer;
   }
 
-  attach(sock, { pid, create }) {
+  attach(sock, { pid, create, max }) {
     if (this.closed) return fail(sock, 'noroom');
     if (create && this.hostId != null) return fail(sock, 'exists');
     if (!create && this.hostId == null) return fail(sock, 'noroom');
@@ -51,7 +52,8 @@ export class Room {
       const old = this.peers.get(id);
       if (old) { this.peers.delete(id); try { old.sock.close(4000, 'reemplazado'); } catch { /* */ } }
     } else {
-      if (this.slots.size >= MAX_PLAYERS) return fail(sock, 'full');
+      if (create && this.hostId == null) this.max = Math.max(2, Math.min(MAX_CAP, Math.floor(+max) || MAX_PLAYERS));
+      if (this.slots.size >= this.max) return fail(sock, 'full');
       id = this.nextId++;
       this.slots.set(pid, id);
     }
@@ -59,7 +61,7 @@ export class Room {
     const peer = { id, pid, sock, host: id === this.hostId };
     this.peers.set(id, peer);
     if (this.timer) { this.clearTimer(this.timer); this.timer = null; }
-    send(sock, { t: 'welcome', id, host: peer.host, code: this.code, hostId: this.hostId, max: MAX_PLAYERS });
+    send(sock, { t: 'welcome', id, host: peer.host, code: this.code, hostId: this.hostId, max: this.max });
     if (!peer.host) this.toHost({ t: 'peer', id, on: true, re });
     return peer;
   }
@@ -116,7 +118,7 @@ export function createRooms(timers = {}) {
   const rooms = new Map();
   return {
     rooms,
-    connect(sock, { code, create, pid }) {
+    connect(sock, { code, create, pid, max }) {
       code = String(code || '').toUpperCase();
       if (!validCode(code)) return fail(sock, 'code');
       let room = rooms.get(code);
@@ -125,7 +127,7 @@ export function createRooms(timers = {}) {
         room = new Room(code, { ...timers, onClose: () => rooms.delete(code) });
         rooms.set(code, room);
       }
-      const peer = room.attach(sock, { pid, create });
+      const peer = room.attach(sock, { pid, create, max });
       if (!peer) return null;
       return { message: (raw) => room.message(peer, raw), close: () => room.detach(peer) };
     },
