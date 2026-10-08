@@ -16,7 +16,7 @@ function want(p: Pl, i: Input): [number, number] | null {
   return null;
 }
 
-export const ULTI_T = { meteoro: 27 + 75, lazo: 32, cohete: 132, abduccion: 270, expreso: 400, sombra: 150 } as Record<string, number>;
+export const ULTI_T = { meteoro: 27 + 55, lazo: 32, cohete: 132, abduccion: 200, expreso: 400, sombra: 150 } as Record<string, number>;
 
 export function startUlti(s: State, w: World, p: Pl, i: Input) {
   if (p.ulti < 100 || p.u || !p.alive || s.t < p.stunT || s.t < p.stopT) return;
@@ -24,7 +24,7 @@ export function startUlti(s: State, w: World, p: Pl, i: Input) {
   const [dx, dy] = want(p, i) ?? [p.face, 0];
   p.u = { k, t0: t, f: 0, ft: t, x: p.x, y: p.y, dx, dy, n: 0, ids: [] };
   if (k === 'lazo') {
-    p.u.ids = s.pl.filter(q => q.alive && enemies(s, p, q) && !q.u && (q.x - p.x) ** 2 + (q.y - p.y) ** 2 < 15 * 15).map(q => q.id);
+    p.u.ids = s.pl.filter(q => q.alive && enemies(s, p, q) && !q.u && t >= q.invT && t >= q.shieldT && (q.x - p.x) ** 2 + (q.y - p.y) ** 2 < 15 * 15).map(q => q.id);
     if (!p.u.ids.length) { p.u = null; ev(s, 'fizzle', { p: p.id }); return; } // nadie cerca: no se gasta
   }
   if (k === 'expreso') p.u.dx = p.face, p.u.x = p.x + p.face, p.u.y = p.y;
@@ -49,13 +49,13 @@ export function ultiStep(s: State, w: World, p: Pl, i: Input, press: boolean): b
       } else if (u.f === 1) { // elegir dónde caer (joystick; cualquier botón suelta)
         p.vx = p.vy = 0, p.y = m.h + 6;
         u.x = Math.max(1, Math.min(m.w - 1, u.x + i.x * 26 * DT));
-        if (f >= 75 || (press && f > 8)) u.f = 2, u.ft = t, p.x = u.x, p.vy = -48;
+        if (f >= 55 || (press && f > 8)) u.f = 2, u.ft = t, p.x = u.x, p.vy = -48;
       } else { // cae
         p.vx = 0, p.vy = -48;
         const d = sweepY(T, p.x, p.y, HW, H, p.vy * DT);
         p.y += d;
         if (d !== p.vy * DT || p.y < m.water + 1.5) {
-          boom(s, w, p.x, p.y + 0.3, { r: 5, dmg: 24, kb: 15, kg: 18, carve: 4.5 }, p.id, 'meteoro');
+          boom(s, w, p.x, p.y + 0.3, { r: 5.5, dmg: 24, kb: 17, kg: 30, carve: 4.5 }, p.id, 'meteoro', 'ulti:meteoro');
           end(), p.vy = 16, p.ground = false;
         }
       }
@@ -74,7 +74,7 @@ export function ultiStep(s: State, w: World, p: Pl, i: Input, press: boolean): b
       if (f >= 30) {
         for (const id of u.ids) {
           const q = s.pl[id];
-          if (q.alive) hurt(s, w, q, { dmg: 10, kb: 22, kg: 12, dx: q.x < m.w / 2 ? -1 : 1, dy: 0.65, by: p.id });
+          if (q.alive) hurt(s, w, q, { dmg: 10, kb: 22, kg: 22, dx: q.x < m.w / 2 ? -1 : 1, dy: 0.65, by: p.id, src: 'ulti:lazo' });
         }
         ev(s, 'boom', { x: p.x, y: mid(p), r: 3, kind: 'lazo' });
         end();
@@ -96,10 +96,10 @@ export function ultiStep(s: State, w: World, p: Pl, i: Input, press: boolean): b
       if (f % 2 === 0) carve(T, [0, p.x, mid(p), 1.15]);
       for (const q of s.pl) if (q.alive && enemies(s, p, q) && !u.ids.includes(q.id) && Math.abs(q.x - p.x) < 1.4 && Math.abs(mid(q) - mid(p)) < 1.5) {
         u.ids.push(q.id);
-        hurt(s, w, q, { dmg: 12, kb: 16, kg: 14, dx: u.dx, dy: u.dy + 0.4, by: p.id });
+        hurt(s, w, q, { dmg: 9, kb: 14, kg: 13, dx: u.dx, dy: u.dy + 0.4, by: p.id, src: 'ulti:cohete' });
       }
       if (f >= 132 || (press && f > 20)) {
-        boom(s, w, p.x, mid(p), { r: 3, dmg: 12, kb: 12, kg: 14, carve: 2.5 }, p.id, 'grande');
+        boom(s, w, p.x, mid(p), { r: 3, dmg: 10, kb: 12, kg: 14, carve: 2.5 }, p.id, 'grande', 'ulti:cohete');
         carve(T, [0, p.x, mid(p), 1.3]);
         p.vx = u.dx * 10, p.vy = u.dy * 10 + 4;
         end();
@@ -107,7 +107,7 @@ export function ultiStep(s: State, w: World, p: Pl, i: Input, press: boolean): b
       return true;
     }
     case 'abduccion': {
-      p.vx = approach(p.vx, i.x * 13, 60 * DT), p.vy = approach(p.vy, i.y * 13, 60 * DT);
+      p.vx = approach(p.vx, i.x * 10, 60 * DT), p.vy = approach(p.vy, i.y * 10, 60 * DT);
       const dx = sweepX(T, p.x, p.y, HW, H, p.vx * DT);
       p.x += dx;
       if (dx !== p.vx * DT) p.vx = 0;
@@ -117,7 +117,7 @@ export function ultiStep(s: State, w: World, p: Pl, i: Input, press: boolean): b
       p.x = Math.max(-8, Math.min(m.w + 8, p.x)), p.y = Math.max(m.water + 2, Math.min(m.h + 7, p.y));
       if (p.vx) p.face = p.vx > 0 ? 1 : -1;
       for (const q of s.pl) { // el rayo tractor: un cono hacia abajo
-        if (!q.alive || !enemies(s, p, q) || q.u || u.ids.includes(q.id)) continue;
+        if (!q.alive || !enemies(s, p, q) || q.u || t < q.invT || t < q.shieldT || u.ids.includes(q.id)) continue;
         const below = p.y - q.y;
         if (below > 0 && below < 7.5 && Math.abs(q.x - p.x) < 1.2 + below * 0.3) u.ids.push(q.id), ev(s, 'grab', { p: q.id });
       }
@@ -129,10 +129,10 @@ export function ultiStep(s: State, w: World, p: Pl, i: Input, press: boolean): b
         q.x += sweepX(T, q.x, q.y, HW, H, q.vx * DT), q.y += sweepY(T, q.x, q.y, HW, H, q.vy * DT);
         q.stunT = t + 3, q.lastBy = p.id, q.lastT = t, q.hook = null, q.ground = false;
       }
-      if (f >= 270 || (press && f > 30)) {
+      if (f >= 200 || (press && f > 30)) {
         for (const id of u.ids) {
           const q = s.pl[id];
-          if (q.alive) hurt(s, w, q, { dmg: 8, kb: 8 + Math.sqrt(p.vx * p.vx + p.vy * p.vy) * 0.9, kg: 10, dx: p.vx * 0.1, dy: -0.6 + p.vy * 0.05, by: p.id });
+          if (q.alive) hurt(s, w, q, { dmg: 8, kb: 5 + Math.sqrt(p.vx * p.vx + p.vy * p.vy) * 0.5, kg: 10, dx: p.vx * 0.1, dy: -0.6 + p.vy * 0.05, by: p.id, src: 'ulti:abduccion' });
         }
         end(), p.vy = 6;
       }
@@ -148,7 +148,7 @@ export function ultiStep(s: State, w: World, p: Pl, i: Input, press: boolean): b
         const x0 = Math.min(u.x, u.x - dir * L), x1 = Math.max(u.x, u.x - dir * L);
         if (q.x + HW > x0 && q.x - HW < x1 && q.y < u.y + 2.6 && q.y + H > u.y) {
           u.ids.push(q.id);
-          hurt(s, w, q, { dmg: 18, kb: 20, kg: 16, dx: dir, dy: 0.45, by: p.id });
+          hurt(s, w, q, { dmg: 18, kb: 20, kg: 16, dx: dir, dy: 0.45, by: p.id, src: 'ulti:expreso' });
         }
       }
       const gone = dir > 0 ? u.x - L > m.w + 14 : u.x + L < -14;
@@ -177,13 +177,13 @@ export function ultiStep(s: State, w: World, p: Pl, i: Input, press: boolean): b
           const vx = x1 - x0, vy = y1 - y0, L2 = vx * vx + vy * vy || 1;
           const k = Math.max(0, Math.min(1, ((q.x - x0) * vx + (mid(q) - y0) * vy) / L2));
           const ex = q.x - x0 - vx * k, ey = mid(q) - y0 - vy * k;
-          if (ex * ex + ey * ey < 1.1 * 1.1) hurt(s, w, q, { dmg: 11, kb: 13, kg: 15, dx, dy: dy + 0.5, by: p.id, stop: 6 });
+          if (ex * ex + ey * ey < 1.1 * 1.1) hurt(s, w, q, { dmg: 10, kb: 14, kg: 22, dx, dy: dy + 0.5, by: p.id, stop: 6, src: 'ulti:sombra' });
         }
         ev(s, 'slash', { p: p.id, x0, y0, x1, y1 });
         p.x = x1, p.y = y1 - 0.55, p.vx = dx * 6, p.vy = Math.max(dy * 6, 2), p.face = dx >= 0 ? 1 : -1;
         u.n++, u.ft = t;
       };
-      if (u.n === 0 || (press && f > 6) || f >= 40) slash();
+      if (u.n < 3 && (u.n === 0 || (press && f > 6) || f >= 40)) slash();
       else {
         p.vy -= gravity(w.c) * 0.2 * DT;
         p.x += sweepX(T, p.x, p.y, HW, H, p.vx * DT);
