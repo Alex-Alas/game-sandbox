@@ -9,6 +9,9 @@ npm run dev      # http://localhost:5173  (hub con la lista de juegos)
 npm run build    # salida en dist/
 ```
 
+La portada (`index.html`) muestra un póster y un loop de gameplay de cada juego; se regraban con
+`node tools/hub-media.mjs` (con `npm run dev` corriendo; detalles en CLAUDE.md).
+
 ## Juegos
 
 ### LUCERO — `games/lucero/`
