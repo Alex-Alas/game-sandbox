@@ -15,8 +15,21 @@ import { HZ, DT, NEVER, HW, H, HC, HAND_Y, PROP_M, PROP_HW, PROP_H, approach, gr
   type State, type World, type Pl, type Input, type Hook, type Prop } from './state.ts';
 import { hurt } from './combat.ts';
 
+const SLIDE_END = 1.5; // m/s: por debajo de esto la barrida se acabó
+const CRAWL = 0.4;     // × la carrera: gatear bajo un techo bajo
+const FALL_MASS = 0.6; // cuánto pesa la masa al caer: la gravedad de caída × (1 + (masa − 1) × esto): MUU cae más rápido, KUNAI flota
 const dashing = (p: Pl, c: { DASH_F: number }, t: number) => t - p.dashT < c.DASH_F;
 export const attached = (p: Pl, t: number) => !!p.hook && t >= p.hook.at;
+
+// Fin del dash (se acabó o lo cortó el doble salto): queda a DASH_END en su dirección. Si ya iba más rápido que un dash
+// (impulso de antes), se queda como está.
+function dashEnd(p: Pl, c: { DASH_V: number, DASH_END: number }) {
+  const sp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
+  if (sp > c.DASH_END && sp <= c.DASH_V + 0.1) {
+    const k = c.DASH_END / sp;
+    p.vx *= k, p.vy *= p.ddy > 0 ? k * 0.75 : k;
+  }
+}
 
 function entOf(s: State, h: Hook): Pl | Prop | undefined {
   if (h.ek === 0) { const q = s.pl[h.e]; return q && q.alive ? q : undefined; }
@@ -158,8 +171,12 @@ export function movePlayer(s: State, w: World, p: Pl, i: Input) {
   if (stunned) p.hook = null;
   else {
     if (p.pressT === t && attached(p, t) && p.hook!.e < 0) { // SALTO enganchado al terreno: suelta con impulso
-      p.hook = null, p.vy += c.HOOK_JUMP, p.pressT = NEVER, p.rise = false;
-      ev(s, 'jump', { p: p.id, j: 3 });
+      const ground = t - p.groundT <= c.COYOTE + 1; // en el suelo solo suelta: el salto de siempre (es más fuerte que el impulso)
+      p.hook = null;
+      if (!ground) {
+        p.vy += c.HOOK_JUMP, p.pressT = NEVER, p.rise = false;
+        ev(s, 'jump', { p: p.id, j: 3 });
+      }
     }
     if (dashPress && attached(p, t) && p.hook!.e >= 0) yank(s, w, p), dashUsed = true;
     if (p.hook && !i.hook) {
@@ -199,26 +216,23 @@ export function movePlayer(s: State, w: World, p: Pl, i: Input) {
     }
   }
   const dsh = dashing(p, c, t);
-  if (p.dashT !== NEVER && t - p.dashT === c.DASH_F) { // fin del dash: queda a DASH_END en su dirección
-    const sp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-    if (sp <= c.DASH_V + 0.1 && sp > c.DASH_END) {
-      const k = c.DASH_END / sp;
-      p.vx *= k, p.vy *= p.ddy > 0 ? k * 0.75 : k;
-    }
-  }
+  if (p.dashT !== NEVER && t - p.dashT === c.DASH_F) dashEnd(p, c);
 
   // Barrida y agachado
   const canStand = () => boxFree(T, p.x, p.y, HW, H);
   const down = i.y < -0.5 && !stunned;
+  if (p.slide && (!p.ground || Math.abs(p.vx) < SLIDE_END)) p.slide = false; // frenada (aunque siga apretando ↓): agachado no pega
   if (p.ground && down && !dsh && !p.pound) {
     if (!p.slide && Math.abs(p.vx) >= c.SLIDE_MIN) {
       const a = Math.abs(p.vx);
-      p.slide = true, p.hits = [], p.vx = Math.sign(p.vx) * Math.max(a, Math.min(a + c.SLIDE_BOOST, c.SLIDE_MAX));
+      // la barrida que arranca corriendo sale a SLIDE_MAX como mucho (más rápido solo el wavedash): si no, aterrizar de un
+      // HYPER y volver a barrer lo encadenaba para siempre
+      p.slide = true, p.hits = [], p.vx = Math.sign(p.vx) * Math.min(a + c.SLIDE_BOOST, c.SLIDE_MAX);
       ev(s, 'slide', { p: p.id });
     }
     p.crouch = true;
   } else {
-    if (p.slide && (!p.ground || Math.abs(p.vx) < 1.5 || !down)) p.slide = false;
+    if (p.slide && !down) p.slide = false;
     if (!p.slide && p.crouch && canStand()) p.crouch = false;
   }
 
@@ -228,7 +242,7 @@ export function movePlayer(s: State, w: World, p: Pl, i: Input) {
   if (dsh || p.pound) { /* el dash y la picada mandan */ }
   else if (stunned) { if (speeding || to * p.vx < 0) p.vx = approach(p.vx, to, c.AIR * 0.12 * DT); }
   else if (p.ground && !on && p.slide) p.vx = approach(p.vx, 0, c.SLIDE_FRIC * DT);
-  else if (p.ground && !on && p.crouch) p.vx = approach(p.vx, 0, c.DEC * DT);
+  else if (p.ground && !on && p.crouch) p.vx = approach(p.vx, canStand() ? 0 : to * CRAWL, c.DEC * DT); // bajo un techo bajo se gatea (si no, quedaba encerrado)
   else if (p.ground && !on) p.vx = approach(p.vx, to, (speeding ? c.ACC : c.DEC) * DT);
   else if (!(t < p.lockT && to * p.wallSide > 0) && (speeding || to * p.vx < 0)) p.vx = approach(p.vx, to, c.AIR * DT);
 
@@ -237,28 +251,31 @@ export function movePlayer(s: State, w: World, p: Pl, i: Input) {
   if (!stunned && !p.pound) {
     const grounded = t - p.groundT <= c.COYOTE + 1;
     if (p.pressT === t && dsh && grounded && Math.abs(p.ddx) > 0.1 && p.ddy <= 0.1) {
-      p.vx = Math.sign(p.ddx) * Math.max(Math.abs(p.vx), c.SUPER_VX), p.vy = jumpV;
+      // el SUPER sale a SUPER_VX (no con toda la rapidez del dash); más rápido que eso solo si ya venías con impulso
+      const a = Math.abs(p.vx);
+      p.vx = Math.sign(p.ddx) * (a > c.DASH_V + 0.1 ? a : c.SUPER_VX), p.vy = Math.max(p.vy, jumpV);
       p.dashT = NEVER, p.rise = true, p.pressT = p.groundT = NEVER;
       trick(s, c, p, 'SUPER'), ev(s, 'jump', { p: p.id, j: 0 });
     } else if (t - p.pressT <= c.BUFFER && grounded && !on && !dsh) {
       const a = Math.abs(p.vx);
-      if (p.slide && a >= c.SUPER_VX * 0.9) {
-        p.vx = Math.sign(p.vx) * Math.max(a, c.HYPER_VX), p.vy = jumpV * Math.sqrt(c.HYPER_JUMP);
+      if (p.slide && a > c.SLIDE_MAX + 0.5) { // HYPER: solo con más rapidez de la que da una barrida común (la del wavedash)
+        p.vx = Math.sign(p.vx) * Math.max(a, c.HYPER_VX), p.vy = Math.max(p.vy, jumpV * Math.sqrt(c.HYPER_JUMP));
         trick(s, c, p, 'HYPER');
       } else {
-        p.vy = jumpV;
+        p.vy = Math.max(p.vy, jumpV);
         if (p.slide && a > c.RUN * 1.15) trick(s, c, p, 'SALTO LARGO');
       }
       p.rise = true, p.pressT = p.groundT = NEVER, p.slide = false;
       if (canStand()) p.crouch = false;
       ev(s, 'jump', { p: p.id, j: 0 });
-    } else if (t - p.pressT <= 2 && !p.ground && !dsh && (p.wall !== 0 || t - p.wallT <= c.WALL_COYOTE)) {
+    } else if (t - p.pressT <= c.BUFFER && !p.ground && !dsh && (p.wall !== 0 || t - p.wallT <= c.WALL_COYOTE)) {
       const side = p.wall || p.wallSide;
-      p.vx = -side * Math.max(c.WJ_VX, Math.abs(p.vx) * 0.5), p.vy = Math.sqrt(2 * g * c.WJ_H);
+      p.vx = -side * Math.max(c.WJ_VX, Math.abs(p.vx) * 0.5), p.vy = Math.max(p.vy, Math.sqrt(2 * g * c.WJ_H));
       p.lockT = t + c.WJ_LOCK, p.rise = true, p.pressT = NEVER, p.wallT = NEVER, p.face = -side;
       ev(s, 'jump', { p: p.id, j: 2 });
     } else if (p.pressT === t && !p.ground && p.air >= 1) {
       const v = Math.sqrt(2 * g * c.JUMP2_H);
+      if (dsh) dashEnd(p, c); // el salto corta el dash: sin esto el dash + doble salto conservaba los 22 m/s hasta aterrizar
       if (p.vy < v) p.vy = v;
       p.air -= 1, p.pressT = NEVER, p.rise = true, p.dashT = NEVER;
       ev(s, 'jump', { p: p.id, j: 1 });
@@ -271,7 +288,7 @@ export function movePlayer(s: State, w: World, p: Pl, i: Input) {
   if (dashing(p, c, t)) { /* sin gravedad */ }
   else if (p.pound) p.vy = -c.POUND_V;
   else {
-    let gm = p.vy < 0 && !on && !stunned ? c.FALL_G : 1, maxFall = c.MAX_FALL;
+    let gm = p.vy < 0 && !on && !stunned ? c.FALL_G * (1 + (ch.mass - 1) * FALL_MASS) : 1, maxFall = c.MAX_FALL;
     if (!stunned && !p.ground && i.y < -0.6 && p.vy < 3 && !on) maxFall = c.FAST_FALL, gm *= 1.25;
     p.vy -= g * gm * DT;
     if (!on && !stunned && p.vy < -maxFall) p.vy = -maxFall;
@@ -291,7 +308,7 @@ export function movePlayer(s: State, w: World, p: Pl, i: Input) {
     const h = p.hook, e = h.e >= 0 ? entOf(s, h) : undefined;
     const ih = 1 / ch.mass, ie = !e ? 0 : h.ek === 0 ? 1 / charOf((e as Pl).ch).mass : 1 / PROP_M;
     const ex = h.x - p.x, ey = h.y - (p.y + HAND_Y), d = Math.sqrt(ex * ex + ey * ey);
-    if (t === h.at) h.rest = d * c.HOOK_REST;
+    if (h.rest === 0) h.rest = d * c.HOOK_REST; // el cuadro en que engancha (si cayó en un hitstop, el primero después)
     if (d > h.rest && d > 1e-6) {
       const nx = ex / d, ny = ey / d, vr = (p.vx - (e?.vx ?? 0)) * nx + (p.vy - (e?.vy ?? 0)) * ny;
       const a = Math.max(0, Math.min(c.HOOK_K * (d - h.rest) - c.HOOK_DAMP * vr, (c.HOOK_V - vr) / DT)) * DT;

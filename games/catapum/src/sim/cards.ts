@@ -26,32 +26,32 @@ export const CARDS: Card[] = [
   // Explosivos
   { id: 'fueguito', name: 'BOLITA DE FUEGO', cost: 1, rar: 0, type: 'EXPLOSIVO', aim: 'line', desc: 'Rápida y casi recta. Explota al tocar algo.',
     proj: { v: 26, g: 0.25, r: 0.2, contact: true, life: 1.4, boom: B(1.3, 6, 6, 9, 0.9) } },
-  { id: 'bomba', name: 'BOMBA :D', cost: 2, rar: 0, type: 'EXPLOSIVO', aim: 'arc', desc: '1, 2, ¡BUM! Rebota y explota con la mecha.',
-    proj: { v: 21, g: 1, r: 0.3, bounce: 0.45, fuse: 1.6, boom: B(2.2, 11, 9, 13, 1.8) } },
-  { id: 'caballo', name: 'CABALLO LOCO', cost: 2, rar: 0, type: 'EXPLOSIVO', aim: 'arc', desc: 'Rebota sin control y explota grande al cuarto rebote.',
-    proj: { v: 18, g: 1, r: 0.4, bounce: 0.85, fuse: 3, boom: B(2.6, 13, 9, 13, 2.2) } },
+  { id: 'bomba', name: 'BOMBA :D', cost: 2, rar: 0, type: 'EXPLOSIVO', aim: 'arc', desc: '1, 2, ¡BUM! Rebota (también contra los rivales) y explota con la mecha.',
+    proj: { v: 21, g: 1, r: 0.3, bounce: 0.45, fuse: 1.3, boom: B(2.8, 12, 8, 18, 2) } },
+  { id: 'caballo', name: 'CABALLO LOCO', cost: 2, rar: 0, type: 'EXPLOSIVO', aim: 'arc', desc: 'Rebota sin control y explota grande al cuarto rebote o al chocar con alguien.',
+    proj: { v: 18, g: 1, r: 0.4, bounce: 0.85, fuse: 3, boom: B(2.6, 12, 9, 14, 2.2) } },
   { id: 'pegajosa', name: 'BOMBA PEGAJOSA', cost: 2, rar: 0, type: 'EXPLOSIVO', aim: 'arc', desc: 'Se pega al terreno o a un rival. Explota en 1,8 s.',
-    proj: { v: 20, g: 1, r: 0.25, sticky: true, fuse: 1.8, boom: B(2, 12, 9, 13, 1.6) } },
+    proj: { v: 20, g: 1, r: 0.25, sticky: true, fuse: 2, boom: B(2, 12, 9, 12, 1.6) } },
   { id: 'cohetito', name: 'COHETITO', cost: 2, rar: 0, type: 'EXPLOSIVO', aim: 'line', desc: 'Acelera recto y explota. Disparalo al piso para volar (te empuja, no te daña).',
-    proj: { v: 12, g: 0, r: 0.25, accel: 45, vmax: 36, contact: true, life: 2, boom: B(1.9, 10, 10, 12, 1.5) } },
+    proj: { v: 12, g: 0, r: 0.25, accel: 45, vmax: 36, contact: true, life: 2, boom: B(1.9, 10, 10, 14, 1.5) } },
   { id: 'bola', name: 'BOLA DE FUEGO', cost: 3, rar: 1, type: 'EXPLOSIVO', aim: 'arc', desc: 'Grande y pesada. Explota al tocar algo.',
     proj: { v: 20, g: 0.8, r: 0.45, contact: true, life: 4, boom: B(2.8, 15, 10, 14, 2.4) } },
   { id: 'triple', name: 'TRIPLE', cost: 3, rar: 1, type: 'EXPLOSIVO', aim: 'line', desc: 'Tres disparos en abanico.',
-    proj: { v: 30, g: 0.35, r: 0.15, contact: true, life: 1.5, boom: B(1.1, 6, 7, 9, 0.8) } },
+    proj: { v: 30, g: 0.35, r: 0.15, contact: true, life: 1.5, boom: B(1.2, 7, 10, 13, 0.9) } },
   { id: 'racimo', name: 'BOMBA RACIMO', cost: 4, rar: 1, type: 'EXPLOSIVO', aim: 'arc', desc: 'Explota y suelta seis bombitas.',
-    proj: { v: 19, g: 1, r: 0.35, bounce: 0.4, fuse: 1.3, boom: B(1.6, 6, 6, 8, 1.2) } },
+    proj: { v: 19, g: 1, r: 0.35, bounce: 0.4, fuse: 1.3, boom: B(3, 14, 12, 20, 1.6) } },
   { id: 'granbum', name: 'GRAN BUM', cost: 4, rar: 1, type: 'EXPLOSIVO', aim: 'arc', desc: 'Lenta, pesada y enorme. Se lleva medio mapa.',
-    proj: { v: 15, g: 1.1, r: 0.55, bounce: 0.25, fuse: 2, boom: B(4, 20, 12, 16, 3.5) } },
+    proj: { v: 15, g: 1.1, r: 0.55, bounce: 0.25, fuse: 2, boom: B(4.4, 22, 8, 29, 3) } },
   { id: 'palomitas', name: 'PALOMITAS', cost: 3, rar: 2, type: 'EXPLOSIVO', aim: 'arc', desc: '¡Pop pop pop BUM! La bolsa revienta en granos que saltan y explotan.',
-    proj: { v: 18, g: 1, r: 0.3, contact: true, life: 4, boom: B(1, 3, 4, 4, 0.6) } },
+    proj: { v: 18, g: 1, r: 0.3, contact: true, life: 4, boom: B(1.6, 6, 7, 10, 0.9) } },
   { id: 'melocoton', name: 'MELOCOTÓN PODRIDO', cost: 2, rar: 0, type: 'EXPLOSIVO', aim: 'arc', desc: 'Nube morada: quien la respira queda FRÁGIL (lo empujan mucho más).',
-    proj: { v: 20, g: 1, r: 0.3, contact: true, life: 4, boom: B(1.2, 4, 4, 4, 0.5, 2) } },
+    proj: { v: 20, g: 1, r: 0.3, contact: true, life: 4, boom: B(1.2, 4, 4, 4, 0.5, 1.5) } },
   { id: 'shuriken', name: 'SHURIKEN', cost: 1, rar: 0, type: 'EXPLOSIVO', aim: 'line', desc: 'Muy rápida, atraviesa rivales y los deja FRÁGILES un momento.',
     proj: { v: 34, g: 0.15, r: 0.15, life: 3, pierce: { dmg: 5, kb: 5, kg: 8, frag: 1.5 } } },
   { id: 'boomerang', name: 'BOOMERANG', cost: 2, rar: 0, type: 'EXPLOSIVO', aim: 'line', desc: 'Va y vuelve atravesando todo. Golpea a la ida y a la vuelta.',
-    proj: { v: 26, g: 0, r: 0.3, life: 2.4, pierce: { dmg: 6, kb: 7, kg: 10 } } },
+    proj: { v: 26, g: 0, r: 0.3, life: 2.4, pierce: { dmg: 5, kb: 8, kg: 13 } } },
   { id: 'caparazon', name: 'CAPARAZÓN', cost: 3, rar: 0, type: 'EXPLOSIVO', aim: 'line', desc: 'Rueda por el suelo, rebota en las paredes y arrolla. No rompe nada.',
-    proj: { v: 14, g: 1, r: 0.4, life: 7, pierce: { dmg: 8, kb: 11, kg: 13 } } },
+    proj: { v: 14, g: 1, r: 0.4, life: 7, pierce: { dmg: 9, kb: 11, kg: 15 } } },
   // Rayos
   { id: 'laser', name: 'LÁSER', cost: 2, rar: 0, type: 'RAYO', aim: 'line', desc: 'Rayo instantáneo que atraviesa rivales y abre un túnel fino.' },
   { id: 'megalaser', name: 'MEGALÁSER', cost: 6, rar: 2, type: 'RAYO', aim: 'line', desc: 'Carga medio segundo y suelta un rayo gordo que lo atraviesa todo.' },
@@ -66,7 +66,7 @@ export const CARDS: Card[] = [
     proj: { v: 26, g: 0.3, r: 0.25, contact: true, life: 2 } },
   // Trampas
   { id: 'mina', name: 'MINA', cost: 1, rar: 0, type: 'TRAMPA', aim: 'arc', desc: 'Se pega al terreno y explota cuando se acerca un rival.',
-    proj: { v: 14, g: 1, r: 0.25, sticky: true, life: 25, boom: B(1.8, 12, 11, 13, 1.4) } },
+    proj: { v: 14, g: 1, r: 0.25, sticky: true, life: 25, boom: B(1.6, 9, 10, 13, 1.3) } },
   { id: 'gas', name: 'LATA DE GAS', cost: 2, rar: 0, type: 'TRAMPA', aim: 'arc', desc: 'Una lata que, al recibir un golpe, explota en llamas.' },
   { id: 'tnt', name: 'CAJA TNT', cost: 2, rar: 0, type: 'TRAMPA', aim: 'arc', desc: 'Una caja que explota fuerte con cualquier golpe. Se puede enganchar y tirar.' },
   { id: 'pegamento', name: 'PEGAMENTO', cost: 2, rar: 0, type: 'TRAMPA', aim: 'arc', desc: 'Mancha pegajosa: el rival que la pisa corre y salta poco, y no lo pueden intercambiar.',
@@ -84,16 +84,42 @@ export const CARDS: Card[] = [
   { id: 'autodestruccion', name: 'AUTODESTRUCCIÓN', cost: 5, rar: 2, type: 'CUERPO', aim: 'self', desc: 'Explotás vos: enorme. Salís volando hacia arriba con +25 %.' },
 ];
 
+// Golpes que no son proyectiles con `boom` (rayos, cuerpo a cuerpo, objetos, zonas): los números, acá y no en combat.ts.
+// Todos en la escala de Boom: dmg en %, kb m/s, kg m/s por cada 100 % del golpeado. Cada uno lleva el motivo del número.
+export type Strike = { dmg: number, kb: number, kg: number };
+export const HIT = {
+  laser: { dmg: 10, kb: 10, kg: 15 } as Strike,                 // rayo fino de 26 m: golpe medio, no se esquiva
+  megalaser: { dmg: 5, kb: 6, kg: 17 } as Strike,              // por golpe, uno cada 6 cuadros durante 1 s (empuja a lo largo del rayo)
+  iman: { dmg: 3, kb: 20, kg: 10 } as Strike,                  // tira hacia vos: sirve para llevarlo a un borde o a una trampa
+  bate: { dmg: 10, kb: 14, kg: 17 } as Strike,                // 5 cuadros de arranque, alcance 1,5 m
+  katana: { dmg: 13, kb: 14, kg: 18 } as Strike,              // corte de 7 m que atraviesa
+  trompeta: { dmg: 4, kb: 17, kg: 19 } as Strike,              // el empuje base baja con la distancia (× 1 − d/12), 7,5 m de cono
+  vaca: { dmg: 4, kb: 10, kg: 9 } as Strike,                  // 4 golpes hacia abajo mientras el rayo abre el piso
+  banana: { dmg: 4, kb: 11, kg: 6 } as Strike,                // resbalón (y FRÁGIL 3 s)
+  nube: { dmg: 1.5, kb: 0, kg: 0 } as Strike,                 // cada 0,5 s adentro de la nube del melocotón (solo daño)
+  fuego: { dmg: 1.5, kb: 3, kg: 2 } as Strike,                  // cada 0,25 s adentro del fuego de la lata
+  objeto: { dmg: 6, kb: 9, kg: 9 } as Strike,                 // TNT o lata lanzados con fuerza contra alguien
+  tnt: { r: 3.2, dmg: 16, kb: 9, kg: 25, carve: 2.4 } as Boom,
+  gas: { r: 2.4, dmg: 10, kb: 8, kg: 11, carve: 1.2 } as Boom,
+  autodestruccion: { r: 4.5, dmg: 24, kb: 9, kg: 32, carve: 3 } as Boom,
+  autodestruccionSelf: 25,                                    // % que te sumás al explotar
+  frutaCura: 35,                                              // % que baja la fruta
+};
+// Golpes de cuerpo (dash, barrida, picada): acá el daño y el empuje por %; el empuje base lo dan DASH_HIT, SLIDE_HIT y POUND_HIT
+export const BODY = {
+  dash: { dmg: 3, kg: 5 }, slide: { dmg: 3, kg: 8 }, pound: { dmg: 5, kg: 9 }, onda: { dmg: 4, kg: 8 },
+};
+
 export const CARD: Record<string, Card> = Object.fromEntries(CARDS.map(c => [c.id, c]));
 export const RARITY = ['COMÚN', 'RARA', 'ÉPICA'] as const;
 export const DECK_SIZE = 8, HAND = 4;
 
 // Subproyectiles (no son cartas): bombitas del racimo, granos de las palomitas, rocas del volcán y el meteorito
 export const SUB: Record<string, Proj> = {
-  bombita: { v: 0, g: 1, r: 0.2, bounce: 0.5, fuse: 0.8, boom: B(1.5, 7, 8, 10, 1.2) },
-  grano: { v: 0, g: 1, r: 0.15, bounce: 0.6, fuse: 1, boom: B(1.3, 5, 8, 9, 1.1) },
+  bombita: { v: 0, g: 1, r: 0.2, bounce: 0.5, fuse: 0.8, boom: B(2.2, 11, 10, 18, 1.3) },
+  grano: { v: 0, g: 1, r: 0.15, bounce: 0.6, fuse: 1, boom: B(1.5, 8, 10, 16, 1.2) },
   roca: { v: 0, g: 1, r: 0.6, contact: true, life: 6, boom: B(2.4, 12, 11, 13, 2) },
-  meteoro: { v: 0, g: 1.4, r: 1, contact: true, life: 6, boom: B(3.6, 22, 13, 17, 3.2) },
+  meteoro: { v: 0, g: 1.4, r: 1, contact: true, life: 6, boom: B(5.2, 22, 8, 32, 2.8) },
 };
 export const projOf = (k: string): Proj | undefined => CARD[k]?.proj ?? SUB[k];
 

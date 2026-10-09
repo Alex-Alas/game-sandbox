@@ -4,13 +4,16 @@
 // joystick perpendicular desvía el golpe hasta DI grados (influencia). Tu propia explosión te empuja (rocket jump)
 // sin dañarte ni aturdirte.
 import { CELL, ROCK, cell, carve, solidAt, raycast, boxFree, sweepX, sweepY } from './terrain.ts';
-import { CARD, projOf, SUB, type Boom, type Card } from './cards.ts';
+import { CARD, HIT, BODY, projOf, SUB, type Boom, type Card } from './cards.ts';
 import { charOf } from './chars.ts';
 import { rnd, rndRange } from './rng.ts';
-import { HZ, DT, NEVER, HW, H, HAND_Y, G_PROJ, PROP_M, PROP_HW, PROP_H, ev, enemies, height, trick, approach, inUlti,
+import { HZ, DT, NEVER, HW, H, HAND_Y, AIM_R, G_PROJ, PROP_M, PROP_HW, PROP_H, ev, enemies, height, trick, approach, inUlti,
   type State, type World, type Pl, type Proj, type Prop, type Input } from './state.ts';
 
-export type Hit = { dmg: number, kb: number, kg: number, dx: number, dy: number, by: number, frag?: number, stop?: number, noStun?: boolean };
+// src: de qué carta o movimiento viene el golpe (solo para medir: el laboratorio de cartas y las estadísticas)
+export type Hit = { dmg: number, kb: number, kg: number, dx: number, dy: number, by: number, frag?: number, stop?: number, noStun?: boolean, src?: string };
+
+export const STUN_MAX = 90; // cuadros: tope del aturdimiento (un golpe enorme tampoco te deja sin control más de esto)
 
 const norm = (x: number, y: number): [number, number] => { const n = Math.sqrt(x * x + y * y); return n > 1e-9 ? [x / n, y / n] : [0, 1]; };
 
@@ -33,27 +36,31 @@ export function hurt(s: State, w: World, p: Pl, h: Hit): boolean {
   let v = self ? h.kb * c.SELF_KB : (h.kb + h.kg * p.dmg / 100) * kbMul(s, w, p);
   if (self) v *= c.KB;
   // Influencia: el joystick perpendicular al golpe lo gira hasta DI grados
-  if (!self && c.DI > 0) {
+  if (!self && !h.noStun && c.DI > 0) {
     const perp = p.inX * -dy + p.inY * dx, a = Math.max(-1, Math.min(1, perp)) * c.DI * Math.PI / 180;
     const ca = Math.cos(a), sa = Math.sin(a);
     [dx, dy] = [dx * ca - dy * sa, dx * sa + dy * ca];
   }
   if (self) { p.vx += dx * v, p.vy = Math.max(p.vy, 0) * 0.3 + dy * v; }
+  else if (h.noStun) p.vx += dx * v, p.vy += dy * v; // daño con el tiempo (nube, fuego): un empujoncito, sin pisar la velocidad ni el aturdimiento
   else {
     p.vx = dx * v, p.vy = dy * v;
-    const stun = h.noStun ? 0 : Math.min(70, Math.round(v * c.STUN_K));
+    const stun = Math.min(STUN_MAX, Math.round(v * c.STUN_K));
     p.stunT = t + stun, p.tumble = stun > 14;
     p.stopT = t + (h.stop ?? Math.min(9, 2 + Math.round(v / 5)));
-    if (stun > 10) p.hook = null, p.slide = false, p.pound = false, p.dashT = NEVER, p.atk = null, p.cloudT = NEVER;
+    if (stun > 10) { // un golpe fuerte corta lo que estabas haciendo (también el megaláser que cargabas o disparabas)
+      p.hook = null, p.slide = false, p.pound = false, p.dashT = NEVER, p.atk = null, p.cloudT = NEVER;
+      for (const b of s.beams) if (b.o === p.id && b.k === 'mega') b.t0 = b.t1 = t;
+    }
   }
-  p.ground = false;
-  if (h.frag) p.fragT = Math.max(p.fragT, t + Math.round(h.frag * HZ));
+  if (self || !h.noStun || v > 0) p.ground = false;
+  if (h.frag && !self) p.fragT = Math.max(p.fragT, t + Math.round(h.frag * HZ));
   if (!self && by) {
     p.lastBy = by.id, p.lastT = t;
     by.dealt += dmg, by.ulti = Math.min(100, by.ulti + dmg * c.ULTI_DEALT);
     p.ulti = Math.min(100, p.ulti + dmg * c.ULTI_TAKEN);
   }
-  if (dmg > 0 || !self) ev(s, 'hit', { p: p.id, d: Math.round(dmg), v: Math.round(v), x: p.x, y: p.y + 0.55, by: h.by });
+  if (dmg > 0 || !self) ev(s, 'hit', { p: p.id, d: Math.round(dmg), v: Math.round(v), x: p.x, y: p.y + 0.55, by: h.by, ...(h.src ? { src: h.src } : {}) });
   return true;
 }
 
@@ -66,7 +73,7 @@ const mid = (p: Pl) => p.y + height(p) / 2;
 
 // Explosión: rompe terreno, empuja y daña a los jugadores (con caída a lo lejos), empuja objetos y proyectiles y
 // detona TNT, latas y minas (en el próximo cuadro: así las cadenas se ven de a una).
-export function boom(s: State, w: World, x: number, y: number, b: Boom, by: number, kind = '') {
+export function boom(s: State, w: World, x: number, y: number, b: Boom, by: number, kind = '', src = kind) {
   if (b.carve > 0) carve(w.T, [0, x, y, b.carve]);
   ev(s, 'boom', { x, y, r: b.r, kind: kind });
   for (const p of s.pl) {
@@ -74,7 +81,7 @@ export function boom(s: State, w: World, x: number, y: number, b: Boom, by: numb
     const d = boxDist(x, y, p);
     if (d > b.r) continue;
     const f = 1 - 0.5 * d / b.r, [dx, dy] = norm(p.x - x, mid(p) - y);
-    hurt(s, w, p, { dmg: b.dmg * f, kb: b.kb * (0.6 + 0.4 * f), kg: b.kg * f, dx, dy: dy + 0.35, by, frag: b.frag });
+    hurt(s, w, p, { dmg: b.dmg * f, kb: b.kb * (0.6 + 0.4 * f), kg: b.kg * f, dx, dy: dy + 0.35, by, frag: b.frag, src });
   }
   for (const o of s.props) {
     if (o.dead) continue;
@@ -88,7 +95,7 @@ export function boom(s: State, w: World, x: number, y: number, b: Boom, by: numb
     if (q.dead || q.st === 2) continue;
     const d = Math.sqrt((q.x - x) ** 2 + (q.y - y) ** 2);
     if (d > b.r || d < 0.05) continue;
-    if (q.c === 'mina' && q.arm <= s.t) { q.fuse = s.t + 1; continue; }
+    if (q.c === 'mina' && q.arm <= s.t) { if (q.fuse === NEVER || q.fuse > s.t + 1) q.fuse = s.t + 1; continue; }
     const [dx, dy] = norm(q.x - x, q.y - y);
     if (q.st === 1 && projOf(q.c)?.sticky) continue;
     q.st = 0, q.vx += dx * b.kb * 0.8, q.vy += dy * b.kb * 0.8;
@@ -152,17 +159,17 @@ export function cast(s: State, w: World, p: Pl, slot: number, i: Input) {
       return;
     case 'caparazon': newProj(s, id, p.id, hx, p.y + 0.45, (ax >= 0 ? 1 : -1) * speed, 2); return;
     case 'gas': case 'tnt': newProp(s, id, hx, p.y + 0.3, ax * 12 * (0.3 + 0.7 * pw), ay * 12 * (0.3 + 0.7 * pw) + 2, p.id); return;
-    case 'laser': beamShot(s, w, p, hx, hy, ax, ay, 26, 0.4, { dmg: 9, kb: 8, kg: 11 }); return;
+    case 'laser': beamShot(s, w, p, hx, hy, ax, ay, 26, 0.4, HIT.laser); return;
     case 'megalaser': s.beams.push({ id: s.nid++, k: 'mega', o: p.id, x: hx, y: hy, dx: ax, dy: ay, t0: t + 27, t1: t + 27 + 60, len: 40 }); return;
     case 'vaca': case 'meteorito': {
-      const tx = p.x + ax * pw * 22, k = id === 'vaca' ? 'vaca' : 'meteo';
-      s.beams.push({ id: s.nid++, k, o: p.id, x: tx, y: w.m.h + 4, dx: 0, dy: -1, t0: t + (k === 'vaca' ? 36 : 60), t1: t + (k === 'vaca' ? 36 + 24 : 60), len: 0 });
+      const tx = p.x + ax * pw * AIM_R, k = id === 'vaca' ? 'vaca' : 'meteo';
+      s.beams.push({ id: s.nid++, k, o: p.id, x: tx, y: w.m.h + 4, dx: 0, dy: -1, t0: t + (k === 'vaca' ? 36 : 40), t1: t + (k === 'vaca' ? 36 + 24 : 40), len: 0 });
       return;
     }
     case 'iman': {
       const tgt = rayPlayer(s, w, p, hx, hy, ax, ay, 18);
       ev(s, 'ray', { p: p.id, x0: hx, y0: hy, x1: tgt ? tgt.x : hx + ax * 18, y1: tgt ? mid(tgt) : hy + ay * 18, kind: 'iman' });
-      if (tgt) { const [dx, dy] = norm(p.x - tgt.x, mid(p) - mid(tgt)); hurt(s, w, tgt, { dmg: 3, kb: 15, kg: 8, dx, dy: dy + 0.25, by: p.id }); }
+      if (tgt) { const [dx, dy] = norm(p.x - tgt.x, mid(p) - mid(tgt)); hurt(s, w, tgt, { ...HIT.iman, dx, dy: dy + 0.25, by: p.id, src: 'iman' }); }
       return;
     }
     case 'supersalto':
@@ -170,7 +177,7 @@ export function cast(s: State, w: World, p: Pl, slot: number, i: Input) {
       p.air = charOf(p.ch).airJumps, p.dashN = charOf(p.ch).dashN, p.ground = false, p.slide = false, p.pound = false, p.dashT = NEVER;
       trick(s, c, p, 'SUPERSALTO');
       return;
-    case 'fruta': p.dmg = Math.max(0, p.dmg - 35), p.fragT = NEVER; ev(s, 'heal', { p: p.id }); return;
+    case 'fruta': p.dmg = Math.max(0, p.dmg - HIT.frutaCura), p.fragT = NEVER; ev(s, 'heal', { p: p.id }); return;
     case 'escudo': p.shieldT = t + 3 * HZ; return;
     case 'plomo': p.leadT = t + 6 * HZ; return;
     case 'bate': case 'katana': p.atk = { k: id, t0: t, dx: ax, dy: ay, hit: [] }; if (id === 'katana') p.invT = Math.max(p.invT, t + 10); return;
@@ -181,7 +188,7 @@ export function cast(s: State, w: World, p: Pl, slot: number, i: Input) {
         if (!q.alive || !enemies(s, p, q)) continue;
         const vx = q.x - hx, vy = mid(q) - hy, d = Math.sqrt(vx * vx + vy * vy);
         if (d > 7.5 || d < 1e-6 || (vx * ax + vy * ay) / d < 0.5) continue;
-        hurt(s, w, q, { dmg: 3, kb: 18 * (1 - d / 12), kg: 6, dx: vx / d, dy: vy / d + 0.2, by: p.id });
+        hurt(s, w, q, { dmg: HIT.trompeta.dmg, kb: HIT.trompeta.kb * (1 - d / 12), kg: HIT.trompeta.kg, dx: vx / d, dy: vy / d + 0.2, by: p.id, src: 'trompeta' });
       }
       for (const q of s.pr) {
         const vx = q.x - hx, vy = q.y - hy, d = Math.sqrt(vx * vx + vy * vy);
@@ -206,7 +213,7 @@ function rayPlayer(s: State, w: World, p: Pl, x: number, y: number, dx: number, 
     const u = (q.x - x) * dx + (mid(q) - y) * dy;
     if (u < 0 || u > bd) continue;
     const ex = q.x - x - dx * u, ey = mid(q) - y - dy * u;
-    if (Math.sqrt(ex * ex + ey * ey) < 0.7) best = q, bd = u;
+    if (Math.sqrt(ex * ex + ey * ey) < 0.85) best = q, bd = u;
   }
   return best;
 }
@@ -222,7 +229,7 @@ function beamShot(s: State, w: World, p: Pl, x: number, y: number, dx: number, d
     const u = (q.x - x) * dx + (mid(q) - y) * dy;
     if (u < 0 || u > len) continue;
     const ex = q.x - x - dx * u, ey = mid(q) - y - dy * u;
-    if (Math.sqrt(ex * ex + ey * ey) < r + 0.55) hurt(s, w, q, { ...h, dx, dy: dy + 0.3, by: p.id, stop: once ? undefined : 1 });
+    if (Math.sqrt(ex * ex + ey * ey) < r + 0.55) hurt(s, w, q, { ...h, dx, dy: dy + 0.3, by: p.id, stop: once ? undefined : 1, src: once ? 'laser' : 'megalaser' });
   }
   for (const o of s.props) {
     const u = (o.x - x) * dx + (o.y + 0.4 - y) * dy;
@@ -239,8 +246,8 @@ export function attacks(s: State, w: World, p: Pl) {
     if (f === 5) {
       const cx = p.x + a.dx * 1.1, cy = p.y + HAND_Y + a.dy * 1.1;
       ev(s, 'swing', { p: p.id, x: cx, y: cy, dx: a.dx, dy: a.dy });
-      for (const q of s.pl) if (q.alive && enemies(s, p, q) && boxDist(cx, cy, q) < 1.5)
-        hurt(s, w, q, { dmg: 12, kb: 14, kg: 16, dx: a.dx, dy: a.dy + 0.4, by: p.id, stop: 7 });
+      for (const q of s.pl) if (q.alive && enemies(s, p, q) && boxDist(cx, cy, q) < 1.4)
+        hurt(s, w, q, { ...HIT.bate, dx: a.dx, dy: a.dy + 0.4, by: p.id, stop: 7, src: 'bate' });
       for (const q of s.pr) { // devuelve proyectiles
         if (q.dead || q.st === 2 || Math.sqrt((q.x - cx) ** 2 + (q.y - cy) ** 2) > 1.9) continue;
         const v = Math.max(18, Math.sqrt(q.vx * q.vx + q.vy * q.vy));
@@ -260,19 +267,22 @@ export function attacks(s: State, w: World, p: Pl) {
       p.vx = a.dx * 8, p.vy = a.dy * 8;
       for (const q of s.pl) if (q.alive && enemies(s, p, q) && !a.hit.includes(q.id) && Math.abs(q.x - p.x) < 1.3 && Math.abs(mid(q) - mid(p)) < 1.4) {
         a.hit.push(q.id);
-        hurt(s, w, q, { dmg: 13, kb: 11, kg: 15, dx: a.dx, dy: a.dy + 0.5, by: p.id, stop: 6 });
+        hurt(s, w, q, { ...HIT.katana, dx: a.dx, dy: a.dy + 0.5, by: p.id, stop: 6, src: 'katana' });
       }
     } else p.atk = null;
   } else if (a.k === 'autodestruccion') {
     if (f === 30) {
       p.atk = null;
-      boom(s, w, p.x, mid(p), { r: 4.5, dmg: 24, kb: 14, kg: 18, carve: 3.5 }, p.id, 'grande');
-      p.dmg = Math.min(999, p.dmg + 25), p.vy = 22, p.vx *= 0.3, p.ground = false;
+      boom(s, w, p.x, mid(p), HIT.autodestruccion, p.id, 'grande', 'autodestruccion');
+      p.dmg = Math.min(999, p.dmg + HIT.autodestruccionSelf), p.vy = 22, p.vx *= 0.3, p.ground = false;
     }
   }
 }
 
 // ---- Proyectiles -----------------------------------------------------------------------------------------------
+
+// A qué carta se le acredita cada subproyectil (para medir)
+const SRC: Record<string, string> = { bombita: 'racimo', grano: 'palomitas', meteoro: 'meteorito' };
 
 function explode(s: State, w: World, q: Proj) {
   q.dead = true;
@@ -287,12 +297,27 @@ function explode(s: State, w: World, q: Proj) {
     const g = newProj(s, 'grano', q.o, q.x, q.y + 0.2, Math.sin(a) * v, Math.cos(a) * v);
     g.fuse = s.t + Math.round(rndRange(s, 0.35, 1.5) * HZ);
   }
-  if (q.c === 'melocoton') s.zones.push({ id: s.nid++, k: 'nube', x: q.x, y: q.y, r: 2.8, t0: s.t, until: s.t + 4 * HZ, o: q.o });
-  if (b) boom(s, w, q.x, q.y, b, q.o, q.c === 'granbum' || q.c === 'meteoro' ? 'grande' : q.c);
+  if (q.c === 'melocoton') s.zones.push({ id: s.nid++, k: 'nube', x: q.x, y: q.y, r: 2.8, t0: s.t, until: s.t + Math.round(3.5 * HZ), o: q.o });
+  if (b) boom(s, w, q.x, q.y, b, q.o, q.c === 'granbum' || q.c === 'meteoro' ? 'grande' : q.c, SRC[q.c] ?? q.c);
 }
 
 // Choque de un círculo (centro x, y, radio r) contra la caja de un jugador
 const touches = (x: number, y: number, r: number, p: Pl) => boxDist(x, y, p) <= r;
+
+// Rebote de una bomba contra la caja de un jugador: por el lado de menor penetración, con un saltito, y la saca de la caja
+// (si no, quedaba clavada adentro del rival y explotaba en su centro, empujándolo solo hacia arriba)
+function bounceOff(q: Proj, p: Pl, r: number, e: number) {
+  q.hit.push(p.id), q.b++; // cuenta como rebote
+  if (q.c === 'caballo') q.b = 4; // y el caballo explota al chocar con un rival
+  const h = height(p), ox = (q.x - p.x) / (HW + r), oy = (q.y - (p.y + h / 2)) / (h / 2 + r);
+  if (Math.abs(ox) > Math.abs(oy)) {
+    const sg = Math.sign(ox || -q.vx || 1);
+    q.x = p.x + sg * (HW + r + 0.02), q.vx = sg * Math.max(2, Math.abs(q.vx) * e), q.vy = Math.max(q.vy, 3);
+  } else {
+    const sg = Math.sign(oy || 1);
+    q.y = sg > 0 ? p.y + h + r + 0.02 : p.y - r - 0.02, q.vy = sg * Math.max(2, Math.abs(q.vy) * e), q.vx *= 0.8;
+  }
+}
 
 // Al tocar algo: lo que hace cada carta. Devuelve true si el proyectil terminó.
 function onTouch(s: State, w: World, q: Proj, who: Pl | null, x: number, y: number): boolean {
@@ -316,7 +341,7 @@ function onTouch(s: State, w: World, q: Proj, who: Pl | null, x: number, y: numb
     case 'swap': {
       q.dead = true;
       if (!owner?.alive) return true;
-      if (who && s.t >= who.glueT) {
+      if (who && s.t >= who.glueT && !inUlti(who)) {
         ev(s, 'swap', { a: owner.id, b: who.id, x0: owner.x, y0: owner.y, x1: who.x, y1: who.y });
         [owner.x, who.x] = [who.x, owner.x];
         [owner.y, who.y] = [who.y, owner.y];
@@ -356,10 +381,10 @@ export function projectiles(s: State, w: World) {
     if (q.st === 1) { // pegado al terreno: si se rompe lo de abajo, se suelta
       if (!solidAt(T, q.x + q.sx, q.y + q.sy)) q.st = 0, q.vx = q.vy = 0;
       else {
-        if (q.c === 'mina' && t >= q.arm) for (const p of s.pl) if (p.alive && (!owner || enemies(s, owner, p)) && touches(q.x, q.y, 1, p)) { q.fuse = t + 6; break; }
+        if (q.c === 'mina' && t >= q.arm && q.fuse === NEVER) for (const p of s.pl) if (p.alive && (!owner || enemies(s, owner, p)) && touches(q.x, q.y, 1, p)) { q.fuse = t + 6; break; }
         if (q.c === 'banana') for (const p of s.pl) if (p.alive && (!owner || enemies(s, owner, p)) && touches(q.x, q.y, 0.35, p) && p.ground) {
           q.dead = true;
-          hurt(s, w, p, { dmg: 4, kb: 11, kg: 6, dx: Math.sign(p.vx || p.face) * 0.6, dy: 1, by: q.o, frag: 3 });
+          hurt(s, w, p, { ...HIT.banana, dx: Math.sign(p.vx || p.face) * 0.6, dy: 1, by: q.o, frag: 3, src: 'banana' });
           ev(s, 'slip', { p: p.id });
           break;
         }
@@ -378,13 +403,16 @@ export function projectiles(s: State, w: World) {
       if (age > 40 && Math.abs(owner.x - q.x) < 0.6 && Math.abs(mid(owner) - q.y) < 0.8) { q.dead = true; continue; }
       if (age === 27) q.hit = [];
     }
+    const bouncy = !!d.bounce && !d.contact && !d.pierce && !d.sticky;
     const sp = Math.sqrt(q.vx * q.vx + q.vy * q.vy), n = Math.max(1, Math.ceil(sp * DT / (CELL * 0.8)));
     let done = false;
     for (let k = 0; k < n && !done; k++) {
       const sx = q.vx * DT / n, sy = q.vy * DT / n;
       // Jugadores
       for (const p of s.pl) {
-        if (!p.alive || (p.id === q.o && age < 18) || !touches(q.x, q.y, d.r, p)) continue;
+        const near = p.alive && touches(q.x, q.y, d.r, p);
+        if (bouncy && !near) { const k = q.hit.indexOf(p.id); if (k >= 0) q.hit.splice(k, 1); } // ya se separó: puede volver a rebotar
+        if (!near || (p.id === q.o && age < 18)) continue;
         if (owner && !enemies(s, owner, p) && p.id !== q.o) continue;
         if (s.t < p.shieldT && p.id !== q.o) { // el escudo devuelve
           const [nx, ny] = norm(q.x - p.x, q.y - mid(p));
@@ -397,7 +425,11 @@ export function projectiles(s: State, w: World) {
           if (q.hit.includes(p.id) || p.id === q.o) continue;
           q.hit.push(p.id);
           const [dx, dy] = norm(q.vx, q.vy);
-          hurt(s, w, p, { ...d.pierce, dx, dy: dy + 0.4, by: q.o });
+          hurt(s, w, p, { ...d.pierce, dx, dy: dy + 0.4, by: q.o, src: q.c });
+          continue;
+        }
+        if (bouncy) { // las bombas con mecha rebotan contra los rivales (antes los atravesaban y explotaban lejos)
+          if (p.id !== q.o && !q.hit.includes(p.id)) bounceOff(q, p, d.r, d.bounce!);
           continue;
         }
         if (p.id === q.o && !d.contact) continue;
@@ -447,10 +479,10 @@ export function props(s: State, w: World) {
     if (o.dead) continue;
     if (o.hp <= 0) {
       o.dead = true;
-      if (o.k === 'tnt') boom(s, w, o.x, o.y + 0.4, { r: 3.2, dmg: 16, kb: 12, kg: 15, carve: 2.8 }, o.o, 'grande');
+      if (o.k === 'tnt') boom(s, w, o.x, o.y + 0.4, HIT.tnt, o.o, 'grande', 'tnt');
       if (o.k === 'gas') {
-        boom(s, w, o.x, o.y + 0.4, { r: 2.4, dmg: 10, kb: 8, kg: 11, carve: 1.2 }, o.o, 'fuego');
-        s.zones.push({ id: s.nid++, k: 'fuego', x: o.x, y: o.y, r: 2.2, t0: t, until: t + 150, o: o.o });
+        boom(s, w, o.x, o.y + 0.4, HIT.gas, o.o, 'fuego', 'gas');
+        s.zones.push({ id: s.nid++, k: 'fuego', x: o.x, y: o.y, r: 2.2, t0: t, until: t + 120, o: o.o });
       }
       continue;
     }
@@ -473,7 +505,7 @@ export function props(s: State, w: World) {
     if (fast && o.hp > 0) for (const p of s.pl) if (p.alive && p.id !== o.o && Math.abs(p.x - o.x) < HW + PROP_HW && p.y < o.y + PROP_H && p.y + height(p) > o.y) {
       o.hp = 0;
       const [dx, dy] = norm(o.vx, o.vy);
-      hurt(s, w, p, { dmg: 6, kb: 9, kg: 9, dx, dy: dy + 0.3, by: o.o });
+      hurt(s, w, p, { ...HIT.objeto, dx, dy: dy + 0.3, by: o.o, src: o.k });
       break;
     }
     // Caja de carta: la toma el primero que la toque
@@ -501,9 +533,9 @@ export function zones(s: State, w: World) {
       if (z.k === 'pega') { if (p.ground && Math.abs(dx) < z.r && Math.abs(p.y - z.y) < 0.6) p.glueT = t + 10; continue; }
       if (!inside) continue;
       if (z.k === 'nube') {
-        p.fragT = Math.max(p.fragT, t + 90);
-        if ((t - z.t0) % 30 === 0) hurt(s, w, p, { dmg: 1.5, kb: 0, kg: 0, dx: 0, dy: 1, by: z.o, noStun: true, stop: 0 });
-      } else if (z.k === 'fuego' && (t - z.t0) % 15 === 0) hurt(s, w, p, { dmg: 2, kb: 3, kg: 2, dx: 0, dy: 1, by: z.o, noStun: true, stop: 0 });
+        if (t >= p.invT && t >= p.shieldT && !inUlti(p)) p.fragT = Math.max(p.fragT, t + 90);
+        if ((t - z.t0) % 30 === 0) hurt(s, w, p, { ...HIT.nube, dx: 0, dy: 1, by: z.o, noStun: true, src: 'melocoton/nube' });
+      } else if (z.k === 'fuego' && (t - z.t0) % 15 === 0) hurt(s, w, p, { ...HIT.fuego, dx: 0, dy: 1, by: z.o, noStun: true, src: 'gas/fuego' });
     }
   }
   s.zones = s.zones.filter(z => t < z.until);
@@ -514,7 +546,7 @@ export function zones(s: State, w: World) {
       if (!p?.alive) { b.t1 = t; continue; }
       b.x = p.x + b.dx * 0.45, b.y = p.y + HAND_Y + b.dy * 0.3;
       p.vx -= b.dx * 10 * DT, p.vy -= b.dy * 10 * DT; // el retroceso
-      if ((t - b.t0) % 6 === 0) beamShot(s, w, p, b.x, b.y, b.dx, b.dy, b.len, 1, { dmg: 4, kb: 7, kg: 7 }, false);
+      if ((t - b.t0) % 6 === 0) beamShot(s, w, p, b.x, b.y, b.dx, b.dy, b.len, 1, HIT.megalaser, false);
     } else if (b.k === 'vaca' && t >= b.t0 && (t - b.t0) % 6 === 0) {
       let y = b.y;
       for (; y > 0; y -= CELL * 0.5) if (cell(w.T, Math.floor(b.x / CELL), Math.floor(y / CELL)) === ROCK) break;
@@ -522,10 +554,10 @@ export function zones(s: State, w: World) {
       ev(s, 'ray', { p: b.o, x0: b.x, y0: b.y, x1: b.x, y1: y, kind: 'vaca', r: 1.2 });
       for (const q of s.pl) {
         if (!q.alive || (p && !enemies(s, p, q)) || Math.abs(q.x - b.x) > 1.6 || q.y > b.y || q.y + height(q) < y) continue;
-        hurt(s, w, q, { dmg: 4, kb: 10, kg: 9, dx: Math.sign(q.x - b.x) * 0.25, dy: -1, by: b.o, stop: 1 });
+        hurt(s, w, q, { ...HIT.vaca, dx: Math.sign(q.x - b.x) * 0.25, dy: -1, by: b.o, stop: 1, src: 'vaca' });
       }
     } else if (b.k === 'meteo' && t === b.t0) {
-      newProj(s, 'meteoro', b.o, b.x, b.y, 0, -26);
+      newProj(s, 'meteoro', b.o, b.x, b.y, 0, -40);
     } else if (b.k === 'roca' && t === b.t0) {
       newProj(s, 'roca', -1, b.x, b.y, 0, -22);
     }
@@ -543,7 +575,7 @@ export function contacts(s: State, w: World) {
       carve(w.T, [0, p.x, p.y - 0.2, 0.7]);
       ev(s, 'boom', { x: p.x, y: p.y, r: 1.8, kind: 'onda' });
       for (const q of s.pl) if (q.alive && enemies(s, p, q) && Math.abs(q.x - p.x) < 2 && Math.abs(q.y - p.y) < 1.4)
-        hurt(s, w, q, { dmg: 7, kb: c.POUND_HIT, kg: 9, dx: Math.sign(q.x - p.x) * 0.5, dy: 1, by: p.id });
+        hurt(s, w, q, { dmg: BODY.onda.dmg, kb: c.POUND_HIT, kg: BODY.onda.kg, dx: Math.sign(q.x - p.x) * 0.5, dy: 1, by: p.id, src: 'onda' });
     }
     const dsh = t - p.dashT < c.DASH_F, att = dsh || p.slide || p.pound;
     for (const q of s.pl) {
@@ -551,11 +583,11 @@ export function contacts(s: State, w: World) {
       if (Math.abs(q.x - p.x) >= 2 * HW || q.y >= p.y + height(p) || p.y >= q.y + height(q)) continue;
       if (att && !p.hits.includes(q.id)) {
         p.hits.push(q.id);
-        if (p.pound) hurt(s, w, q, { dmg: 9, kb: c.POUND_HIT, kg: 10, dx: 0, dy: -1, by: p.id }); // pisotón: hacia abajo
-        else if (p.slide) hurt(s, w, q, { dmg: 5, kb: c.SLIDE_HIT, kg: 9, dx: Math.sign(p.vx) * 0.5, dy: 1, by: p.id });
+        if (p.pound) hurt(s, w, q, { dmg: BODY.pound.dmg, kb: c.POUND_HIT, kg: BODY.pound.kg, dx: 0, dy: -1, by: p.id, src: 'pound' }); // pisotón: hacia abajo
+        else if (p.slide) hurt(s, w, q, { dmg: BODY.slide.dmg, kb: c.SLIDE_HIT, kg: BODY.slide.kg, dx: Math.sign(p.vx) * 0.5, dy: 1, by: p.id, src: 'slide' });
         else {
           const sp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
-          if (hurt(s, w, q, { dmg: 6, kb: c.DASH_HIT + sp * 0.2, kg: 8, dx: p.ddx, dy: p.ddy + 0.45, by: p.id })) p.vx *= 0.35, p.vy *= 0.35, p.stopT = t + 3;
+          if (hurt(s, w, q, { dmg: BODY.dash.dmg, kb: c.DASH_HIT + sp * 0.2, kg: BODY.dash.kg, dx: p.ddx, dy: p.ddy + 0.45, by: p.id, src: 'dash' })) p.vx *= 0.35, p.vy *= 0.35, p.stopT = t + 3;
         }
         continue;
       }

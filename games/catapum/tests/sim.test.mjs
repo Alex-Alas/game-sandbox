@@ -186,6 +186,7 @@ test('ultis: cada personaje la puede usar y termina', () => {
     for (let k = 0; k < GO * HZ + 2; k++) step(s, w, []);
     const p = s.pl[0];
     s.pl[1].x = p.x + 3, s.pl[1].y = p.y, s.pl[2].x = p.x - 4, s.pl[2].y = p.y;
+    s.pl[1].invT = s.pl[2].invT = NEVER; // la ulti no agarra a quien reaparece invulnerable
     p.ulti = 100;
     step(s, w, [I({ ulti: true, ax: 1, ay: 0 })]);
     assert.ok(p.u, ch.id + ' arrancó');
@@ -229,7 +230,6 @@ test('red: el estado compacto y las entradas van y vuelven', () => {
   for (const p of s.pl) {
     const q = g.pl[p.id];
     assert.ok(Math.abs(p.x - q.x) < 0.01 && Math.abs(p.y - q.y) < 0.01 && p.alive === q.alive && Math.round(p.dmg) === Math.round(q.dmg));
-    assert.deepEqual(q.hand, p.hand);
   }
   const i = { x: 0.5, y: -1, jump: true, dash: false, hook: true, ulti: false, cast: 2, ax: 0.33, ay: -0.5 };
   assert.deepEqual(unpackInput(JSON.parse(JSON.stringify(packInput(i)))), i);

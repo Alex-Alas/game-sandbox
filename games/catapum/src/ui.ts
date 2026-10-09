@@ -19,7 +19,7 @@ export type App = {
   startSolo(): void,
   createRoom(): void, joinRoom(code: string): void, leaveRoom(): void, startOnline(): void, lobbyChanged(): void, pickChanged(): void,
   resume(): void, quit(): void, rematch(): void, editControls(): void,
-  online(): null | { host: boolean, code: string, seats: LobbySeat[], max: number, status: string, link: string, qr: string, info: string },
+  online(): null | { host: boolean, code: string, seats: LobbySeat[], max: number, asked: number, status: string, link: string, qr: string, info: string },
 };
 
 const ui = document.getElementById('ui')!;
@@ -201,13 +201,15 @@ export function showLobby() {
   const o = app.online();
   if (!o) return showOnline();
   const humans = o.seats.filter(s => !s.bot).length, maxBots = Math.max(0, 8 - humans);
+  // El cupo de humanos lo fija el servidor (welcome.max): el Worker de producción todavía tiene el viejo, de 4
+  const cupo = o.host && o.max < o.asked ? `<p class="note" style="color:#ffd23f">Este servidor de salas deja entrar hasta ${o.max} personas por sala (pedimos ${o.asked}); el resto se completa con bots.${humans >= o.max ? ' La sala está llena.' : ''}</p>` : '';
   screen('lobby', `
     <div class="row"><h2 class="grow">SALA</h2><span class="note">${esc(o.status)}</span><button class="btn red sm" data-a="leave">SALIR</button></div>
     <div class="two">
       <div class="panel" style="text-align:center"><div class="note">CÓDIGO</div><div class="code">${o.code}</div>
         ${o.qr ? `<div class="qr">${o.qr}</div>` : ''}
         <div class="row c"><button class="btn sm ghost" data-a="copy">COPIAR ENLACE</button></div>
-        <h3>Jugadores (${humans}/${o.max})</h3>
+        <h3>Jugadores (${humans}/${o.max})</h3>${cupo}
         <div class="players">${o.seats.map((s, k) => `<div class="pl"><canvas data-ch="${s.ch}" data-c="${k}"></canvas><span style="color:${S.match.teams ? TEAMS[s.team].color : PCOLORS[k % 8]}">${esc(s.name)}</span>
           <span class="tag">${s.host ? 'ANFITRIÓN' : s.bot ? 'BOT ' + DIFFS[s.bot - 1].name : s.off ? 'DESCONECTADO' : ''}${s.me ? ' · VOS' : ''}</span></div>`).join('')}</div>
         <div class="row c" style="margin-top:8px"><button class="btn sm orange" data-a="chars">MI PERSONAJE Y MAZO</button></div>
@@ -255,6 +257,7 @@ export function showSettings(back: () => void, tab0 = 'juego') {
         <label class="chk"><input type="checkbox" data-s="shake" ${S.shake ? 'checked' : ''}> Sacudones de pantalla</label>
         <label class="chk"><input type="checkbox" data-s="nums" ${S.nums ? 'checked' : ''}> % sobre los personajes</label>
         <label class="chk"><input type="checkbox" data-s="vibrate" ${S.vibrate ? 'checked' : ''}> Vibración (teléfono)</label>
+        <label class="chk"><input type="checkbox" data-s="fsAuto" ${S.fsAuto ? 'checked' : ''}> Pantalla completa al empezar una partida (también está el botón ⛶ arriba)</label>
         <div class="row" style="margin-top:10px"><button class="btn sm red" data-a="wipe">BORRAR TODO LO GUARDADO</button></div>`,
       controles: `
         <h3>Táctil</h3>

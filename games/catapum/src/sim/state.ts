@@ -54,8 +54,15 @@ export type Zone = { id: number, k: string, x: number, y: number, r: number, t0:
 export type Beam = { id: number, k: string, o: number, x: number, y: number, dx: number, dy: number, t0: number, t1: number, len: number };
 export type Ev = { k: string, t: number, [key: string]: number | string | boolean | number[] };
 
+// Peligros de cada mapa. lanes: cañonazos avisados (y de la línea, d = hacia dónde viaja, t = cuadro del disparo);
+// drops: racimos de cristales que van a soltar una esquirla (t = cuadro); bolts: lo que vuela y lastima ('bala' del
+// cañón, 'cristal' que cae con gravedad) hasta que toca terreno o a alguien y explota.
+export type Lane = { y: number, d: number, t: number };
+export type Drop = { x: number, y: number, t: number };
+export type Bolt = { k: string, x: number, y: number, vx: number, vy: number };
 export type HzState = { windDir: number, windNext: number, windWarn: number, windEnd: number, rockNext: number,
-  trainNext: number, trainDir: number, trainX: number, trainRun: boolean, trainHit: number[] };
+  trainNext: number, trainDir: number, trainX: number, trainRun: boolean, trainHit: number[],
+  cannonNext: number, lanes: Lane[], dropNext: number, drops: Drop[], bolts: Bolt[] };
 
 export type State = {
   t: number, rng: number, seed: number, map: string, rules: Rules,
@@ -96,7 +103,8 @@ export function newState(mapId: string, seed: number, entries: Entry[], rules: R
     pl: entries.map((e, k) => newPlayer(k, e, c, rules)), pr: [], props: [], zones: [], beams: [], nid: 1,
     ev: [], crateNext: Math.round((GO + 6) * HZ),
     hz: { windDir: 0, windNext: m.hz.wind ? Math.round(m.hz.wind.every * HZ) : 0, windWarn: 0, windEnd: 0, rockNext: m.hz.rocks ? Math.round(m.hz.rocks.every * HZ) : 0,
-      trainNext: m.hz.train ? Math.round(m.hz.train.every * HZ) : 0, trainDir: 1, trainX: 0, trainRun: false, trainHit: [] },
+      trainNext: m.hz.train ? Math.round(m.hz.train.every * HZ) : 0, trainDir: 1, trainX: 0, trainRun: false, trainHit: [],
+      cannonNext: m.hz.cannon ? Math.round(m.hz.cannon.every * HZ) : 0, lanes: [], dropNext: m.hz.crystals ? Math.round(m.hz.crystals.every * HZ) : 0, drops: [], bolts: [] },
     over: false, sudden: false, suddenT: 0, endT: 0,
   };
   return { s, w: { m, T, c: { ...c } } };

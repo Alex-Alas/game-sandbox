@@ -2,6 +2,7 @@
 export type Theme = {
   sky: [string, string], sea: string, seaTop: string, far: string, near: string,
   dirt: string[], top: string, rock: string[], wood: string[], line: string, sun: string, cloud: string,
+  cave?: boolean, // sin sol ni nubes (el fondo es una caverna)
 };
 export const THEMES: Record<string, Theme> = {
   isla: { sky: ['#4fb9ff', '#c9f1ff'], sea: '#1673c4', seaTop: '#5fc3ff', far: '#9ad7f0', near: '#7cc4a0',
@@ -19,5 +20,11 @@ export const THEMES: Record<string, Theme> = {
   nubes: { sky: ['#8ccfff', '#fff3e0'], sea: '#3e8fd6', seaTop: '#8fd0ff', far: '#cfe6ff', near: '#b5d8ff',
     dirt: ['#f6f8ff', '#eef2fd', '#fbfcff'], top: '#ffffff', rock: ['#8c97b8', '#7f8aab'], wood: ['#c8a070'],
     line: '#7d8fbf', sun: '#fffbe0', cloud: '#ffffff' },
+  barco: { sky: ['#ff9a6b', '#ffe9b8'], sea: '#1d6fa5', seaTop: '#5cb8d8', far: '#e6a07c', near: '#c98a73',
+    dirt: ['#d9b676', '#cdab68', '#e3c286'], top: '#e9d08f', rock: ['#4b3626', '#42301f', '#563f2d'], wood: ['#a9743c', '#9a6732', '#b88049', '#8e5f2e'],
+    line: '#2b1a0e', sun: '#fff1b0', cloud: '#fff4e6' },
+  cueva: { sky: ['#1a1233', '#3c2a63'], sea: '#1b7f93', seaTop: '#58e0d0', far: '#2b2150', near: '#3a2d6b',
+    dirt: ['#6d5f93', '#625586', '#78699f'], top: '#7ce8c8', rock: ['#3b3556', '#342f4e', '#443d63'], wood: ['#8a6a4a'],
+    line: '#0e0a1d', sun: '#b79cff', cloud: '#5a4a8f', cave: true },
 };
 export const themeOf = (k: string) => THEMES[k] ?? THEMES.isla;
