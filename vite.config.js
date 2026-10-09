@@ -20,6 +20,7 @@ export default defineConfig({
         lucero: resolve(import.meta.dirname, 'games/lucero/index.html'),
         hyperflowgeon: resolve(import.meta.dirname, 'games/hyperflowgeon/index.html'),
         catapum: resolve(import.meta.dirname, 'games/catapum/index.html'),
+        bananazo: resolve(import.meta.dirname, 'games/bananazo/index.html'),
       },
     },
   },

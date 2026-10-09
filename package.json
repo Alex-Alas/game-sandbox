@@ -7,7 +7,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc",
-    "test": "node --test \"games/hyperflowgeon/tests/*.test.mjs\" \"games/catapum/tests/*.test.mjs\""
+    "test": "node --test \"games/hyperflowgeon/tests/*.test.mjs\" \"games/catapum/tests/*.test.mjs\" \"games/bananazo/tests/*.test.mjs\""
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
