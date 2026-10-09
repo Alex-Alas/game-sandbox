@@ -171,7 +171,13 @@ export function radio(on: boolean) {
 export function stopAll() { for (const k of Object.keys(loops)) { loops[k]?.stop(); loops[k] = null; } }
 
 // Voz sintética: lo que el SORDO escribe le llega al CIEGO hablado (no lo puede leer)
-let voice: SpeechSynthesisVoice | null = null;
+let voice: SpeechSynthesisVoice | null = null, primed = false;
+// iOS solo habla si la primera frase sale de un toque: una vacía al primer toque destraba las de después
+export function primeSpeech() {
+  if (primed || typeof speechSynthesis === 'undefined') return;
+  primed = true;
+  try { const u = new SpeechSynthesisUtterance(''); u.volume = 0; speechSynthesis.speak(u); } catch { /* */ }
+}
 export function say(text: string) {
   const ss = typeof speechSynthesis !== 'undefined' ? speechSynthesis : null;
   if (!ss || listener === 'sordo') return;

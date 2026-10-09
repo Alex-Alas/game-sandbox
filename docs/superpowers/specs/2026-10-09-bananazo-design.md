@@ -48,5 +48,13 @@ manual. Quedó afuera la «palanca que sube» (se parece demasiado a PRESIÓN).
 - Tiempos de cada nivel (supuse ~70 s por módulo para un equipo que ya se entiende) y errores permitidos.
 - Ritmo de PRESIÓN (llena en 50 s), de la ALARMA (cada 28–48 s) y de los peligros.
 - Si los gestos alcanzan o hace falta una seña de color.
-- La voz es solo con STUN (sin TURN): entre algunas redes no conecta y queda el chat. Para producción hace falta desplegar el
-  Worker del relay (ver DOWNCASTLE en CLAUDE.md).
+- La voz es solo con STUN (sin TURN): entre algunas redes no conecta y queda el chat. Las salas andan en la versión publicada
+  con el Worker de DOWNCASTLE (verificado el 2026-10-09).
+
+## Segunda vuelta (pedido del usuario: multijugador, jugar en el teléfono y botón de pantalla completa)
+
+- Multijugador: verificado contra el Worker de producción con tres teléfonos emulados; el anfitrión limita a 3 (el Worker
+  desplegado no respeta el cupo); QR e INVITAR en la sala.
+- Teléfono: cada uno acomoda la bomba a su pantalla (parado, 2 columnas), la mano viaja por módulo, tocar acerca un módulo y
+  ahí se aprieta, ◀ ▶ para pasar de módulo, vibración al tantear, módulos numerados, paneles que no tapan lo importante.
+- Pantalla completa: botón en todas las pantallas, automática en táctil al entrar, y en iPhone «Agregar a inicio» (manifest).

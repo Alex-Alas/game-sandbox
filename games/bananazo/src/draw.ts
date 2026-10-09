@@ -177,9 +177,15 @@ const inR = (x: number, y: number, r: { x: number, y: number, w: number, h: numb
 const inBox = (x: number, y: number, bx: number, by: number, w: number, h: number, m = 0) => x >= bx - m && x <= bx + w + m && y >= by - m && y <= by + h + m;
 
 // ---- Dibujo por módulo -------------------------------------------------------------------------------------------
+function numTab(d: DC) {
+  const g = d.g;
+  rr(g, MW / 2 - 6, -3, 12, 7, 2); g.fillStyle = '#f7c600'; g.fill(); g.strokeStyle = INK; g.lineWidth = 1; g.stroke();
+  g.font = '900 5.5px system-ui, sans-serif'; g.fillStyle = INK; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(d.mi + 1), MW / 2, 0.6);
+}
 function drawMod(m: Mod, d: DC) {
   const g = d.g;
   plate(d);
+  if (!tacto(d) && !d.glow) numTab(d);
   switch (m.k) {
     case 'cables': {
       led(d, 10, 10, 4, m.led);
@@ -503,13 +509,24 @@ export function actXY(m: Mod, a: MAct): [number, number] {
 
 // ---- La bomba entera ---------------------------------------------------------------------------------------------
 export const PAD = 8, GAP = 6, STRIP = 22;
-export type Layout = { w: number, h: number, cols: number, cells: { x: number, y: number }[] };
+export type Layout = { w: number, h: number, cols: number, cells: { x: number, y: number }[], key?: string };
 export const MIN_W = 190; // con un solo módulo la tira del reloj igual tiene que entrar
-export function layout(n: number): Layout {
-  const cols = n <= 3 ? Math.max(1, n) : n === 4 ? 2 : 3, rows = Math.ceil(n / cols);
+export function layout(n: number, cols = n <= 3 ? Math.max(1, n) : n === 4 ? 2 : 3): Layout {
+  cols = Math.max(1, Math.min(n, cols));
+  const rows = Math.ceil(n / cols);
   const inner = cols * MW + (cols - 1) * GAP, w = Math.max(MIN_W, inner + PAD * 2), x0 = (w - inner) / 2;
   const cells = Array.from({ length: n }, (_, i) => ({ x: x0 + (i % cols) * (MW + GAP), y: PAD + STRIP + 4 + Math.floor(i / cols) * (MH + GAP) }));
   return { w, h: STRIP + 4 + rows * MH + (rows - 1) * GAP + PAD * 2, cols, cells };
+}
+// La grilla que deja los módulos más grandes en un área de aw × ah: con el teléfono parado, 1 o 2 columnas. Cada uno usa la
+// suya (la mano viaja en coordenadas del módulo, no de la bomba).
+export function fitLayout(n: number, aw: number, ah: number): Layout {
+  let best = layout(n), bs = Math.min(aw / best.w, ah / best.h);
+  for (let c = 1; c <= Math.min(3, n); c++) {
+    const L = layout(n, c), s = Math.min(aw / L.w, ah / L.h);
+    if (s > bs * 1.05) best = L, bs = s;
+  }
+  return best;
 }
 export const cellAt = (L: Layout, x: number, y: number) => L.cells.findIndex(c => x >= c.x && x <= c.x + MW && y >= c.y && y <= c.y + MH);
 export function hitBomb(b: Bomb, L: Layout, x: number, y: number): Act | null {

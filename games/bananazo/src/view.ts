@@ -4,8 +4,8 @@
 //  - CIEGO: oscuridad y la bomba al tacto; lo que oye, subtitulado.
 //  - MUDO: el asiento de atrás y el SORDO de frente (sus gestos y su boca); el manual va en el DOM.
 // En la portada, la sala y la sesión informativa: los tres monos detrás de una bomba.
-import { app } from './app.ts';
-import { drawBomb, layout, MW, MH, rr, type Layout } from './draw.ts';
+import { app, type Hand } from './app.ts';
+import { drawBomb, layout, fitLayout, MW, MH, rr, type Layout } from './draw.ts';
 import { drawMonkey, drawBanana } from './monkey.ts';
 import { GESTURE_NAME, ROLE_NAME, sees, type Role } from './sim/const.ts';
 import { newBomb, type Bomb, type Env } from './sim/bomb.ts';
@@ -71,6 +71,19 @@ function fitBomb(L: Layout, area: Rect): { s: number, ox: number, oy: number } {
   return { s, ox: area.x + area.w / 2 - cx * s, oy: area.y + area.h / 2 - cy * s - up };
 }
 const toScreen = (x: number, y: number) => [app.bt.ox + x * app.bt.s, app.bt.oy + y * app.bt.s];
+// La mano (módulo + coordenadas en él) en unidades de esta bomba
+export function handBomb(h: Hand | null = app.hand): { x: number, y: number } | null {
+  const c = h && app.L?.cells[h.m];
+  return c ? { x: c.x + h!.x, y: c.y + h!.y } : null;
+}
+// El área de la bomba en pantalla y la grilla que mejor entra (cada cliente la suya). rm: la columna del panel cerrado.
+function bombArea(W: number, H: number, top: number, n: number): Rect {
+  const sf = app.safe, rm = W >= 640 && !app.hudless ? 150 + sf.r : 0, bm = rm || app.hudless ? 10 + sf.b : app.dockH + 16 + sf.b;
+  const area = { x: Math.max(W * 0.02, sf.l + 6), y: top, w: 0, h: H - top - bm };
+  area.w = W - area.x - Math.max(W * 0.02, sf.r + 6) - rm;
+  if (!app.L || app.L.cells.length !== n || app.L.key !== `${area.w | 0}x${area.h | 0}`) app.L = { ...fitLayout(n, area.w, area.h), key: `${area.w | 0}x${area.h | 0}` };
+  return area;
+}
 export const toBomb = (sx: number, sy: number) => ({ x: (sx - app.bt.ox) / app.bt.s, y: (sy - app.bt.oy) / app.bt.s });
 
 function monkeyAt(g: CanvasRenderingContext2D, r: Role, x: number, y: number, s: number, mood: 'normal' | 'boom' | 'win' = 'normal') {
@@ -120,13 +133,14 @@ function viewSordo(g: CanvasRenderingContext2D, W: number, H: number, b: Bomb) {
   // el CIEGO enfrente, detrás de la bomba
   monkeyAt(g, 'ciego', W / 2, H * 0.16, s);
   // el MUDO en el asiento de atrás
-  const pw = Math.min(W * 0.26, 270, H * 0.42), ph = pw * 0.92;
-  g.save(); rr(g, 12, 12, pw, ph, 16); g.fillStyle = '#5b3a8a'; g.fill(); g.clip();
-  g.fillStyle = '#7a52b0'; g.fillRect(12, 12 + ph * 0.55, pw, ph); // respaldo
-  monkeyAt(g, 'mudo', 12 + pw / 2, 12 + ph * 0.34, pw * 0.15);
+  // en vertical la barra de arriba va a la izquierda: el MUDO se corre abajo para que no le tape la cara
+  const pw = Math.min(W * 0.26, 270, H * 0.42), ph = pw * 0.92, px = 12 + app.safe.l, py = 12 + app.safe.t + (W < 640 ? 46 : 0);
+  g.save(); rr(g, px, py, pw, ph, 16); g.fillStyle = '#5b3a8a'; g.fill(); g.clip();
+  g.fillStyle = '#7a52b0'; g.fillRect(px, py + ph * 0.55, pw, ph); // respaldo
+  monkeyAt(g, 'mudo', px + pw / 2, py + ph * 0.34, pw * 0.15);
   g.restore();
-  rr(g, 12, 12, pw, ph, 16); g.strokeStyle = '#22160d'; g.lineWidth = 4; g.stroke();
-  nameTag(g, 'mudo', 12 + pw / 2, 12 + ph - 14, pw * 0.15);
+  rr(g, px, py, pw, ph, 16); g.strokeStyle = '#22160d'; g.lineWidth = 4; g.stroke();
+  nameTag(g, 'mudo', px + pw / 2, py + ph - 14, pw * 0.15);
   nameTag(g, 'ciego', W / 2 + s * 2.2, H * 0.16 - s * 0.9, s);
   // la radio
   app.radioBox = null;
@@ -146,9 +160,8 @@ function viewSordo(g: CanvasRenderingContext2D, W: number, H: number, b: Bomb) {
     app.radioBox = { x: rx, y: ry, w: rw, h: rh };
   }
   // la bomba
-  const L = app.L!;
-  const rm = W >= 640 && !app.hudless ? 150 : 0; // la columna del panel (cerrado) a la derecha
-  app.bt = fitBomb(L, { x: W * 0.02, y: H * 0.29, w: W * 0.96 - rm, h: H * 0.71 - (rm || app.hudless ? 10 : 110) });
+  const area = bombArea(W, H, H * 0.29, b.mods.length), L = app.L!;
+  app.bt = fitBomb(L, area);
   g.save(); g.translate(app.bt.ox, app.bt.oy); g.scale(app.bt.s, app.bt.s);
   drawBomb(g, b, L, { look: 'color', t: app.now, timeShown: app.timeShown });
   g.restore();
@@ -159,10 +172,18 @@ function viewSordo(g: CanvasRenderingContext2D, W: number, H: number, b: Bomb) {
     g.restore();
     g.font = '900 16px system-ui, sans-serif'; g.fillStyle = 'rgba(255,255,255,0.6)'; g.textAlign = 'center'; g.fillText('SE FUE LA LUZ', W / 2, H * 0.27);
   }
-  // la mano del CIEGO sobre la bomba
-  if (app.hand) {
-    const [hx, hy] = toScreen(app.hand.x, app.hand.y), hs = Math.max(10, app.bt.s * 5);
-    if (!dark) handIcon(g, hx, hy, hs, '#8a5a34');
+  // la mano del CIEGO sobre la bomba (y si el SORDO está mirando otro módulo, dónde anda)
+  const hb = handBomb();
+  if (hb && !dark) {
+    const [hx, hy] = toScreen(hb.x, hb.y), hs = Math.max(10, app.bt.s * 5);
+    handIcon(g, hx, hy, hs, '#8a5a34');
+  }
+  if (app.zoom >= 0 && app.hand && app.hand.m !== app.zoom) {
+    const msg = `LA MANO DEL CIEGO ESTÁ EN EL ${app.hand.m + 1}`;
+    g.font = '900 14px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    const w = g.measureText(msg).width + 20, y = area.y + 14;
+    rr(g, area.x + area.w / 2 - w / 2, y - 12, w, 24, 10); g.fillStyle = 'rgba(20,12,5,0.85)'; g.fill();
+    g.fillStyle = '#ffd23f'; g.fillText(msg, area.x + area.w / 2, y);
   }
   ripples(g);
 }
@@ -179,7 +200,9 @@ function handIcon(g: CanvasRenderingContext2D, x: number, y: number, s: number, 
 function ripples(g: CanvasRenderingContext2D) {
   app.ripples = app.ripples.filter(r => app.now - r.t < 0.5);
   for (const r of app.ripples) {
-    const [x, y] = toScreen(r.x, r.y), k = (app.now - r.t) / 0.5;
+    const p = handBomb(r);
+    if (!p) continue;
+    const [x, y] = toScreen(p.x, p.y), k = (app.now - r.t) / 0.5;
     g.beginPath(); g.arc(x, y, 6 + k * 26, 0, Math.PI * 2);
     g.strokeStyle = r.bad ? `rgba(255,60,60,${1 - k})` : `rgba(255,255,255,${1 - k})`; g.lineWidth = 3; g.stroke();
   }
@@ -189,11 +212,11 @@ function viewCiego(g: CanvasRenderingContext2D, W: number, H: number, b: Bomb, p
   const gr = g.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7);
   gr.addColorStop(0, '#0b0e17'), gr.addColorStop(1, '#020205');
   g.fillStyle = gr; g.fillRect(0, 0, W, H);
-  const L = app.L!;
-  const rm = W >= 640 && !app.hudless ? 150 : 0;
-  app.bt = fitBomb(L, { x: W * 0.02, y: H * 0.07, w: W * 0.96 - rm, h: H * 0.93 - (rm || app.hudless ? 10 : 110) });
+  const top = W < 640 && app.brOpen ? app.safe.t + 140 : Math.max(H * 0.07, app.safe.t + 44); // en vertical, debajo de la tarjeta braille
+  const area = bombArea(W, H, top, b.mods.length), L = app.L!;
+  app.bt = fitBomb(L, area);
   g.save(); g.translate(app.bt.ox, app.bt.oy); g.scale(app.bt.s, app.bt.s);
-  drawBomb(g, b, L, { look: 'tacto', t: app.now, timeShown: app.timeShown, hand: app.hand });
+  drawBomb(g, b, L, { look: 'tacto', t: app.now, timeShown: app.timeShown, hand: handBomb() });
   g.restore();
   if (pointer) handIcon(g, pointer.x, pointer.y, Math.max(14, app.bt.s * 5), null, 'rgba(200,215,255,0.9)');
   captions(g, W, H, ['sordo']);
@@ -212,19 +235,20 @@ function captions(g: CanvasRenderingContext2D, W: number, H: number, from: Role[
 
 function viewMudo(g: CanvasRenderingContext2D, W: number, H: number, b: Bomb, wide: boolean) {
   backdrop(g, W, H, b.spec.env, app.now, H * 0.28, b.hz.dark > 0 ? 0.08 : 1);
+  // el SORDO tiene que entrar entero (cabeza y manos) en lo que deja libre el panel de gestos
+  const top = app.safe.t + (W < 640 ? 70 : 56);
   if (wide) {
-    const pw = W * 0.34, s = Math.min(pw * 0.2, H * 0.12);
-    monkeyAt(g, 'sordo', pw / 2, H * 0.4, s);
-    nameTag(g, 'sordo', pw / 2, H * 0.4 - s * 1.75, s);
+    const pw = W * 0.38, avail = H - app.dockH - top - 12, s = Math.max(18, Math.min(pw * 0.2, (avail - 30) / 4.3)), cy = top + s * 1.45;
+    monkeyAt(g, 'sordo', pw / 2, cy, s);
     const say = [...app.caps].reverse().find(c => c.r === 'sordo' && app.now - c.t < 7);
-    if (say) speech(g, pw / 2, H * 0.4 - s * 2.1, say.s, pw - 30, Math.min(1, (7 - (app.now - say.t)) * 2));
+    if (say) speech(g, pw / 2, cy - s * 1.2, say.s, pw - 30, Math.min(1, (7 - (app.now - say.t)) * 2));
     const back = [...app.caps].reverse().find(c => c.r === 'ciego' && app.now - c.t < 7);
-    if (back) speech(g, 14, Math.max(130, H * 0.4 - s * 2.6 - 70), `CIEGO (atrás tuyo): ${back.s}`, pw - 30, Math.min(1, (7 - (app.now - back.t)) * 2), true);
+    if (back) speech(g, 14 + app.safe.l, top + 4 + 60, `CIEGO (atrás tuyo): ${back.s}`, pw - 30, Math.min(1, (7 - (app.now - back.t)) * 2), true);
   } else {
-    const s = Math.min(W * 0.09, H * 0.06);
-    monkeyAt(g, 'sordo', W * 0.2, s * 1.4, s);
+    const avail = H * 0.34 - top, s = Math.max(18, Math.min(W * 0.13, (avail - 24) / 4.1)), cy = top + s * 1.3;
+    monkeyAt(g, 'sordo', W * 0.24, cy, s);
     const say = [...app.caps].reverse().filter(c => app.now - c.t < 7).slice(0, 1)[0];
-    if (say) speech(g, W * 0.38, s * 2.6, `${ROLE_NAME[say.r]}: ${say.s}`, W * 0.58, 1, true);
+    if (say) speech(g, W * 0.45, cy + s * 0.6, `${ROLE_NAME[say.r]}: ${say.s}`, W * 0.5, 1, true);
   }
   if (b.hz.dark > 0) { g.fillStyle = 'rgba(0,0,10,0.75)'; g.fillRect(0, 0, W, H); }
 }
@@ -233,7 +257,7 @@ function viewMudo(g: CanvasRenderingContext2D, W: number, H: number, b: Bomb, wi
 let demo: { b: Bomb, L: Layout } | null = null;
 function attract(g: CanvasRenderingContext2D, W: number, H: number, mood: 'normal' | 'boom' | 'win') {
   const b = app.bomb ?? (demo ??= (() => { const d = newBomb({ mods: ['cables', 'dial', 'simon'], time: 300, miss: 2, hz: [], env: 'combi', chaos: 1 }, 7); return { b: d, L: layout(3) }; })()).b;
-  const L = app.bomb ? app.L! : demo!.L;
+  const L = app.bomb ? app.L ?? layout(b.mods.length) : demo!.L;
   backdrop(g, W, H, b.spec.env, app.now, H * 0.32);
   const s = Math.max(24, Math.min(W * 0.06, H * 0.085));
   const cy = H * 0.52, gap = Math.min(W * 0.27, s * 5.2);
@@ -256,7 +280,7 @@ export function render(g: CanvasRenderingContext2D, W: number, H: number, pointe
   g.save();
   if (app.shake > 0) g.translate(R(-1, 1) * app.shake * 14, R(-1, 1) * app.shake * 14);
   const b = app.bomb;
-  if ((app.phase === 'play' || (app.phase === 'end' && app.overT < 1.4)) && b && app.L) {
+  if ((app.phase === 'play' || (app.phase === 'end' && app.overT < 1.4)) && b) {
     if (app.view === 'sordo') viewSordo(g, W, H, b);
     else if (app.view === 'ciego') viewCiego(g, W, H, b, pointer);
     else viewMudo(g, W, H, b, W > H * 1.1);

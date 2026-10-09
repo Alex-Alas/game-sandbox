@@ -3,19 +3,21 @@
 // informativa → bomba → resultado → …  El anfitrión corre la bomba (sim/bomb.ts) y reparte el estado; todo lo que hace cada
 // uno (acciones, mano, gestos, bananazos, chat, si está hablando) pasa por él, y cada cliente filtra lo que le toca según su
 // papel (sim/const.ts: hears/sees). La práctica es un anfitrión sin red en el que se cambia de papel.
-import { app, roleOfId, type Sel, type Seat, type Result } from './app.ts';
+import { app, roleOfId, type Sel, type Seat, type Result, type Hand } from './app.ts';
 import { newBomb, step, allowed, nextAct, speedOf, ENV_NAME, HAZARD_NAME, HAZARDS, type Bomb, type Spec, type Hazard, type Env } from './sim/bomb.ts';
 import { CAMPAIGN, LEVEL_NAMES, endless, custom, CUSTOM_DEFAULT, known, news, type Custom } from './sim/levels.ts';
 import { KINDS, isKind, modName, isChaos, type Act, type Ev } from './sim/mods.ts';
 import { tables } from './sim/tables.ts';
 import { ROLES, ROLE_NAME, GESTURES, GESTURE_NAME, BRAILLE, hears, isGesture, type Role, type Gesture } from './sim/const.ts';
-import { layout, hitBomb, touchBomb, cellAt, actXY } from './draw.ts';
+import { hitBomb, hitMod, touchMod, cellAt, actXY } from './draw.ts';
 import { render, toBomb } from './view.ts';
 import { mountManual, HOW } from './manual.ts';
 import * as A from './audio.ts';
 import { createVoice, voiceSupported } from './voice.ts';
-import { connect, randomCode, validCode, pidFor, ERRORS, GAME, PROTO, type Msg } from './net.ts';
+import { connect, randomCode, validCode, pidFor, ERRORS, GAME, PROTO, SEATS, type Msg } from './net.ts';
 import { bgTicker } from './bgtick.ts';
+import { initFullscreen, autoFs } from './fullscreen.ts';
+import { renderSVG } from 'uqr';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const cv = $<HTMLCanvasElement>('game'), g = cv.getContext('2d')!;
@@ -86,6 +88,7 @@ function fromPeer(id: number, m: Msg) {
       if (m.g !== GAME) { app.conn?.send({ to: id, m: { t: 'bye', why: 'game' } }); app.conn?.send({ t: 'drop', id }); return; }
       if (m.v !== PROTO) { app.conn?.send({ to: id, m: { t: 'bye', why: 'proto' } }); app.conn?.send({ t: 'drop', id }); return; }
       const name = String(m.name ?? '').slice(0, 14) || 'Mono';
+      if (!seat && app.seats.length >= SEATS) { app.conn?.send({ to: id, m: { t: 'bye', why: 'full' } }); app.conn?.send({ t: 'drop', id }); return; }
       if (seat) { seat.name = name, seat.on = true; } else app.seats.push({ id, name, role: null, on: true });
       if (id !== app.myId) addLog(`${name} entró.`);
       pushLobby();
@@ -112,7 +115,13 @@ function fromPeer(id: number, m: Msg) {
       queue.push({ m: a.m, a: a.a, v: Number.isFinite(a.v) ? a.v : undefined });
       return;
     }
-    case 'hand': if (role === 'ciego' || app.practice) { const x = +(m.x as number), y = +(m.y as number); if (Number.isFinite(x) && Number.isFinite(y)) { app.hand = { x, y }; liveDirty = true; } } return;
+    case 'hand': {
+      if (role !== 'ciego' && !app.practice) return;
+      const mi = m.m as number, x = +(m.x as number), y = +(m.y as number);
+      app.hand = Number.isInteger(mi) && mi >= 0 && mi < (app.bomb?.mods.length ?? 0) && Number.isFinite(x) && Number.isFinite(y) ? { m: mi, x, y } : null;
+      liveDirty = true;
+      return;
+    }
     case 'ges': if (role && isGesture(m.g)) socAll({ t: 'soc', k: 'ges', r: role, g: m.g }); return;
     case 'hit': {
       const to = m.to as Role;
@@ -171,7 +180,7 @@ function fromHost(m: Msg) {
       return;
     }
     case 'live': {
-      if (app.view !== 'ciego') app.hand = (m.h as { x: number, y: number } | null) ?? null;
+      if (app.view !== 'ciego') app.hand = (m.h as Hand | null) ?? null;
       Object.assign(app.talk, m.tk as object);
       return;
     }
@@ -198,7 +207,7 @@ let queue: Act[] = [], acc = 0, stT = 0, liveT = 0, liveDirty = false;
 function setupBomb(spec: Spec, seed: number) {
   app.spec = spec; app.seed = seed;
   app.bomb = newBomb(spec, seed);
-  app.L = layout(app.bomb.mods.length);
+  app.L = null; // la grilla la arma la vista según la pantalla de cada uno
   app.timeShown = app.bomb.time;
   app.zoom = -1; app.zoomK = 0; app.hand = null; queue = [];
 }
@@ -307,7 +316,7 @@ function onEvents(evs: Ev[]) {
     }
   }
 }
-function ripple(bad: boolean) { if (app.hand) app.ripples.push({ x: app.hand.x, y: app.hand.y, t: app.now, bad }); }
+function ripple(bad: boolean) { if (app.hand) app.ripples.push({ ...app.hand, t: app.now, bad }); }
 const vibrate = (ms: number) => { try { navigator.vibrate?.(ms); } catch { /* */ } };
 
 // Gestos, bananazos y chat (cada uno filtra lo suyo)
@@ -446,6 +455,13 @@ function renderLobby() {
   $('lobby-title').textContent = app.practice ? 'PRÁCTICA' : 'SALA';
   $('lobby-code').textContent = app.practice ? '' : app.code;
   $('b-copy').hidden = app.practice;
+  $('b-share').hidden = app.practice || !navigator.share;
+  const qr = $('qr');
+  qr.hidden = app.practice;
+  if (!app.practice && qr.dataset.code !== app.code) {
+    qr.dataset.code = app.code;
+    qr.innerHTML = `${renderSVG(roomLink(), { border: 1 })}<p class="why">Para entrar desde otro teléfono: escaneá el código o abrí el link.<br>Son de a 3: uno por papel.</p>`;
+  }
   $('seats').hidden = app.practice;
   $('chatpanel').hidden = app.practice;
   $('chatpanel').parentElement!.classList.toggle('one', app.practice);
@@ -486,6 +502,7 @@ function specLine(s: Spec, generic = false) {
   const kinds = generic ? 'módulos al azar entre los elegidos' : [...new Set(s.mods)].map(modName).join(', ');
   return `${ENV_NAME[s.env]} · ${s.mods.length} módulo${s.mods.length > 1 ? 's' : ''} (${kinds}) · ${fmt(s.time)} · ${s.miss} error${s.miss === 1 ? '' : 'es'} permitido${s.miss === 1 ? '' : 's'}${s.hz.length ? ' · ' + s.hz.map(h => HAZARD_NAME[h]).join(', ') : ''}`;
 }
+const roomLink = () => `${location.origin}${location.pathname}?sala=${app.code}`;
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 function renderCustom(c: Custom, host: boolean) {
   const chip = (on: boolean, attr: string, label: string) => `<button class="chipb" ${attr} aria-pressed="${on}" ${host ? '' : 'disabled'}>${label}</button>`;
@@ -608,15 +625,26 @@ function sayText(s: string) {
 }
 
 // ---- Entrada -----------------------------------------------------------------------------------------------------
-let pointer: { x: number, y: number } | null = null, down: { id: number, x: number, y: number, t: number, touch: boolean } | null = null, handSentT = 0;
+let pointer: { x: number, y: number } | null = null, down: { id: number, x: number, y: number, t: number, touch: boolean } | null = null;
+let handSentT = 0, handTimer = 0, feelKey = '';
+// La mano del CIEGO: en qué módulo está y dónde dentro de él (afuera de los módulos no hay mano)
 function setHand(sx: number, sy: number) {
-  if (!app.L) return;
-  const p = toBomb(sx, sy);
-  const pad = 20;
-  if (p.x < -pad || p.y < -pad || p.x > app.L.w + pad || p.y > app.L.h + pad) return;
-  app.hand = { x: Math.round(p.x * 10) / 10, y: Math.round(p.y * 10) / 10 };
-  if (isHostish()) liveDirty = true;
-  else if (performance.now() - handSentT > 66) { handSentT = performance.now(); toHost({ t: 'hand', x: app.hand.x, y: app.hand.y }); }
+  if (!app.L || !app.bomb) return;
+  const p = toBomb(sx, sy), i = cellAt(app.L, p.x, p.y);
+  if (i >= 0) { const c = app.L.cells[i]; app.hand = { m: i, x: Math.round((p.x - c.x) * 10) / 10, y: Math.round((p.y - c.y) * 10) / 10 }; }
+  else app.hand = null;
+  // al tantear con el dedo, cada parte nueva bajo la mano se siente (vibra; en iPhone no hay vibración)
+  const h = app.hand, md = h && app.bomb.mods[h.m], part = md ? JSON.stringify(hitMod(md, h!.x, h!.y) ?? touchMod(md, h!.x, h!.y)) : '';
+  if (part !== feelKey) { feelKey = part; if (app.touch && part && part !== 'null') vibrate(12); }
+  sendHand();
+}
+function sendHand() {
+  if (isHostish()) { liveDirty = true; return; }
+  clearTimeout(handTimer);
+  const wait = 66 - (performance.now() - handSentT);
+  if (wait > 0) { handTimer = setTimeout(sendHand, wait) as unknown as number; return; }
+  handSentT = performance.now();
+  toHost(app.hand ? { t: 'hand', m: app.hand.m, x: app.hand.x, y: app.hand.y } : { t: 'hand', m: -1 });
 }
 cv.addEventListener('pointermove', e => {
   pointer = { x: e.clientX, y: e.clientY };
@@ -625,6 +653,8 @@ cv.addEventListener('pointermove', e => {
 cv.addEventListener('pointerdown', e => {
   A.unlock(); voice.refresh();
   down = { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), touch: e.pointerType !== 'mouse' };
+  app.touch = down.touch;
+  A.primeSpeech();
   pointer = { x: e.clientX, y: e.clientY };
   try { cv.setPointerCapture(e.pointerId); } catch { /* */ }
   if (app.phase === 'play' && app.view === 'ciego') setHand(e.clientX, e.clientY);
@@ -642,8 +672,13 @@ function tap(x: number, y: number) {
   const r = app.view;
   for (const a of app.avatars) if (Math.hypot(x - a.x, y - a.y) < a.rad && a.r !== r) { throwBanana(a.r); return; }
   if (r === 'ciego') {
+    const p = toBomb(x, y);
+    // con el dedo los módulos de la vista general son chicos: el primer toque acerca, después se aprieta. Acercado, tocar el
+    // borde de un vecino lo acerca a él (no lo aprieta sin querer)
+    const c = cellAt(app.L, p.x, p.y);
+    if ((app.touch && app.zoom < 0) || (app.zoom >= 0 && c !== app.zoom)) { if (c >= 0) app.zoom = c; return; }
     if (app.now - app.bumpT < 0.45) return; // el bache te sacude la mano
-    const p = toBomb(x, y), act = hitBomb(app.bomb, app.L, p.x, p.y);
+    const act = hitBomb(app.bomb, app.L, p.x, p.y);
     if (act) toHost({ t: 'act', a: act });
   } else if (r === 'sordo') {
     const rb = app.radioBox;
@@ -655,9 +690,16 @@ function tap(x: number, y: number) {
 function toggleZoom() {
   if (!app.L) return;
   if (app.zoom >= 0) { app.zoom = -1; return; }
-  const h = app.hand ?? (pointer ? toBomb(pointer.x, pointer.y) : null);
-  const c = h ? cellAt(app.L, h.x, h.y) : -1;
+  const p = pointer ? toBomb(pointer.x, pointer.y) : null;
+  const c = app.hand?.m ?? (p ? cellAt(app.L, p.x, p.y) : -1);
   app.zoom = c >= 0 ? c : 0;
+}
+// Pasar al módulo de al lado sin salir del zoom (el teléfono vive acercado)
+function zoomStep(d: number) {
+  const n = app.bomb?.mods.length ?? 0;
+  if (!n) return;
+  app.zoom = ((app.zoom < 0 ? 0 : app.zoom + d) % n + n) % n;
+  app.zoomK = Math.min(app.zoomK, 0.6);
 }
 const GKEY: Record<string, Gesture> = { KeyS: 'si', KeyN: 'no', KeyQ: 'duda', KeyE: 'espera', KeyR: 'repite', KeyO: 'ojo', KeyB: 'bien', KeyM: 'mal', KeyC: 'medio',
   ArrowUp: 'arriba', ArrowRight: 'derecha', ArrowDown: 'abajo', ArrowLeft: 'izquierda', Equal: 'n10', NumpadAdd: 'n10' };
@@ -706,14 +748,15 @@ function bindUi() {
   name.addEventListener('change', () => { SAVE.name = name.value.trim().slice(0, 14) || SAVE.name; save(); if (app.online) toHost({ t: 'name', name: SAVE.name }); });
   const code = $<HTMLInputElement>('code');
   code.addEventListener('input', () => { code.value = code.value.toUpperCase().replace(/[^A-Z]/g, ''); });
-  $('b-create').onclick = () => { SAVE.name = name.value.trim().slice(0, 14) || SAVE.name; save(); joinRoom(randomCode(), true); };
+  $('b-create').onclick = () => { autoFs(); SAVE.name = name.value.trim().slice(0, 14) || SAVE.name; save(); joinRoom(randomCode(), true); };
   $('b-join').onclick = () => {
     const c = code.value.toUpperCase();
     if (!validCode(c)) { toast('El código son 4 letras.', true); return; }
+    autoFs();
     SAVE.name = name.value.trim().slice(0, 14) || SAVE.name; save();
     joinRoom(c, false);
   };
-  $('b-practice').onclick = () => startPractice();
+  $('b-practice').onclick = () => { autoFs(); startPractice(); };
   const help = (on: boolean) => { helpOpen = on; if (on) screen('s-help'); else syncScreen(); };
   $('b-help').onclick = () => help(true); $('b-help2').onclick = () => help(true); $('b-help-close').onclick = () => help(false);
   $('b-manual').onclick = () => { manualOpen = true; screen('s-manual'); mountManual($('manual-sample'), 12345, KINDS, true); };
@@ -721,7 +764,7 @@ function bindUi() {
   $('b-leave').onclick = () => leave();
   $('b-quit').onclick = () => { if (app.practice) { stopGame(); app.phase = 'lobby'; syncScreen(); } else if (confirm('¿Salir de la sala?')) leave(); };
   $('b-copy').onclick = () => {
-    const url = `${location.origin}${location.pathname}?sala=${app.code}`;
+    const url = roomLink();
     navigator.clipboard?.writeText(url).then(() => toast('Link copiado.'), () => toast(url, false, 6000));
   };
   $('seats').addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLElement>('[data-r]'); if (b) toHost({ t: 'role', r: b.dataset.r }); });
@@ -744,7 +787,13 @@ function bindUi() {
   $('practice').addEventListener('click', e => { const b = (e.target as HTMLElement).closest<HTMLElement>('[data-r]'); if (b) setView(b.dataset.r as Role); });
   $('b-auto').onclick = () => { auto = !auto; setupHud(); };
   $('brcard').addEventListener('click', e => { if ((e.target as HTMLElement).id === 'br-x') { brClosed = true; $('brcard').hidden = true; } });
-  $('fsbtn').onclick = () => { const d = document as Document & { webkitFullscreenElement?: Element }; if (d.fullscreenElement || d.webkitFullscreenElement) void document.exitFullscreen?.(); else void document.documentElement.requestFullscreen?.().catch(() => toast('Este navegador no deja ponerla en pantalla completa.', true)); };
+  initFullscreen($<HTMLButtonElement>('fsbtn'), m => toast(m, false, 6000));
+  $('zn-prev').onclick = () => zoomStep(-1);
+  $('zn-next').onclick = () => zoomStep(1);
+  $('zn-all').onclick = () => { app.zoom = -1; };
+  $('b-share').hidden = !navigator.share;
+  $('b-share').onclick = () => { void navigator.share?.({ title: 'BANANAZO', text: `¡Vení a desactivar una bomba! Sala ${app.code}`, url: roomLink() }).catch(() => {}); };
+  cv.addEventListener('contextmenu', e => e.preventDefault()); // mantener el dedo no abre el menú del navegador
 }
 
 // ---- Piloto automático (práctica, pruebas y la grabación de la portada) ------------------------------------------
@@ -769,8 +818,8 @@ function autoStep(dt: number) {
   const a = nextAct(app.bomb);
   if (!a) { autoT = 0.3; return; }
   if (a.m >= 0) {
-    const c = app.L.cells[a.m], [x, y] = actXY(app.bomb.mods[a.m], a);
-    app.hand = { x: c.x + x, y: c.y + y }; liveDirty = true;
+    const [x, y] = actXY(app.bomb.mods[a.m], a);
+    app.hand = { m: a.m, x, y }; liveDirty = true;
     const gg = GES_OF(a);
     if (gg) socAll({ t: 'soc', k: 'ges', r: 'mudo', g: gg });
   }
@@ -806,7 +855,16 @@ function tick(dt: number) {
   if (live) clientSounds();
   else { A.hiss(null); A.siren(false); A.radio(false); }
   $('dark').hidden = !(live && app.view === 'mudo' && app.bomb!.hz.dark > 0);
+  const zn = app.phase === 'play' && app.view !== 'mudo' && app.zoom >= 0 && !!app.bomb;
+  if ($('znav').hidden === zn) $('znav').hidden = !zn;
+  const zl = zn ? `${app.zoom + 1} DE ${app.bomb!.mods.length}\nVER TODO` : '';
+  if (zn && $('zn-all').innerText !== zl) $('zn-all').innerText = zl;
   if (app.phase === 'play' && (hudRole !== app.view || hudWide !== innerWidth > innerHeight * 1.1)) setupHud();
+  if (app.phase === 'play') {
+    const dh = $('dock').offsetHeight;
+    if (dh !== app.dockH) { app.dockH = dh; $('hud').style.setProperty('--dockh', `${dh}px`); }
+    app.brOpen = !$('brcard').hidden;
+  }
   voiceRoutes();
 }
 // Lo que cada uno oye por su cuenta: el tic tac, la presión, la alarma, la radio y lo que el CIEGO descubre tocando
@@ -816,8 +874,9 @@ function clientSounds() {
   let p = -1, siren = false;
   for (const m of b.mods) { if (m.k === 'press') p = Math.max(p, m.p); if (m.k === 'alarm' && m.on) siren = true; }
   A.hiss(p >= 0 ? p : null); A.siren(siren); A.radio(b.hz.radio);
-  if (app.view !== 'ciego' || !app.hand || !app.L) { touchKey = ''; return; }
-  const t = touchBomb(b, app.L, app.hand.x, app.hand.y), key = t ? `${t[0]}:${t[1]}` : '';
+  const h = app.hand;
+  if (app.view !== 'ciego' || !h || !b.mods[h.m]) { touchKey = ''; return; }
+  const part = touchMod(b.mods[h.m], h.x, h.y), t = part ? [h.m, part] as const : null, key = t ? `${t[0]}:${t[1]}` : '';
   if (key !== touchKey) { touchKey = key; touchNext = app.now; }
   if (!t || app.now < touchNext) return;
   const m = b.mods[t[0]];
@@ -825,7 +884,12 @@ function clientSounds() {
   else if (m.k === 'morse') { const k = +t[1].slice(4), d = A.morse(tables(b.seed).morse[m.d[k]]); touchNext = app.now + d + 1.1; }
   else if (m.k === 'dial') { if (m.ptr === m.buzz[m.stage]) { A.S.buzz(); touchNext = app.now + 0.9; } else touchNext = app.now + 0.25; }
 }
+const safeProbe = document.createElement('div');
+safeProbe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+document.body.append(safeProbe);
 function resize() {
+  const cs = getComputedStyle(safeProbe);
+  app.safe = { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
   const dpr = Math.min(devicePixelRatio || 1, 2);
   cv.width = Math.round(innerWidth * dpr); cv.height = Math.round(innerHeight * dpr);
 }
