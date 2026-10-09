@@ -73,7 +73,7 @@ export function fromEvents(evs: Ev[], s: State, me: number, water: number) {
         const name = p ? p.name : '?', who = by >= 0 ? s.pl[by]?.name : '';
         const label = how === 'agua' ? '¡AL AGUA!' : how === 'lava' ? '¡A LA LAVA!' : how === 'arriba' ? '¡A LA LUNA!' : '¡FUERA!';
         pop(x, how === 'agua' || how === 'lava' ? water + 2 : y, label, '#fff', 1.6, 1.4);
-        FX.feed.unshift({ txt: by >= 0 ? `${who} ➜ ${name} · ${label}` : `${name} se cayó solo · −1`, c: PCOLORS[(by >= 0 ? s.pl[by]?.color : p?.color) ?? 0], t: 4 });
+        FX.feed.unshift({ txt: by >= 0 ? `${who} → ${name} · ${label}` : `${name} se cayó solo · −1`, c: PCOLORS[(by >= 0 ? s.pl[by]?.color : p?.color) ?? 0], t: 4 });
         if (FX.feed.length > 5) FX.feed.length = 5;
         if (by === me && me >= 0) FX.banner = { txt: '+1', sub: `${label} ${name}`, t: 1.2, c: '#ffd23f' };
         break;
@@ -105,7 +105,7 @@ export function fromEvents(evs: Ev[], s: State, me: number, water: number) {
       case 'bounce': if (p) for (let k = 0; k < 6; k++) part(p.x, p.y, rand(-3, 3), rand(0, 3), 0.4, 0.2, '#ccc', P_KIND.puff); break;
       case 'go': FX.banner = { txt: '¡CATAPUM!', sub: '', t: 1.1, c: '#ffd23f' }; shake(0.6); break;
       case 'sudden': FX.banner = { txt: '¡MUERTE SÚBITA!', sub: 'todos al 300 %', t: 2, c: '#ff5a3c' }; break;
-      case 'wind': FX.banner = { txt: e.d as number > 0 ? 'VIENTO ➜' : '⬅ VIENTO', sub: '', t: 1.2, c: '#cfe6ff' }; break;
+      case 'wind': FX.banner = { txt: e.d as number > 0 ? 'VIENTO →' : '← VIENTO', sub: '', t: 1.2, c: '#cfe6ff' }; break;
       case 'whistle': FX.banner = { txt: '¡TREN!', sub: e.d as number > 0 ? 'viene por la izquierda' : 'viene por la derecha', t: 1.6, c: '#ff5a3c' }; break;
       case 'rumble': shake(0.35); break;
       case 'pad': if (p) for (let k = 0; k < 8; k++) part(e.x as number, e.y as number, rand(-3, 3), rand(1, 4), 0.4, 0.2, '#ff8ad8', P_KIND.spark); break;

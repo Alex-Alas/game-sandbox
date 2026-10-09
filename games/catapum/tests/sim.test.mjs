@@ -65,6 +65,20 @@ test('salto: llega a JUMP_H y el doble salto suma; vuelven al tocar el suelo', (
   assert.ok(p.ground && p.air === 1);
 });
 
+test('flote en la cima: con SALTO mantenido se tarda más en bajar, sin cambiar la altura', () => {
+  const air = hold => {
+    const { s, w } = flat(), p = s.pl[0];
+    let f = 0, top = 0;
+    run(s, w, 1, () => I({ jump: true }));
+    while (!p.ground && f < 200) { run(s, w, 1, () => I({ jump: hold || p.vy > 0 })); top = Math.max(top, p.y - 1); f++; }
+    return { f, top };
+  };
+  const held = air(true), let_go = air(false);
+  assert.ok(Math.abs(held.top - let_go.top) < 1e-9, `altura ${held.top} vs ${let_go.top}`);
+  assert.ok(held.f >= let_go.f + 3, `vuelo ${held.f} vs ${let_go.f} cuadros`);
+  assert.ok(held.f / HZ < 0.8, `vuelo de ${held.f / HZ} s: bajar no puede ser eterno`);
+});
+
 test('coyote: se salta unos cuadros después de dejar el borde', () => {
   const { s, w } = flat(T => { for (let i = 60; i < 160; i++) for (let j = 0; j < 4; j++) set(T, i, j, 0); });
   const p = s.pl[0];

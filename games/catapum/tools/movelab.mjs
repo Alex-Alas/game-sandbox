@@ -497,7 +497,9 @@ export function criteria(R) {
   }
   if (R.salto) {
     const b = R.salto.bombin ?? R.salto[ids[0]];
-    add('c. subida ~0,3 s', b.subida >= 0.27 && b.subida <= 0.33, `subida ${b.subida} s`);
+    // más floaty a pedido del usuario (2026-10-09): subida más lenta, pero bajar desde la cima no puede ser eterno
+    add('c. subida ~0,35 s', b.subida >= 0.32 && b.subida <= 0.4, `subida ${b.subida} s`);
+    add('c. bajar no es eterno', b.vuelo - b.subida <= 0.36, `de la cima al suelo ${r2(b.vuelo - b.subida)} s`);
     add('c. carrera rápida', b.vmax >= 9.5 && b.t90 <= 0.2, `${b.vmax} m/s, 90 % en ${b.t90} s`);
     add('c. giro firme', b.giroT <= 0.25, `media vuelta en ${b.giroT} s, frena en ${b.frenoDist} m`);
   }

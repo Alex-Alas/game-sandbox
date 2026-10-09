@@ -8,6 +8,7 @@ import { charOf, PCOLORS, TEAMS } from './sim/chars.ts';
 import { themeOf, type Theme } from './themes.ts';
 import { newTerrCanvas, flush, type TerrCanvas } from './terrdraw.ts';
 import { FX, P_KIND } from './fx.ts';
+import { drawToon, drawHead, star, type Pose } from './toon.ts';
 
 export type View = { k: number, ox: number, oy: number, W: number, H: number, dpr: number };
 export const toScreen = (v: View, x: number, y: number): [number, number] => [x * v.k + v.ox, -y * v.k + v.oy];
@@ -215,121 +216,61 @@ function water(ctx: CanvasRenderingContext2D, v: View, w: World, front: boolean)
 }
 
 // ---- Personajes -------------------------------------------------------------------------------------------------
-function drawPlayer(ctx: CanvasRenderingContext2D, s: State, p: Pl, x: number, y: number, me: boolean) {
-  const ch = charOf(p.ch), t = R.time, now = s.t;
+// El dibujo de cada uno (cabezones) está en toon.ts; acá van la posición, el estirón, los giros y los estados.
+export function poseOf(s: State, p: Pl, t: number): Pose {
+  const now = s.t;
+  return { t, seed: p.id * 1.91, vx: p.vx * p.face, vy: p.vy, ground: p.ground, crouch: p.crouch, stun: now < p.stunT, dmg: p.dmg,
+    dash: p.slide || p.pound || (!!p.u && p.u.k === 'cohete') || Math.abs(p.vx) > 15 };
+}
+function drawPlayer(ctx: CanvasRenderingContext2D, s: State, p: Pl, x: number, y: number, P: Pose = poseOf(s, p, R.time)) {
+  const t = R.time, now = s.t;
   if (p.u?.k === 'meteoro' && p.u.f === 1) return;
   if (now < p.invT && Math.floor(t * 12) % 2 === 0 && !p.u) ctx.globalAlpha = 0.45;
   const h = p.crouch ? HC : H;
-  const sp = Math.sqrt(p.vx * p.vx + p.vy * p.vy);
   let sx = 1, sy = 1;
-  if (!p.ground) sy = 1 + Math.max(-0.2, Math.min(0.25, p.vy * 0.012)), sx = 1 / sy;
-  if (p.crouch) sx = 1.12;
-  const stun = now < p.stunT;
+  if (!p.ground) sy = 1 + Math.max(-0.15, Math.min(0.18, p.vy * 0.01)), sx = 1 / sy;
+  const stun = P.stun;
+  // anillo del jugador a los pies (detrás)
+  const ring = s.rules.teams ? TEAMS[p.team].color : PCOLORS[p.color];
+  ctx.fillStyle = 'rgba(10,6,24,0.22)'; ctx.beginPath(); ctx.ellipse(x, y + 0.02, 0.5, 0.12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = ring; ctx.lineWidth = 0.07; ctx.stroke();
   ctx.save();
   ctx.translate(x, y);
-  if (p.tumble && stun) ctx.rotate(t * 14 * (p.vx >= 0 ? -1 : 1));
+  if (p.tumble && stun) { ctx.translate(0, 0.6); ctx.rotate(t * 14 * (p.vx >= 0 ? -1 : 1)); ctx.translate(0, -0.6); }
   if (p.u?.k === 'cohete') ctx.rotate(Math.atan2(p.u.dy, p.u.dx) - (p.face > 0 ? 0 : Math.PI));
   ctx.scale(p.face * sx, sy);
-  // sombra de color del jugador (anillo)
-  const ring = s.rules.teams ? TEAMS[p.team].color : PCOLORS[p.color];
-  // pies
-  const run = p.ground && Math.abs(p.vx) > 0.5 ? Math.sin(t * 22) * 0.12 : 0;
-  ctx.fillStyle = ch.dark;
-  for (const f of [-1, 1]) { ctx.beginPath(); ctx.ellipse(f * 0.2 + run * f, 0.07, 0.15, 0.08, 0, 0, 7); ctx.fill(); }
-  // cuerpo
-  const bw = 0.46, bh = h / 2;
-  ctx.fillStyle = ch.color;
-  ctx.strokeStyle = me ? '#ffffff' : '#1a1222';
-  ctx.lineWidth = me ? 0.09 : 0.07;
-  ctx.beginPath();
-  ctx.ellipse(0, bh + 0.05, bw, bh, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  accessory(ctx, p.ch, bw, bh, t, p);
-  // ojos (miran hacia la mira o hacia donde va)
-  const ex = 0.15, ey = bh + 0.18 * (h / H), lx = Math.max(-1, Math.min(1, p.vx / 12)) * p.face, ly = Math.max(-1, Math.min(1, p.vy / 12));
-  if (stun) {
-    ctx.strokeStyle = '#1a1222'; ctx.lineWidth = 0.05;
-    for (const e of [ex - 0.1, ex + 0.12]) { ctx.beginPath(); ctx.moveTo(e - 0.06, ey - 0.06); ctx.lineTo(e + 0.06, ey + 0.06); ctx.moveTo(e - 0.06, ey + 0.06); ctx.lineTo(e + 0.06, ey - 0.06); ctx.stroke(); }
-  } else {
-    for (const e of [ex - 0.12, ex + 0.12]) {
-      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.ellipse(e, ey, 0.085, 0.11, 0, 0, 7); ctx.fill();
-      ctx.fillStyle = '#1a1222'; circle(ctx, e + 0.03 + lx * 0.025, ey + ly * 0.03, 0.045); ctx.fill();
-    }
-  }
-  // boca
-  ctx.strokeStyle = '#1a1222'; ctx.lineWidth = 0.04;
-  ctx.beginPath();
-  if (stun || p.dmg > 120) ctx.ellipse(0.16, ey - 0.2, 0.05, 0.06, 0, 0, 7);
-  else ctx.arc(0.16, ey - 0.12, 0.08, Math.PI * 1.15, Math.PI * 1.85);
-  ctx.stroke();
+  drawToon(ctx, p.ch, P);
   ctx.restore();
   // estados
   ctx.globalAlpha = 1;
-  if (now < p.shieldT) { ctx.strokeStyle = '#8ef2ff'; ctx.fillStyle = 'rgba(142,242,255,0.18)'; ctx.lineWidth = 0.08; circle(ctx, x, y + 0.6, 1.05); ctx.fill(); ctx.stroke(); }
-  if (now < p.fragT) { ctx.strokeStyle = '#c36bff'; ctx.lineWidth = 0.06; ctx.setLineDash([0.15, 0.12]); circle(ctx, x, y + 0.55, 0.85); ctx.stroke(); ctx.setLineDash([]); }
+  if (now < p.shieldT) { ctx.strokeStyle = '#8ef2ff'; ctx.fillStyle = 'rgba(142,242,255,0.18)'; ctx.lineWidth = 0.08; circle(ctx, x, y + 0.62, 1.05); ctx.fill(); ctx.stroke(); }
+  if (now < p.fragT) { ctx.strokeStyle = '#c36bff'; ctx.lineWidth = 0.06; ctx.setLineDash([0.15, 0.12]); circle(ctx, x, y + 0.6, 0.88); ctx.stroke(); ctx.setLineDash([]); }
   if (now < p.leadT) { ctx.fillStyle = '#5a5f6a'; ctx.fillRect(x - 0.45, y - 0.08, 0.9, 0.16); }
   if (now < p.glueT) { ctx.fillStyle = 'rgba(255,225,74,0.8)'; ctx.fillRect(x - 0.5, y - 0.05, 1, 0.12); }
-  if (stun && p.tumble) for (let k = 0; k < 3; k++) { const a = t * 6 + k * 2.1; ctx.fillStyle = '#ffe14a'; circle(ctx, x + Math.cos(a) * 0.5, y + h + 0.25 + Math.sin(a) * 0.12, 0.08); ctx.fill(); }
-  // anillo del jugador a los pies
-  ctx.strokeStyle = ring; ctx.lineWidth = 0.07;
-  ctx.beginPath(); ctx.ellipse(x, y + 0.02, 0.5, 0.12, 0, 0, Math.PI * 2); ctx.stroke();
+  if (stun && p.tumble) for (let k = 0; k < 3; k++) { const a = t * 6 + k * 2.1; star(ctx, x + Math.cos(a) * 0.5, y + h + 0.3 + Math.sin(a) * 0.12, 0.11, 0.05, 5, '#ffe14a'); }
   if (now < p.cloudT) { // nube de reaparición
     ctx.fillStyle = '#fff';
     for (const [dx, r] of [[-0.5, 0.35], [0, 0.45], [0.5, 0.35]]) { circle(ctx, x + dx, y - 0.25, r); ctx.fill(); }
-  }
-  void sp;
-}
-
-function accessory(ctx: CanvasRenderingContext2D, id: string, bw: number, bh: number, t: number, p: Pl) {
-  const top = bh * 2 + 0.05;
-  ctx.lineWidth = 0.06;
-  switch (id) {
-    case 'bombin':
-      ctx.strokeStyle = '#3a2a1a'; ctx.beginPath(); ctx.moveTo(-0.05, top - 0.02); ctx.quadraticCurveTo(-0.1, top + 0.25, 0.1, top + 0.3); ctx.stroke();
-      ctx.fillStyle = Math.floor(t * 20) % 2 ? '#ffe14a' : '#ff7a1a'; circle(ctx, 0.12, top + 0.32, 0.08); ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,0.15)'; ctx.fillRect(-bw, bh - 0.05, bw * 2, 0.1);
-      break;
-    case 'lia':
-      ctx.fillStyle = '#0d5550'; ctx.beginPath(); ctx.ellipse(-0.42, top - 0.25, 0.12, 0.3, 0.6, 0, 7); ctx.fill();
-      ctx.strokeStyle = '#cfd8dc'; ctx.beginPath(); ctx.arc(0.5, bh - 0.05, 0.1, -1.5, 1.5); ctx.stroke();
-      break;
-    case 'turbo':
-      ctx.fillStyle = '#3a2f00'; ctx.fillRect(-bw, bh + 0.12, bw * 2, 0.12);
-      ctx.fillStyle = '#8ef2ff'; circle(ctx, 0.04, bh + 0.18, 0.1); ctx.fill(); circle(ctx, 0.27, bh + 0.18, 0.1); ctx.fill();
-      if (!p.ground) { ctx.fillStyle = Math.floor(t * 30) % 2 ? '#ff7a1a' : '#ffe14a'; ctx.beginPath(); ctx.moveTo(-0.3, 0.2); ctx.lineTo(-0.15, -0.25); ctx.lineTo(0, 0.2); ctx.fill(); }
-      break;
-    case 'muu':
-      ctx.fillStyle = '#2b2b2b'; ctx.beginPath(); ctx.ellipse(-0.18, bh - 0.05, 0.14, 0.18, 0.4, 0, 7); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(0.12, bh * 0.45, 0.1, 0.08, 0, 0, 7); ctx.fill();
-      ctx.fillStyle = '#e8d8b0'; for (const hx of [-0.18, 0.24]) { ctx.beginPath(); ctx.moveTo(hx - 0.06, top - 0.08); ctx.lineTo(hx, top + 0.14); ctx.lineTo(hx + 0.06, top - 0.08); ctx.fill(); }
-      ctx.fillStyle = '#ffb3c6'; ctx.beginPath(); ctx.ellipse(0.3, bh + 0.0, 0.14, 0.1, 0, 0, 7); ctx.fill();
-      break;
-    case 'chuchu':
-      ctx.fillStyle = '#1d2a5a'; ctx.beginPath(); ctx.ellipse(0, top - 0.06, bw * 0.8, 0.14, 0, Math.PI, 0, true); ctx.fill();
-      ctx.fillRect(0, top - 0.1, bw, 0.06);
-      ctx.fillStyle = '#ffd23f'; ctx.fillRect(-0.06, top - 0.04, 0.12, 0.06);
-      break;
-    case 'kunai':
-      ctx.fillStyle = '#1a1033'; ctx.fillRect(-bw, bh + 0.08, bw * 2, 0.13);
-      ctx.strokeStyle = '#1a1033'; ctx.lineWidth = 0.07;
-      const wv = Math.sin(t * 10) * 0.08;
-      ctx.beginPath(); ctx.moveTo(-bw, bh + 0.14); ctx.lineTo(-bw - 0.3, bh + 0.05 + wv); ctx.moveTo(-bw, bh + 0.14); ctx.lineTo(-bw - 0.25, bh + 0.25 - wv); ctx.stroke();
-      break;
   }
 }
 
 // Ovni de MUU durante la abducción
 function ufo(ctx: CanvasRenderingContext2D, x: number, y: number, held: boolean) {
-  const t = R.time;
+  const t = R.time, bob = Math.sin(t * 3) * 0.08;
+  y += bob;
   ctx.fillStyle = held ? 'rgba(157,255,138,0.35)' : 'rgba(157,255,138,0.18)';
   ctx.beginPath(); ctx.moveTo(x - 0.6, y + 0.3); ctx.lineTo(x + 0.6, y + 0.3); ctx.lineTo(x + 2.5, y - 7.5); ctx.lineTo(x - 2.5, y - 7.5); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#9fb3c8'; ctx.strokeStyle = '#1a1222'; ctx.lineWidth = 0.07;
-  ctx.beginPath(); ctx.ellipse(x, y + 0.5, 1.4, 0.38, 0, 0, 7); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = 'rgba(180,240,255,0.85)'; ctx.beginPath(); ctx.ellipse(x, y + 0.8, 0.6, 0.5, 0, 0, Math.PI); ctx.fill(); ctx.stroke();
-  for (let k = 0; k < 5; k++) { ctx.fillStyle = Math.floor(t * 8 + k) % 2 ? '#ffe14a' : '#ff5a5a'; circle(ctx, x - 1 + k * 0.5, y + 0.45, 0.08); ctx.fill(); }
-  ctx.fillStyle = '#f4f1ea'; circle(ctx, x, y + 0.95, 0.28); ctx.fill(); // la vaca adentro
-  ctx.fillStyle = '#1a1222'; circle(ctx, x + 0.1, y + 1, 0.05); ctx.fill();
+  ctx.save(); ctx.translate(x, y + 1.02); ctx.scale(0.5, 0.5); // la vaca adentro
+  drawHead(ctx, 'muu', { t, seed: 0, vx: 0, vy: 0, ground: true, crouch: false, stun: false, dmg: 0, dash: held });
+  ctx.restore();
+  ctx.strokeStyle = '#1a1222'; ctx.lineWidth = 0.07;
+  ctx.fillStyle = 'rgba(180,240,255,0.35)'; ctx.beginPath(); ctx.ellipse(x, y + 0.82, 0.62, 0.62, 0, 0, Math.PI); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 0.06; ctx.beginPath(); ctx.arc(x, y + 0.82, 0.48, Math.PI * 0.6, Math.PI * 0.85); ctx.stroke();
+  ctx.strokeStyle = '#1a1222'; ctx.lineWidth = 0.07;
+  ctx.fillStyle = '#6f8199'; ctx.beginPath(); ctx.ellipse(x, y + 0.42, 1.1, 0.3, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#b4c6d9'; ctx.beginPath(); ctx.ellipse(x, y + 0.6, 1.5, 0.36, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.ellipse(x - 0.3, y + 0.75, 0.8, 0.09, 0, 0, Math.PI * 2); ctx.fill();
+  for (let k = 0; k < 5; k++) { ctx.fillStyle = Math.floor(t * 8 + k) % 2 ? '#ffe14a' : '#ff5a5a'; circle(ctx, x - 1 + k * 0.5, y + 0.52, 0.09); ctx.fill(); ctx.lineWidth = 0.03; ctx.stroke(); }
 }
 
 function train(ctx: CanvasRenderingContext2D, x: number, y: number, dir: number, len: number, color: string) {
@@ -551,7 +492,7 @@ export function drawWorld(ctx: CanvasRenderingContext2D, v: View, s: State, w: W
       ctx.fillStyle = 'rgba(255,122,26,0.6)';
       circle(ctx, x - p.vx * 0.03, y + 0.5 - p.vy * 0.03, 0.8); ctx.fill();
     }
-    drawPlayer(ctx, s, p, x, y, p.id === o.me);
+    drawPlayer(ctx, s, p, x, y);
   }
   // rayos instantáneos y tajos
   for (const r of FX.rays) {
@@ -603,15 +544,15 @@ function groundY(x: number, top: number, wat: number) {
 
 export { HW, PROP_H, NEVER };
 
-// Retrato de un personaje en un lienzo chico (menús)
+// Retrato de un personaje en un lienzo chico (menús): contento, de cuerpo entero
 export function drawPortrait(cv: HTMLCanvasElement, ch: string, color = 0) {
   const dpr = Math.min(2, devicePixelRatio || 1), W = cv.clientWidth || 96, Hh = cv.clientHeight || 96;
   cv.width = W * dpr, cv.height = Hh * dpr;
-  const ctx = cv.getContext('2d')!, k = Hh / 1.9;
-  ctx.setTransform(k * dpr, 0, 0, -k * dpr, W / 2 * dpr, Hh * 0.88 * dpr);
-  const p = { id: 0, ch, color, x: 0, y: 0, vx: 0, vy: 0, face: 1, ground: true, crouch: false, dmg: 0, invT: -1e9, stunT: -1e9, shieldT: -1e9,
-    fragT: -1e9, leadT: -1e9, glueT: -1e9, cloudT: -1e9, tumble: false, u: null, team: 0 } as unknown as Pl;
-  drawPlayer(ctx, { t: 0, rules: { teams: false } } as unknown as State, p, 0, 0, false);
+  const ctx = cv.getContext('2d')!, k = Hh / 1.45;
+  ctx.setTransform(k * dpr, 0, 0, -k * dpr, W / 2 * dpr, Hh * 0.92 * dpr);
+  ctx.fillStyle = 'rgba(10,6,24,0.3)'; ctx.beginPath(); ctx.ellipse(0, 0.02, 0.42, 0.09, 0, 0, Math.PI * 2); ctx.fill();
+  void color;
+  drawToon(ctx, ch, { t: 0.4, seed: 0, vx: 0, vy: 0, ground: true, crouch: false, stun: false, dmg: 0, dash: false, happy: true });
 }
 
 // Miniatura de un mapa: el terreno por celdas, el agua y el cielo del tema
