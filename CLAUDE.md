@@ -16,7 +16,14 @@ No hay linter. Solo HYPERFLOWGEON y CATAPUM tienen tests y typecheck; lo demás 
 
 ## Arquitectura
 
-Vite multi-página: cada juego vive en `games/<nombre>/` y sus assets en `public/<nombre>/`. Un juego nuevo se registra en `build.rollupOptions.input` de [vite.config.js](vite.config.js) y en el hub `index.html`. ELYTRA usa Three.js + Rapier (`@dimforge/rapier3d-compat`, WASM incrustado); DOWNCASTLE, VÓRTICE y LUCERO, Canvas 2D sin dependencias de motor; HYPERFLOWGEON, TypeScript y por ahora Canvas 2D en gris; CATAPUM, TypeScript y Canvas 2D en caricatura procedural. Los comentarios y textos de UI están en español.
+Vite multi-página: cada juego vive en `games/<nombre>/` y sus assets en `public/<nombre>/`. Un juego nuevo se registra en `build.rollupOptions.input` de [vite.config.js](vite.config.js) y en la portada `index.html` (su ficha y su entrada en `GAMES` de `tools/hub-media.mjs`). ELYTRA usa Three.js + Rapier (`@dimforge/rapier3d-compat`, WASM incrustado); DOWNCASTLE, VÓRTICE y LUCERO, Canvas 2D sin dependencias de motor; HYPERFLOWGEON, TypeScript y por ahora Canvas 2D en gris; CATAPUM, TypeScript y Canvas 2D en caricatura procedural. Los comentarios y textos de UI están en español.
+
+### Portada (`index.html`)
+
+- «El arenero»: fondo de arena con grano (SVG en el CSS) y una ficha por juego con los colores y el logo de su propia pantalla de título (`.g-<juego>`), así la portada habla bajito y cada juego con su voz. Tipografía Bricolage Grotesque auto-hospedada en `public/hub/fonts/` (recortada a latín y pesos 400–800; licencia OFL al lado). CATAPUM y DOWNCASTLE son fichas anchas (`.wide`; DOWNCASTLE dentro de un teléfono, `.phone`, porque se juega en vertical); HYPERFLOWGEON lleva «En construcción».
+- Toda la ficha es el enlace (`.name a::after`). El estilo del logo va en `.logo`, nunca en el `h2` ni en el `a`: un `transform` o `filter` ahí vuelve al título el bloque contenedor del `::after` y la ficha deja de ser clicable.
+- Vistas previas a lo Poki: póster `.webp` + loop mudo de 6 s por juego en `public/hub/` (`preload="none"`), en WebM VP9 (los Chromium sin H.264, como el de Playwright, no reproducen MP4) y MP4 H.264 de respaldo para Safari. Un solo video a la vez: con ratón, el de la ficha bajo el cursor o con foco y, si no, el de CATAPUM; en táctil, el de la ficha más visible. Nada con animaciones reducidas ni con ahorro de datos.
+- `node tools/hub-media.mjs [juego… | og]` (con `npm run dev`) regraba pósters, loops y `og.jpg` (la imagen al compartir el link). Corre cada juego con un reloj virtual (rAF y `performance.now` controlados) y `Math.random` con semilla: clips fluidos y repetibles aunque el Chromium sin GPU renderice lento. La preparación de cada uno (bots, piloto automático, teclas, semilla) está en `GAMES`; el póster es el primer cuadro del loop y el final se funde con el principio. Ojo: guardar `index.html` con el dev server abierto recarga **todas** las páginas, también la que se está grabando; ELYTRA conviene grabarla contra `npm run build` + `npx vite preview` (`PORT=4173`) y tarda ~30 min (WebGL por software).
 
 ### ELYTRA (`games/elytra/src/`)
 

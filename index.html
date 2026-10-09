@@ -3,60 +3,300 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Game Sandbox</title>
+<title>Game Sandbox · juegos para el navegador</title>
+<meta name="description" content="Juegos para jugar en el navegador, en el teléfono o en la compu, sin instalar nada: un brawler de cartas, un arcade de reflejos, un match-3, vuelo en 3D y más." />
+<meta name="theme-color" content="#e8c78a" />
+<meta property="og:type" content="website" />
+<meta property="og:locale" content="es_419" />
+<meta property="og:title" content="Game Sandbox" />
+<meta property="og:description" content="Juegos para el navegador, sin instalar nada: elegí uno y jugá." />
+<meta property="og:url" content="https://alex-alas.github.io/game-sandbox/" />
+<meta property="og:image" content="https://alex-alas.github.io/game-sandbox/hub/og.jpg" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="Game Sandbox: capturas de los seis juegos sobre arena" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M8 12C8 3 24 3 24 12' fill='none' stroke='%232a1608' stroke-width='2.5'/%3E%3Cpath d='M5 11h22l-3 18H8z' fill='%23e5432d' stroke='%232a1608' stroke-width='2.5' stroke-linejoin='round'/%3E%3Cpath d='M6.5 16h19' stroke='%23ffd23f' stroke-width='3'/%3E%3C/svg%3E" />
+<link rel="preload" href="/hub/fonts/bricolage-grotesque.woff2" as="font" type="font/woff2" crossorigin />
 <style>
-  :root { --bg: #070b14; --fg: #dff6ff; --dim: #7f9fb3; --accent: #8ef2ff; --gold: #ffd23f; }
+  @font-face {
+    font-family: "Bricolage Grotesque"; font-style: normal; font-weight: 400 800; font-display: swap;
+    src: url("/hub/fonts/bricolage-grotesque.woff2") format("woff2");
+  }
+  /* El arenero: la página es arena y cada juego, un juguete con su propia voz (colores y logo del juego) */
+  :root {
+    --sand: #e8c78a; --sand-lo: #d7ae67; --sand-dk: #b98a47; --ink: #2a1608; --ink-2: #5e3d1c;
+    --focus: #1d4fd8; /* azul de pala de playa: se distingue de la arena y del borde oscuro de las fichas */
+    --gap: clamp(16px, 2.2vw, 28px); --r: 22px;
+    --font: "Bricolage Grotesque", ui-rounded, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--fg); font-family: "Courier New", ui-monospace, monospace;
-    min-height: 100vh; padding: 48px 16px; }
-  main { max-width: 860px; margin: 0 auto; }
-  h1 { letter-spacing: 10px; color: var(--accent); font-size: clamp(28px, 6vw, 44px); }
-  p.sub { color: var(--dim); letter-spacing: 3px; margin: 8px 0 36px; font-size: 12px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
-  a.game { display: block; padding: 20px; border: 1px solid rgba(142,242,255,.25); text-decoration: none;
-    color: inherit; background: linear-gradient(180deg, rgba(20,40,60,.5), rgba(10,20,30,.2)); transition: border-color .2s, transform .2s; }
-  a.game:hover { border-color: var(--accent); transform: translateY(-2px); }
-  a.game h2 { letter-spacing: 6px; color: var(--gold); font-size: 20px; margin-bottom: 8px; }
-  a.game p { color: var(--dim); font-size: 13px; line-height: 1.6; }
-  .tags { margin-top: 12px; font-size: 10px; letter-spacing: 2px; color: var(--accent); }
+  html { background: var(--sand); }
+  body {
+    min-height: 100vh; color: var(--ink); font: 400 17px/1.5 var(--font); font-optical-sizing: auto;
+    background-color: var(--sand);
+    /* grano de arena + manchones de arena húmeda */
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .22 0 0 0 0 .08 0 0 0 1.1 -.42'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(60vw 40vw at 85% 10%, rgba(255, 240, 200, .55), transparent 70%),
+      radial-gradient(50vw 50vw at 0% 60%, rgba(185, 138, 71, .28), transparent 70%),
+      radial-gradient(70vw 50vw at 70% 105%, rgba(185, 138, 71, .3), transparent 70%);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: 4px; }
+  .wrap { width: min(1220px, 100% - 2 * var(--gap)); margin-inline: auto; }
+
+  /* ── Cabecera ── */
+  header { padding-block: clamp(28px, 6vw, 64px) clamp(24px, 4vw, 44px); display: grid; gap: 14px 48px; align-items: end; }
+  h1 {
+    font-size: clamp(54px, 11.5vw, 128px); font-weight: 800; line-height: .86; letter-spacing: -.035em; font-variation-settings: "opsz" 96;
+    /* letras moldeadas en arena: la cara en tinta y el canto en arena mojada */
+    text-shadow: 1px 1px 0 var(--sand-dk), 2px 2px 0 var(--sand-dk), 3px 3px 0 var(--sand-dk), 4px 4px 0 var(--sand-dk), 5px 5px 0 var(--sand-dk),
+      6px 6px 0 var(--sand-dk), 10px 12px 18px rgba(120, 80, 25, .35);
+  }
+  .lede { max-width: 34ch; font-size: clamp(17px, 1.6vw, 20px); line-height: 1.45; color: var(--ink-2); text-wrap: pretty; }
+  .lede b { color: var(--ink); font-weight: 650; }
+  @media (min-width: 900px) { header { grid-template-columns: auto 1fr; } .lede { padding-bottom: 8px; } }
+
+  /* ── Juegos ── */
+  .games { list-style: none; display: grid; gap: var(--gap); grid-auto-flow: dense; padding-bottom: clamp(40px, 7vw, 88px); }
+  .game {
+    --bg: #1b1a1f; --fg: #fff; --dim: #c9c4d4; --acc: #ffd23f; --acc-ink: #2a1608;
+    position: relative; display: flex; flex-direction: column; background: var(--bg); color: var(--fg);
+    border: 3px solid var(--ink); border-radius: var(--r); overflow: hidden;
+    box-shadow: 0 6px 0 var(--ink), 0 22px 36px -14px rgba(105, 66, 18, .55);
+  }
+  @supports selector(:has(*)) {
+    .game:has(.name a:focus-visible) { outline: 4px solid var(--focus); outline-offset: 4px; }
+    .name a:focus-visible { outline: none; }
+  }
+  .media { position: relative; aspect-ratio: 16 / 10; background: #000 center / cover no-repeat; overflow: hidden; }
+  .media video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+  .body { flex: 1; display: flex; flex-direction: column; gap: 10px; padding: 18px 20px 20px; }
+  .name { font-size: 32px; line-height: 1; margin: 2px 0 2px; }
+  .name a { text-decoration: none; }
+  /* toda la ficha es el enlace. Ojo: transform o filter en el título encerrarían este ::after; van en .logo */
+  .name a::after { content: ""; position: absolute; inset: 0; z-index: 1; }
+  .logo { display: inline-block; }
+  .hook { color: var(--fg); max-width: 46ch; text-wrap: pretty; }
+  .facts { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--dim); font-size: 15px; }
+  .facts li { display: flex; align-items: center; gap: 7px; }
+  .facts svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .play {
+    margin-top: auto; align-self: flex-start; display: inline-flex; align-items: center; gap: 9px; padding: 10px 18px 10px 14px;
+    background: var(--acc); color: var(--acc-ink); border-radius: 999px; font-weight: 750; font-size: 17px; line-height: 1;
+    box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .22); transition: transform .12s ease;
+  }
+  .play svg { width: 14px; height: 14px; fill: currentColor; }
+  .game:hover .play { transform: scale(1.06); }
+  .wip { position: absolute; top: 12px; left: 12px; z-index: 2; pointer-events: none; padding: 6px 12px; border-radius: 8px; font-weight: 750; font-size: 14px;
+    color: #1b1a1f; border: 2px solid #1b1a1f;
+    background: repeating-linear-gradient(-45deg, #e8c07a 0 12px, #f2d9a6 12px 24px); }
+
+  /* Fichas grandes: el video a la izquierda */
+  .wide { flex-direction: row; }
+  .wide .media { aspect-ratio: auto; flex: 1.55; }
+  .wide .body { flex: 1; padding: 28px 30px; gap: 12px; justify-content: center; }
+  .wide .play { margin-top: 10px; }
+  /* DOWNCASTLE se juega en vertical: su video va en un teléfono sobre los ladrillos del castillo */
+  .phone .media { background-size: cover; display: grid; place-items: center; }
+  .phone .media::before { content: ""; position: absolute; inset: -20px; background: inherit; filter: blur(14px) brightness(.55) saturate(1.2); }
+  .phone .screen { position: relative; height: calc(100% - 36px); aspect-ratio: 9 / 16; border: 6px solid #0b0709; border-radius: 22px; overflow: hidden;
+    box-shadow: 0 0 0 2px rgba(244, 230, 207, .25), 0 18px 40px rgba(0, 0, 0, .6); background: #0b0709; }
+
+  @media (min-width: 700px) {
+    .games { grid-template-columns: repeat(2, 1fr); }
+    .g-catapum, .g-downcastle { grid-column: span 2; }
+  }
+  @media (min-width: 1080px) {
+    .games { grid-template-columns: repeat(3, 1fr); }
+    .g-catapum { grid-column: span 3; }
+    .g-downcastle { grid-column: span 2; }
+  }
+  @media (max-width: 699px) {
+    .wide { flex-direction: column; }
+    .wide .media { aspect-ratio: 16 / 10; flex: none; }
+    .phone .media { aspect-ratio: 1; }
+    .wide .body { padding: 18px 20px 20px; justify-content: flex-start; }
+  }
+  @media (min-width: 700px) { .g-catapum .media { aspect-ratio: 16 / 9; } .wide .hook { font-size: 19px; } }
+
+  /* ── Voz de cada juego (colores y logo de su propia pantalla de título) ── */
+  .g-catapum { --bg: #1a1033; --dim: #c4bce3; --acc: #ffd23f; --acc-ink: #2a1300; }
+  .g-catapum .logo { font: 900 clamp(40px, 5.4vw, 70px)/.95 system-ui, "Segoe UI", Roboto, sans-serif; color: #ffd23f; transform: rotate(-3deg); transform-origin: left;
+    -webkit-text-stroke: 3px #2a1300; paint-order: stroke fill; text-shadow: 0 4px 0 #ff7a3d, 0 8px 0 #2a1300; padding-bottom: 8px; }
+  .g-vortice { --bg: #070a12; --dim: #9db3c6; --acc: #ff2f5b; --acc-ink: #1a0008; }
+  .g-vortice .logo { font: 900 34px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: .08em;
+    background: linear-gradient(180deg, #fff, #47f3ff 60%, #2a7dff); -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 0 14px rgba(71, 243, 255, .35)); }
+  .g-lucero { --bg: #170f3f; --dim: #c3b7ec; --acc: linear-gradient(180deg, #fff1a1, #ffd23f 40%, #ff9d2e); --acc-ink: #3a1d00; }
+  .g-lucero .play { background: var(--acc); }
+  .g-lucero .logo { font: 900 36px/1 ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", system-ui, sans-serif; letter-spacing: .02em;
+    background: linear-gradient(180deg, #fff1a1, #ffd23f 45%, #ff9d2e); -webkit-background-clip: text; background-clip: text; color: transparent;
+    filter: drop-shadow(0 3px 0 #5b2fd6); }
+  .g-elytra { --bg: #0a1a2a; --dim: #a9c4d4; --acc: #8ef2ff; --acc-ink: #06202e; }
+  .g-elytra .logo { font: 700 30px/1 "Courier New", ui-monospace, monospace; letter-spacing: .32em; color: #8ef2ff;
+    text-shadow: 0 0 22px rgba(120, 230, 255, .5), 0 3px 0 #06202e; }
+  .g-downcastle { --bg: #1d1210; --fg: #f4e6cf; --dim: #c9b08f; --acc: #ffd23f; --acc-ink: #2a170d; }
+  .g-downcastle .logo { font: 400 clamp(34px, 3.6vw, 46px)/1 Georgia, "Times New Roman", serif; letter-spacing: .04em; color: #f4e6cf;
+    text-shadow: 0 3px 0 #2a170d, 0 0 24px rgba(255, 140, 60, .35); }
+  .g-downcastle .logo span { color: #ffd23f; }
+  .g-hyperflowgeon { --bg: #1b1a1f; --fg: #f2f2e8; --dim: #b4b2bd; --acc: #e8c07a; --acc-ink: #1b1a1f; }
+  .g-hyperflowgeon .logo { font: 700 24px/1.1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; letter-spacing: .06em; color: #f2f2e8; overflow-wrap: anywhere; }
+
+  footer { padding-block: 8px 48px; color: var(--ink-2); font-size: 16px; }
+  footer a { color: var(--ink); font-weight: 650; text-underline-offset: 3px; }
+
+  @media (prefers-reduced-motion: reduce) { .play { transition: none; } .game:hover .play { transform: none; } }
 </style>
 </head>
 <body>
-<main>
-  <h1>GAME SANDBOX</h1>
-  <p class="sub">EXPERIMENTOS JUGABLES</p>
-  <div class="grid">
-    <a class="game" href="./games/catapum/">
-      <h2>CATAPUM</h2>
-      <p>Brawler de cartas explosivas sin turnos: sacá a todos del ring con bombas, rayos, la liga y tu ulti mientras las islas se rompen. Contra bots u online.</p>
-      <div class="tags">CANVAS · TYPESCRIPT · MULTIJUGADOR · CAOS</div>
-    </a>
-    <a class="game" href="./games/hyperflowgeon/">
-      <h2>HYPERFLOWGEON</h2>
-      <p>En construcción: acción 2.5D de movimiento y combate en una mazmorra de reinos. Por ahora, el Patio en gris para calibrar correr y saltar.</p>
-      <div class="tags">CANVAS · TYPESCRIPT · PROTOTIPO · F1</div>
-    </a>
-    <a class="game" href="./games/lucero/">
-      <h2>LUCERO</h2>
-      <p>Uní gemas de luz por un mapa de niveles sin fin, ganá estrellas y encendé las constelaciones del cielo. Vidas, rachas, misiones del día y cofres.</p>
-      <div class="tags">CANVAS · MATCH-3 · NIVELES · PROGRESO</div>
-    </a>
-    <a class="game" href="./games/vortice/">
-      <h2>VÓRTICE</h2>
-      <p>Esquivá los muros que se cierran hacia el centro. Partidas de segundos, roces, combos, FIEBRE, misiones, cofres y skins. «Una más» y ya.</p>
-      <div class="tags">CANVAS · ARCADE · RITMO · UNA MÁS</div>
-    </a>
-    <a class="game" href="./games/elytra/">
-      <h2>ELYTRA</h2>
-      <p>Vuelo libre con alas y circuito de puertas entre agujas, cañones, ruinas e islas flotantes. Choca y disfruta del ragdoll.</p>
-      <div class="tags">THREE.JS · RAPIER · VUELO · RAGDOLL</div>
-    </a>
-    <a class="game" href="./games/downcastle/">
-      <h2>DOWNCASTLE</h2>
-      <p>De 2 a 4 aventureros atados con una cuerda elástica bajan por las entrañas de un castillo. Para el teléfono, en vertical y con una mano.</p>
-      <div class="tags">CANVAS · MULTIJUGADOR · CUERDA · PIXEL ART</div>
-    </a>
-  </div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.2-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.7.8 2.8 2.5 3.1 5.2"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></symbol>
+  <symbol id="i-desk" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M8 20.5h8M12 16.5v4"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2.5 9a14 14 0 0 1 19 0M5.8 12.6a9 9 0 0 1 12.4 0M9.2 16.1a4 4 0 0 1 5.6 0"/><circle cx="12" cy="19.5" r=".8"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 16.8l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 3.5v17l14-8.5z"/></symbol>
+</svg>
+
+<header class="wrap">
+  <h1>Game Sandbox</h1>
+  <p class="lede">Acá Alex Alas arma y prueba juegos para el navegador. Andan en el teléfono y en la compu, sin instalar nada ni crear cuenta: <b>elegí uno y jugá.</b></p>
+</header>
+
+<main class="wrap">
+  <ul class="games">
+    <li class="game wide g-catapum" data-feature>
+      <div class="media">
+        <video muted loop playsinline preload="none" poster="/hub/catapum.webp" aria-hidden="true"><source src="/hub/catapum.webm" type="video/webm" /><source src="/hub/catapum.mp4" type="video/mp4" /></video>
+      </div>
+      <div class="body">
+        <h2 class="name"><a href="./games/catapum/"><span class="logo">CATAPUM</span></a></h2>
+        <p class="hook">Brawler de cartas sin turnos: tirá bombas, cohetes y rayos para sacar a todos del ring mientras las islas se rompen.</p>
+        <ul class="facts">
+          <li><svg aria-hidden="true"><use href="#i-wifi"/></svg>Online o contra bots</li>
+          <li><svg aria-hidden="true"><use href="#i-people"/></svg>Hasta 8 jugadores</li>
+          <li><svg aria-hidden="true"><use href="#i-clock"/></svg>Partidas de 3 min</li>
+        </ul>
+        <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg>Jugar</span>
+      </div>
+    </li>
+
+    <li class="game g-vortice">
+      <div class="media">
+        <video muted loop playsinline preload="none" poster="/hub/vortice.webp" aria-hidden="true"><source src="/hub/vortice.webm" type="video/webm" /><source src="/hub/vortice.mp4" type="video/mp4" /></video>
+      </div>
+      <div class="body">
+        <h2 class="name"><a href="./games/vortice/"><span class="logo">VÓRTICE</span></a></h2>
+        <p class="hook">Esquivá los muros que se cierran hacia el centro. Perdés en segundos y volvés a intentar al toque.</p>
+        <ul class="facts">
+          <li><svg aria-hidden="true"><use href="#i-clock"/></svg>Partidas de segundos</li>
+          <li><svg aria-hidden="true"><use href="#i-phone"/></svg>Con una mano</li>
+        </ul>
+        <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg>Jugar</span>
+      </div>
+    </li>
+
+    <li class="game g-lucero">
+      <div class="media">
+        <video muted loop playsinline preload="none" poster="/hub/lucero.webp" aria-hidden="true"><source src="/hub/lucero.webm" type="video/webm" /><source src="/hub/lucero.mp4" type="video/mp4" /></video>
+      </div>
+      <div class="body">
+        <h2 class="name"><a href="./games/lucero/"><span class="logo">LUCERO</span></a></h2>
+        <p class="hook">Juntá gemas de a tres, armá cometas y novas, y encendé las constelaciones de un mapa sin fin.</p>
+        <ul class="facts">
+          <li><svg aria-hidden="true"><use href="#i-clock"/></svg>Por turnos, sin apuro</li>
+          <li><svg aria-hidden="true"><use href="#i-star"/></svg>Cientos de niveles</li>
+        </ul>
+        <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg>Jugar</span>
+      </div>
+    </li>
+
+    <li class="game g-elytra">
+      <div class="media">
+        <video muted loop playsinline preload="none" poster="/hub/elytra.webp" aria-hidden="true"><source src="/hub/elytra.webm" type="video/webm" /><source src="/hub/elytra.mp4" type="video/mp4" /></video>
+      </div>
+      <div class="body">
+        <h2 class="name"><a href="./games/elytra/"><span class="logo">ELYTRA</span></a></h2>
+        <p class="hook">Volá con alas entre agujas de piedra, cañones e islas flotantes. Si chocás, el ragdoll hace el resto.</p>
+        <ul class="facts">
+          <li><svg aria-hidden="true"><use href="#i-clock"/></svg>Vueltas de un minuto</li>
+          <li><svg aria-hidden="true"><use href="#i-desk"/></svg>3D, mejor en la compu</li>
+        </ul>
+        <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg>Jugar</span>
+      </div>
+    </li>
+
+    <li class="game wide phone g-downcastle">
+      <div class="media" style="background-image:url(/hub/downcastle.webp)">
+        <div class="screen">
+          <video muted loop playsinline preload="none" poster="/hub/downcastle.webp" aria-hidden="true"><source src="/hub/downcastle.webm" type="video/webm" /><source src="/hub/downcastle.mp4" type="video/mp4" /></video>
+        </div>
+      </div>
+      <div class="body">
+        <h2 class="name"><a href="./games/downcastle/" aria-label="DOWNCASTLE"><span class="logo">DOWN<span>CASTLE</span></span></a></h2>
+        <p class="hook">De 2 a 4 amigos atados con una cuerda elástica bajan por un castillo, por dentro y por fuera. Anclate, tirá de la cuerda y no sueltes a nadie.</p>
+        <ul class="facts">
+          <li><svg aria-hidden="true"><use href="#i-wifi"/></svg>Online, o solo con bots</li>
+          <li><svg aria-hidden="true"><use href="#i-phone"/></svg>En el teléfono, en vertical</li>
+        </ul>
+        <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg>Jugar</span>
+      </div>
+    </li>
+
+    <li class="game g-hyperflowgeon">
+      <span class="wip">En construcción</span>
+      <div class="media">
+        <video muted loop playsinline preload="none" poster="/hub/hyperflowgeon.webp" aria-hidden="true"><source src="/hub/hyperflowgeon.webm" type="video/webm" /><source src="/hub/hyperflowgeon.mp4" type="video/mp4" /></video>
+      </div>
+      <div class="body">
+        <h2 class="name"><a href="./games/hyperflowgeon/"><span class="logo">HYPERFLOWGEON</span></a></h2>
+        <p class="hook">Correr, saltar y columpiarse con un garfio elástico: el patio de pruebas, todavía en gris, de un juego de acción.</p>
+        <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg>Probar</span>
+      </div>
+    </li>
+  </ul>
 </main>
+
+<footer class="wrap">
+  <p>Hecho por Alex Alas. El código está en <a href="https://github.com/Alex-Alas/game-sandbox">GitHub</a>.</p>
+</footer>
+
+<script type="module">
+  // Vista previa: un solo loop a la vez. Con ratón, el de la ficha bajo el cursor (o con foco) y, si no,
+  // el de la ficha destacada; en táctil, el de la ficha más visible. Sin animaciones reducidas ni ahorro de datos.
+  const games = [...document.querySelectorAll('.game')];
+  const feature = document.querySelector('[data-feature]');
+  const quiet = matchMedia('(prefers-reduced-motion: reduce)').matches || navigator.connection?.saveData;
+  let current = null;
+  const vid = (g) => g?.querySelector('video');
+  function show(g) {
+    if (g === current) return;
+    vid(current)?.pause();
+    current = g;
+    vid(g)?.play().catch(() => {});
+  }
+  if (!quiet) {
+    const seen = new Map();
+    let hovering = null;
+    const fallback = () => hovering ?? (matchMedia('(hover: hover)').matches ? (seen.get(feature) > 0.4 ? feature : null)
+      : [...seen].filter(([, r]) => r > 0.6).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null);
+    const io = new IntersectionObserver((es) => {
+      for (const e of es) seen.set(e.target, e.intersectionRatio);
+      show(fallback());
+    }, { threshold: [0, 0.4, 0.6, 0.8, 1] });
+    for (const g of games) {
+      io.observe(g);
+      g.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') show(hovering = g); });
+      g.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') { hovering = null; show(fallback()); } });
+      g.addEventListener('focusin', () => show(hovering = g));
+      g.addEventListener('focusout', (e) => { if (!e.relatedTarget?.closest('.game')) { hovering = null; show(fallback()); } });
+    }
+    document.addEventListener('visibilitychange', () => { if (document.hidden) vid(current)?.pause(); else vid(current)?.play().catch(() => {}); });
+  }
+</script>
 </body>
 </html>
