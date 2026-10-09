@@ -16,7 +16,8 @@ caer al agua.
 | Ultis | **Personajes con ulti propia**. |
 | Terreno | **Destructible fino + cajas** (celdas de 25 cm, pedazos sueltos que caen, objetos con física simple). |
 | Progresión | **Sin progresión** por ahora: todo desbloqueado. Después se ve arcade + desbloqueos. |
-| Visual | **Caricatura procedural 2D** (Canvas, todo dibujado en código). |
+| Visual | **Caricatura procedural 2D** (Canvas, todo dibujado en código). 2026-10-09: **sin emojis**, arte original empezando por cartas y personajes; personajes **cabezones** (chibi). |
+| Sensación | 2026-10-09: un poquito más **floaty** (menos gravedad), sin que bajar del aire se sienta eterno. |
 
 ## Reglas
 

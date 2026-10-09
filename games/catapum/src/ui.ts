@@ -10,7 +10,7 @@ import type { State } from './sim/state.ts';
 import { S, save, deckOf, resetAll, KEYS, KEY_LABEL, keyName } from './settings.ts';
 import { DESK } from './input.ts';
 import { drawPortrait, drawMapThumb } from './render.ts';
-import { ICON } from './hud.ts';
+import { paintCardCanvas, paintArtCanvas } from './art.ts';
 import { TYPE_COLOR } from './aim.ts';
 import * as A from './audio.ts';
 
@@ -43,7 +43,12 @@ function screen(id: string, html: string, dim = true) {
   ui.hidden = false, current = id;
   ui.className = dim ? 'dim' : '';
   ui.innerHTML = `<section class="screen" id="s-${id}"><div class="wrap">${html}</div></section>`;
+  paintCanvases();
+}
+function paintCanvases() {
   for (const cv of $$<HTMLCanvasElement>('canvas[data-ch]')) drawPortrait(cv, cv.dataset.ch!, +(cv.dataset.c ?? 0));
+  for (const cv of $$<HTMLCanvasElement>('canvas[data-cardcv]')) paintCardCanvas(cv, cv.dataset.cardcv!);
+  for (const cv of $$<HTMLCanvasElement>('canvas[data-art]')) paintArtCanvas(cv, cv.dataset.art!);
 }
 function seg(name: string, opts: [string | number, string][], val: string | number) {
   return `<div class="seg" data-seg="${name}">${opts.map(([v, l]) => `<button data-v="${v}" aria-pressed="${String(v) === String(val)}">${l}</button>`).join('')}</div>`;
@@ -88,7 +93,7 @@ function heroHtml() {
 }
 function cardHtml(id: string, cls = '') {
   const c = CARD[id];
-  return `<div class="card r${c.rar} ${cls}" data-card="${id}"><div class="cost">${c.cost}</div><div class="art" style="background:${TYPE_COLOR[c.type]}55">${ICON[id] ?? '?'}</div><div class="nm">${c.name}</div></div>`;
+  return `<div class="card ${cls}" data-card="${id}" title="${esc(c.name)}"><canvas data-cardcv="${id}"></canvas></div>`;
 }
 const TIMES: [number, string][] = [[60, '1:00'], [120, '2:00'], [180, '3:00'], [300, '5:00'], [0, '∞']];
 const CRATES: [number, string][] = [[0, 'NO'], [18, 'POCAS'], [11, 'NORMAL'], [5, 'LLUVIA']];
@@ -97,7 +102,7 @@ function optionsHtml(online: boolean, maxBots: number) {
   return `
     <h3>Mapa</h3>
     <div class="mapgrid">${MAPS.map(mp => `<div class="map" data-map="${mp.id}" aria-pressed="${m.map === mp.id}" title="${esc(mp.desc)}"><canvas data-thumb="${mp.id}"></canvas>${mp.name}</div>`).join('')}
-      <div class="map" data-map="azar" aria-pressed="${m.map === 'azar'}"><div style="aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;font-size:32px">🎲</div>AL AZAR</div></div>
+      <div class="map" data-map="azar" aria-pressed="${m.map === 'azar'}"><canvas data-art="dado"></canvas>AL AZAR</div></div>
     <div class="note" data-mapdesc>${esc(MAPS.find(x => x.id === m.map)?.desc ?? 'Un mapa distinto cada partida.')}</div>
     <div class="opt"><span>BOTS</span><div class="stepper"><button class="btn sm ghost" data-bots="-1">−</button><b data-botn>${Math.min(m.bots, maxBots)}</b><button class="btn sm ghost" data-bots="1">+</button>
       <span class="note">${online ? 'además de los jugadores' : 'rivales'}</span></div></div>
@@ -173,7 +178,7 @@ export function showChars(back: () => void) {
 }
 function infoHtml(id: string) {
   const c = CARD[id];
-  return c ? `<b>${ICON[id]} ${c.name}</b> · ${c.cost} maná · ${c.type} · ${RARITY[c.rar]}<br>${c.desc}` : '';
+  return c ? `<b style="color:${TYPE_COLOR[c.type]}">${c.name}</b> · ${c.cost} maná · ${c.type} · ${RARITY[c.rar]}<br>${c.desc}` : '';
 }
 
 // ---- Online -------------------------------------------------------------------------------------------------------------
@@ -228,7 +233,7 @@ export function showLobby() {
 
 // ---- Ajustes -------------------------------------------------------------------------------------------------------------
 const ADV_GROUPS: [string, (keyof Cfg)[]][] = [
-  ['Carrera y salto', ['RUN', 'ACC', 'DEC', 'AIR', 'JUMP_H', 'JUMP_T', 'JUMP_CUT', 'FALL_G', 'MAX_FALL', 'FAST_FALL', 'COYOTE', 'BUFFER', 'AIR_JUMPS', 'JUMP2_H', 'STEP']],
+  ['Carrera y salto', ['RUN', 'ACC', 'DEC', 'AIR', 'JUMP_H', 'JUMP_T', 'JUMP_CUT', 'APEX_V', 'APEX_G', 'FALL_G', 'MAX_FALL', 'FAST_FALL', 'COYOTE', 'BUFFER', 'AIR_JUMPS', 'JUMP2_H', 'STEP']],
   ['Pared', ['WALL_SLIDE', 'WJ_VX', 'WJ_H', 'WJ_LOCK', 'WALL_COYOTE']],
   ['Dash', ['DASH_V', 'DASH_F', 'DASH_END', 'DASH_CD', 'DASH_IF', 'SUPER_VX', 'HYPER_VX', 'HYPER_JUMP']],
   ['Barrida y picada', ['SLIDE_MIN', 'SLIDE_BOOST', 'SLIDE_MAX', 'SLIDE_FRIC', 'POUND_V', 'POUND_BOUNCE']],
@@ -257,7 +262,7 @@ export function showSettings(back: () => void, tab0 = 'juego') {
         <label class="chk"><input type="checkbox" data-s="shake" ${S.shake ? 'checked' : ''}> Sacudones de pantalla</label>
         <label class="chk"><input type="checkbox" data-s="nums" ${S.nums ? 'checked' : ''}> % sobre los personajes</label>
         <label class="chk"><input type="checkbox" data-s="vibrate" ${S.vibrate ? 'checked' : ''}> Vibración (teléfono)</label>
-        <label class="chk"><input type="checkbox" data-s="fsAuto" ${S.fsAuto ? 'checked' : ''}> Pantalla completa al empezar una partida (también está el botón ⛶ arriba)</label>
+        <label class="chk"><input type="checkbox" data-s="fsAuto" ${S.fsAuto ? 'checked' : ''}> Pantalla completa al empezar una partida (también está el botón de arriba)</label>
         <div class="row" style="margin-top:10px"><button class="btn sm red" data-a="wipe">BORRAR TODO LO GUARDADO</button></div>`,
       controles: `
         <h3>Táctil</h3>

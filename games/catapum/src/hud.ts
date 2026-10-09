@@ -6,15 +6,9 @@ import { GO, HZ, H, type State, type World, type Pl } from './sim/state.ts';
 import { standings, timeLeft } from './sim/sim.ts';
 import { toScreen, type View, type IP } from './render.ts';
 import { FX } from './fx.ts';
-import { TYPE_COLOR } from './aim.ts';
+import { drawCard } from './art.ts';
+import { drawHead } from './toon.ts';
 import { S } from './settings.ts';
-
-export const ICON: Record<string, string> = {
-  fueguito: '🔥', bomba: '💣', caballo: '🐴', pegajosa: '🟢', cohetito: '🚀', bola: '☄️', triple: '✴️', racimo: '🍇', granbum: '💥',
-  palomitas: '🍿', melocoton: '🍑', shuriken: '✦', boomerang: '🪃', caparazon: '🐢', laser: '⚡', megalaser: '🔆', vaca: '🐄', iman: '🧲',
-  meteorito: '🌋', supersalto: '🦘', tele: '🌀', swap: '🔄', mina: '⚠️', gas: '⛽', tnt: '🧨', pegamento: '🍯', banana: '🍌', fruta: '🍎',
-  escudo: '🛡️', plomo: '⚓', bate: '🏏', katana: '🗡️', trompeta: '🎺', autodestruccion: '💀', '+ulti': '⭐', '+mana': '💧',
-};
 
 const font = (px: number, w = 'bold') => `${w} ${Math.round(px)}px system-ui, "Segoe UI", sans-serif`;
 const rr = (ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
@@ -29,45 +23,6 @@ export function handRects(touch: boolean) {
   return Array.from({ length: 5 }, (_, k) => ({ x: x + k * (cw + gap) + (k === 4 ? 10 : 0), y, w: cw, h: ch }));
 }
 
-export function drawCard(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, w: number, h: number, o: { mana?: number, free?: boolean, sel?: boolean, aim?: boolean, key?: string }) {
-  const card = CARD[id], col = card ? TYPE_COLOR[card.type] : '#ffd23f';
-  const ok = o.free || o.mana === undefined || !card || o.mana >= card.cost;
-  ctx.save();
-  if (o.aim) ctx.translate(0, -8);
-  rr(ctx, x, y, w, h, 7);
-  ctx.fillStyle = '#1b1530';
-  ctx.fill();
-  ctx.lineWidth = o.sel || o.aim ? 3 : 2;
-  ctx.strokeStyle = o.free ? '#ffd23f' : card?.rar === 2 ? '#ffd23f' : card?.rar === 1 ? '#6fb7ff' : '#9a93b8';
-  ctx.stroke();
-  ctx.fillStyle = col;
-  ctx.globalAlpha = ok ? 0.9 : 0.35;
-  rr(ctx, x + 3, y + 3, w - 6, h * 0.62, 5); ctx.fill();
-  ctx.globalAlpha = 1;
-  if (!ok && card && o.mana !== undefined) { // cuánto falta: una barra que se llena
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    const f = Math.max(0, Math.min(1, o.mana / card.cost));
-    ctx.fillRect(x + 3, y + 3 + h * 0.62 * (1 - f), w - 6, h * 0.62 * f);
-  }
-  ctx.font = font(h * 0.32, 'normal');
-  ctx.textAlign = 'center', ctx.textBaseline = 'middle';
-  ctx.globalAlpha = ok ? 1 : 0.5;
-  ctx.fillText(ICON[id] ?? '?', x + w / 2, y + h * 0.34);
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = '#fff';
-  ctx.font = font(Math.max(8, h * 0.11));
-  const name = card ? card.name : id === '+ulti' ? 'ULTI' : 'MANÁ';
-  ctx.fillText(name.length > 9 ? name.slice(0, 8) + '.' : name, x + w / 2, y + h * 0.78);
-  if (card && !o.free) { // costo
-    ctx.fillStyle = ok ? '#4f8bff' : '#40406a';
-    ctx.beginPath(); ctx.arc(x + 6, y + 6, h * 0.13, 0, 7); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.font = font(h * 0.15); ctx.fillText(String(card.cost), x + 6, y + 6.5);
-  }
-  if (o.free) { ctx.fillStyle = '#ffd23f'; ctx.font = font(h * 0.11); ctx.fillText('GRATIS', x + w / 2, y + h * 0.92); }
-  else if (o.key) { ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = font(h * 0.11); ctx.fillText(o.key, x + w / 2, y + h * 0.92); }
-  ctx.restore();
-}
-
 export type HudOpts = { me: number, touch: boolean, aimSlot: number, selected: number, table: boolean, online: string, ping: number };
 
 export function drawHud(ctx: CanvasRenderingContext2D, v: View, s: State, w: World, ip: IP, o: HudOpts) {
@@ -77,7 +32,7 @@ export function drawHud(ctx: CanvasRenderingContext2D, v: View, s: State, w: Wor
   // nombres y % sobre los personajes
   for (const p of s.pl) {
     if (!p.alive || (p.u?.k === 'meteoro' && p.u.f === 1)) continue;
-    const [x, y] = ip('p' + p.id, p.x, p.y), [sx, sy] = toScreen(v, x, y + H + 0.35);
+    const [x, y] = ip('p' + p.id, p.x, p.y), [sx, sy] = toScreen(v, x, y + H + 0.6);
     const col = s.rules.teams ? TEAMS[p.team].color : PCOLORS[p.color];
     if (S.nums) {
       const d = Math.round(p.dmg), c = d > 150 ? '#ff4a3a' : d > 90 ? '#ffb43a' : d > 40 ? '#ffe9a0' : '#ffffff';
@@ -133,7 +88,10 @@ export function drawHud(ctx: CanvasRenderingContext2D, v: View, s: State, w: Wor
     rr(ctx, x, y, chipW, 30, 8); ctx.fill();
     ctx.fillStyle = s.rules.teams ? TEAMS[p.team].color : PCOLORS[p.color];
     ctx.fillRect(x, y + 4, 4, 22);
-    ctx.fillStyle = charOf(p.ch).color; ctx.beginPath(); ctx.arc(x + 15, y + 15, 8, 0, 7); ctx.fill();
+    ctx.save(); rr(ctx, x, y, chipW, 30, 8); ctx.clip(); // cabecita del personaje
+    ctx.translate(x + 16, y + 16); ctx.scale(24, -24);
+    drawHead(ctx, p.ch, { t: performance.now() / 1000, seed: p.id * 1.91, vx: 0, vy: 0, ground: true, crouch: false, stun: s.t < p.stunT, dmg: p.dmg, dash: false });
+    ctx.restore();
     ctx.textAlign = 'left';
     ctx.fillStyle = '#fff'; ctx.font = font(10);
     ctx.fillText(p.name.slice(0, chipW > 100 ? 10 : 6), x + 27, y + 10);

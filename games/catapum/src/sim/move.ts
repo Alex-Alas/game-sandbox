@@ -289,7 +289,11 @@ export function movePlayer(s: State, w: World, p: Pl, i: Input) {
   else if (p.pound) p.vy = -c.POUND_V;
   else {
     let gm = p.vy < 0 && !on && !stunned ? c.FALL_G * (1 + (ch.mass - 1) * FALL_MASS) : 1, maxFall = c.MAX_FALL;
-    if (!stunned && !p.ground && i.y < -0.6 && p.vy < 3 && !on) maxFall = c.FAST_FALL, gm *= 1.25;
+    // flote en la cima: recién pasada la altura máxima y con SALTO mantenido, la gravedad baja hasta caer a APEX_V
+    // (solo del lado de la caída: la altura de cada salto sigue siendo exacta)
+    const fast = !stunned && !p.ground && i.y < -0.6 && p.vy < 3 && !on;
+    if (!stunned && !on && !fast && p.held && p.vy <= 0 && p.vy > -c.APEX_V) gm = c.APEX_G;
+    if (fast) maxFall = c.FAST_FALL, gm *= 1.25;
     p.vy -= g * gm * DT;
     if (!on && !stunned && p.vy < -maxFall) p.vy = -maxFall;
     if (stunned && p.vy < -c.MAX_FALL * 1.6) p.vy = -c.MAX_FALL * 1.6;

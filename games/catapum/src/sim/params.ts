@@ -4,6 +4,9 @@
 // Aprendido en HYPERFLOWGEON: la entrada en el aire nunca le quita velocidad a favor (el impulso se conserva),
 // coyote y buffer por cuadros, salto con corte al soltar, y la liga como una sola fuerza central que solo tira.
 // Diferencia buscada: acá todo es más rápido y corto (un brawler), y el dash, la barrida y la picada pegan.
+// Pedido del usuario (2026-10-09): un poquito más «floaty» sin que bajar se sienta eterno. Por eso la subida es más
+// lenta (JUMP_T 0,30 → 0,35: menos gravedad), la caída pesa más en proporción (FALL_G 1,55 → 1,7) y en la cima hay un
+// flote corto con SALTO mantenido (APEX_*): ahí está lo «floaty»; la caída en sí sigue siendo rápida.
 export const RANGES = {
   // Carrera y salto
   RUN: [10, 3, 20, 0.1, 'carrera m/s'],
@@ -11,10 +14,12 @@ export const RANGES = {
   DEC: [70, 10, 300, 1, 'frenar/girar m/s²'],
   AIR: [42, 0, 200, 1, 'control en el aire m/s²'],
   JUMP_H: [2.7, 0.5, 6, 0.05, 'altura del salto m'],
-  JUMP_T: [0.30, 0.15, 0.8, 0.01, 'subida s'],
+  JUMP_T: [0.35, 0.15, 0.8, 0.01, 'subida s'],
   JUMP_CUT: [0.45, 0, 1, 0.01, 'corte al soltar ×'],
-  FALL_G: [1.55, 1, 4, 0.05, 'gravedad al caer ×'],
-  MAX_FALL: [22, 5, 60, 0.5, 'caída máx. m/s'],
+  APEX_V: [2.5, 0, 8, 0.1, 'flote en la cima: hasta caer a m/s'],
+  APEX_G: [0.45, 0.1, 1, 0.05, 'flote en la cima: gravedad ×'],
+  FALL_G: [1.7, 1, 4, 0.05, 'gravedad al caer ×'],
+  MAX_FALL: [21, 5, 60, 0.5, 'caída máx. m/s'],
   FAST_FALL: [30, 5, 60, 0.5, 'caída rápida (↓) m/s'],
   COYOTE: [6, 0, 15, 1, 'coyote cuadros'],
   BUFFER: [7, 0, 15, 1, 'buffer cuadros'],
