@@ -66,6 +66,15 @@ const GAMES = {
       await pumpFor(page, 6);
     },
   },
+  bananazo: {
+    url: '/games/bananazo/', view: [1280, 720], dpr: 1.5, size: [1280, 720], secs: 6, seed: 4,
+    // la práctica vista desde el SORDO con el piloto automático: el MUDO hace los gestos y la mano del CIEGO va y aprieta
+    async setup(page) {
+      await pumpFor(page, 0.5);
+      await page.evaluate(() => { __bananazo.practice(9, 'sordo'); __bananazo.auto(true); __bananazo.app.hudless = true; });
+      await pumpFor(page, 2.5);
+    },
+  },
   vortice: {
     url: '/games/vortice/', view: [1152, 720], size: [960, 600], secs: 6, seed: 3, sub: 4, crf: 31, // 120 Hz: 4 pasos por cuadro
     async setup(page) {
