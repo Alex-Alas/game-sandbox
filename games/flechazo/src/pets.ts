@@ -1,35 +1,35 @@
-// Mascotas: criaturas hechas con primitivas de Three.js (sin modelos), mirando hacia +z. Caminan delante tuyo, un poco al
-// costado, para que se vean en primera persona (las que vuelan, a la altura de la vista), se suben a las flechas, festejan
-// cuando una sale y se asustan con los choques. Se las puede acariciar (apuntarles y LIBERAR): baja una mano de dibujito,
-// salen corazones y cada una reacciona a su manera (`love`). Llevan los estilos de los cofres: una piel (color, estampado
-// o material) sobre sus materiales principales (`skin`) y un accesorio en la cabeza o en la cara (`hat`, `face`). Las
-// miniaturas de la tienda y de la ruleta se sacan con un renderer aparte.
+// Mascotas: criaturas hechas con primitivas de Three.js (sin modelos), mirando hacia +z, con su animación (`anim`: caminar,
+// festejar, asustarse y la reacción única a una caricia en la cabeza, `love`). Llevan los estilos de los cofres: una piel
+// (color, estampado o material) sobre sus materiales principales (`skin`) y un accesorio en la cabeza o en la cara (`hat`,
+// `face`). Las miniaturas de la tienda y de la ruleta se sacan con un renderer aparte. Lo que hacen en el nivel (seguirte,
+// las caricias, agarrarlas, lanzarlas y el pleito) está en petctl.ts.
 import * as THREE from 'three';
 import type { PetId } from './sim/meta.ts';
 import { NO_LOOK, type Look } from './sim/styles.ts';
 
-type Mood = 'idle' | 'happy' | 'sad' | 'love';
-type AnimS = { move: number, mood: Mood, moodT: number };
+export type Mood = 'idle' | 'happy' | 'sad' | 'love';
+export type AnimS = { move: number, mood: Mood, moodT: number };
 type Anchor = { at: THREE.Object3D, p: [number, number, number], s: number };
-export type FxKind = 'fire' | 'bubbles' | 'sparkle' | 'jelly';
-type Built = {
+export type FxKind = 'fire' | 'bubbles' | 'sparkle' | 'jelly' | 'steam' | 'notes';
+export type Built = {
   g: THREE.Group, fly: number, anim: (t: number, s: AnimS) => void,
+  eyes: THREE.Object3D[],                       // los ojos (se entrecierran con las caricias y llevan cejas de enojo)
   skin: [THREE.MeshStandardMaterial, number][], // materiales de la piel (y cuánto más claros: las partes de otro tono)
   hat: Anchor, face: Anchor,                    // dónde va un sombrero y dónde unos lentes
   fx?: (t: number) => { kind: FxKind, at: [number, number, number] } | null, // partículas de la caricia (en coordenadas de g)
 };
 export const LOVE_T = 2.5; // lo que dura la reacción a una caricia
 
-const mat = (color: string, o: THREE.MeshStandardMaterialParameters = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.55, ...o });
-const WHITE = mat('#ffffff', { roughness: 0.3 }), INK = mat('#1d1b3a', { roughness: 0.25 }), BLUSH = mat('#ff8fb8', { roughness: 0.6 });
-function mesh(geo: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0, parent?: THREE.Object3D) {
+export const mat = (color: string, o: THREE.MeshStandardMaterialParameters = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.55, ...o });
+export const WHITE = mat('#ffffff', { roughness: 0.3 }), INK = mat('#1d1b3a', { roughness: 0.25 }), BLUSH = mat('#ff8fb8', { roughness: 0.6 });
+export function mesh(geo: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0, parent?: THREE.Object3D) {
   const o = new THREE.Mesh(geo, m);
   o.position.set(x, y, z);
   o.castShadow = true;
   parent?.add(o);
   return o;
 }
-const ball = (r: number, m: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D, sx = 1, sy = 1, sz = 1) => {
+export const ball = (r: number, m: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D, sx = 1, sy = 1, sz = 1) => {
   const o = mesh(new THREE.SphereGeometry(r, 20, 14), m, x, y, z, parent);
   o.scale.set(sx, sy, sz);
   return o;
@@ -59,7 +59,7 @@ function common(body: THREE.Object3D, t: number, s: AnimS, hop: number, base = 0
 }
 const love = (s: AnimS) => s.mood === 'love' ? s.moodT : -1;
 
-const BUILD: Record<PetId, () => Built> = {
+export const BUILD: Record<PetId, () => Built> = {
   // Gomita: gelatina que, acariciada, tiembla entera, se pone rosada y suelta burbujitas
   gomita() {
     const g = new THREE.Group(), b = new THREE.Group();
@@ -71,7 +71,7 @@ const BUILD: Record<PetId, () => Built> = {
     cheeks(0.17, 0.25, 0.22, 0.045, b);
     ball(0.05, WHITE, -0.12, 0.44, 0.1, b);
     let base: [THREE.Color, number] | null = null; // el brillo de su piel (se toma después de vestirla)
-    return { g, fly: 0, skin: [[jelly, 0], [core, -0.25]], hat: { at: b, p: [0, 0.49, 0], s: 1.25 }, face: { at: b, p: [0, 0.33, 0.27], s: 1.15 },
+    return { g, fly: 0, eyes, skin: [[jelly, 0], [core, -0.25]], hat: { at: b, p: [0, 0.49, 0], s: 1.25 }, face: { at: b, p: [0, 0.33, 0.27], s: 1.15 },
       anim(t, s) {
         common(b, t, s, 0.22);
         let sq = s.move ? Math.sin(t * 18) * 0.12 : Math.sin(t * 3) * 0.05;
@@ -109,7 +109,7 @@ const BUILD: Record<PetId, () => Built> = {
     const tail = new THREE.Group(); tail.position.set(0, 0.28, -0.26); b.add(tail);
     const curve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0.12, -0.08), new THREE.Vector3(0, 0.26, -0.06), new THREE.Vector3(0.05, 0.33, 0.02)]);
     mesh(new THREE.TubeGeometry(curve, 16, 0.035, 8), fur, 0, 0, 0, tail);
-    return { g, fly: 0, skin: [[fur, 0]], hat: { at: head, p: [0, 0.155, -0.01], s: 1 }, face: { at: head, p: [0, 0.035, 0.165], s: 0.85 },
+    return { g, fly: 0, eyes, skin: [[fur, 0]], hat: { at: head, p: [0, 0.155, -0.01], s: 1 }, face: { at: head, p: [0, 0.035, 0.165], s: 0.85 },
       anim(t, s) {
         common(b, t, s, 0.05);
         legs.forEach((l, i) => { l.rotation.x = Math.sin(t * 13 + (i === 0 || i === 3 ? 0 : Math.PI)) * 0.7 * s.move; });
@@ -139,7 +139,7 @@ const BUILD: Record<PetId, () => Built> = {
     cheeks(0.13, -0.01, 0.15, 0.03, b);
     const wings = [1, -1].map(sx => { const w = new THREE.Group(); w.position.set(sx * 0.19, 0.0, -0.01); b.add(w); ball(0.1, yel, sx * 0.04, 0, 0, w, 0.35, 0.9, 1.1); return w; });
     for (const sx of [1, -1]) { const f = cone(0.03, 0.06, org, sx * 0.07, -0.22, 0.03, b); f.rotation.x = Math.PI; }
-    return { g, fly: 0.95, skin: [[yel, 0]], hat: { at: b, p: [0, 0.205, 0], s: 1.1 }, face: { at: b, p: [0, 0.065, 0.2], s: 0.95 },
+    return { g, fly: 0.95, eyes, skin: [[yel, 0]], hat: { at: b, p: [0, 0.205, 0], s: 1.1 }, face: { at: b, p: [0, 0.065, 0.2], s: 0.95 },
       anim(t, s) {
         common(b, t, s, 0);
         b.position.y += Math.sin(t * 4) * 0.06;
@@ -172,7 +172,7 @@ const BUILD: Record<PetId, () => Built> = {
     tongue.visible = false;
     cheeks(0.17, 0.2, 0.17, 0.035, b);
     for (const sx of [1, -1]) { ball(0.1, grn, sx * 0.22, 0.07, -0.1, b, 0.6, 0.5, 1.2); ball(0.05, grn, sx * 0.13, 0.04, 0.17, b, 1, 0.6, 1.2); }
-    return { g, fly: 0, skin: [[grn, 0], [light, 0.45]], hat: { at: b, p: [0, 0.39, 0.08], s: 1.2 }, face: { at: b, p: [0, 0.34, 0.2], s: 1.25 },
+    return { g, fly: 0, eyes, skin: [[grn, 0], [light, 0.45]], hat: { at: b, p: [0, 0.39, 0.08], s: 1.2 }, face: { at: b, p: [0, 0.34, 0.2], s: 1.25 },
       anim(t, s) {
         common(b, t, s, 0);
         const ph = (t * 1.8) % 1;
@@ -206,7 +206,7 @@ const BUILD: Record<PetId, () => Built> = {
     const cheek = [1, -1].map(sx => ball(0.03, blush, sx * 0.14, 0, 0.2, b, 1, 0.6, 0.4));
     const arms = [1, -1].map(sx => ball(0.06, ghost, sx * 0.25, -0.05, 0.03, b));
     let base: [THREE.Color, number] | null = null;
-    return { g, fly: 1.05, skin: [[ghost, 0]], hat: { at: b, p: [0, 0.285, 0], s: 1.2 }, face: { at: b, p: [0, 0.07, 0.24], s: 1 },
+    return { g, fly: 1.05, eyes, skin: [[ghost, 0]], hat: { at: b, p: [0, 0.285, 0], s: 1.2 }, face: { at: b, p: [0, 0.07, 0.24], s: 1 },
       anim(t, s) {
         common(b, t, s, 0);
         b.position.y += Math.sin(t * 2.2) * 0.08;
@@ -247,7 +247,7 @@ const BUILD: Record<PetId, () => Built> = {
     cheeks(0.14, -0.02, 0.12, 0.028, head);
     const tail = ball(0.1, tailM, 0, 0.17, -0.42, b, 0.25, 0.9, 2.1);
     for (const [x, z] of [[0.13, 0.12], [-0.13, 0.12], [0.12, -0.18], [-0.12, -0.18]]) ball(0.045, pink, x, 0.05, z, b, 1, 0.8, 1.2);
-    return { g, fly: 0, skin: [[pink, 0], [tailM, 0.3]], hat: { at: head, p: [0, 0.145, -0.02], s: 1.05 }, face: { at: head, p: [0, 0.045, 0.165], s: 1.05 },
+    return { g, fly: 0, eyes, skin: [[pink, 0], [tailM, 0.3]], hat: { at: head, p: [0, 0.145, -0.02], s: 1.05 }, face: { at: head, p: [0, 0.045, 0.165], s: 1.05 },
       anim(t, s) {
         common(b, t, s, 0.03);
         b.rotation.y += Math.sin(t * 10) * 0.15 * s.move;
@@ -276,7 +276,7 @@ const BUILD: Record<PetId, () => Built> = {
     for (const sx of [1, -1]) { const a = cyl(0.008, 0.14, INK, sx * 0.05, 0.22, 0.12, b); a.rotation.z = -sx * 0.4; ball(0.022, INK, sx * 0.08, 0.29, 0.12, b); }
     const wm = new THREE.MeshStandardMaterial({ color: '#e8f6ff', transparent: true, opacity: 0.6, roughness: 0.1, side: THREE.DoubleSide });
     const wings = [1, -1].map(sx => { const w = new THREE.Group(); w.position.set(sx * 0.05, 0.17, -0.02); b.add(w); const m = mesh(new THREE.CircleGeometry(0.13, 18), wm, sx * 0.12, 0.02, 0, w); m.rotation.x = -Math.PI / 2; m.scale.set(1, 0.6, 1); return w; });
-    return { g, fly: 1.3, skin: [[fuzz, 0]], hat: { at: b, p: [0, 0.165, -0.02], s: 1.1 }, face: { at: b, p: [0, 0.055, 0.215], s: 1.15 },
+    return { g, fly: 1.3, eyes, skin: [[fuzz, 0]], hat: { at: b, p: [0, 0.165, -0.02], s: 1.1 }, face: { at: b, p: [0, 0.055, 0.215], s: 1.15 },
       anim(t, s) {
         common(b, t, s, 0);
         b.position.y += Math.sin(t * 3) * 0.07;
@@ -314,7 +314,7 @@ const BUILD: Record<PetId, () => Built> = {
     ball(0.04, bulbM, 0, 0.25, 0, head);
     const wheels = [1, -1].map(sx => { const w = cyl(0.075, 0.05, INK, sx * 0.13, 0.075, 0, b); w.rotation.z = Math.PI / 2; return w; });
     const armsR = [1, -1].map(sx => { const a = cyl(0.025, 0.16, metal, sx * 0.19, 0.24, 0.02, b); a.rotation.z = sx * 0.3; return a; });
-    return { g, fly: 0, skin: [[metal, 0], [light, 0.45]], hat: { at: head, p: [0, 0.105, 0], s: 1.1 }, face: { at: head, p: [0, 0.015, 0.14], s: 0.95 },
+    return { g, fly: 0, eyes, skin: [[metal, 0], [light, 0.45]], hat: { at: head, p: [0, 0.105, 0], s: 1.1 }, face: { at: head, p: [0, 0.015, 0.14], s: 0.95 },
       anim(t, s) {
         common(b, t, s, 0.02);
         head.rotation.set(0, 0, Math.sin(t * 1.6) * 0.1);
@@ -353,7 +353,7 @@ const BUILD: Record<PetId, () => Built> = {
     const wings = [1, -1].map(sx => { const w = new THREE.Group(); w.position.set(sx * 0.12, 0.1, -0.05); b.add(w); const m = mesh(new THREE.ShapeGeometry(ws), wm, 0, 0, 0, w); m.scale.x = sx; return w; });
     const tail = cone(0.07, 0.3, vio, 0, -0.04, -0.36, b); tail.rotation.x = -Math.PI / 2 - 0.3;
     for (let k = 0; k < 3; k++) cone(0.025, 0.06, horn, 0, 0.19 - k * 0.03, -0.05 - k * 0.1, b);
-    return { g, fly: 1.2, skin: [[vio, 0], [wm, 0.35]], hat: { at: head, p: [0, 0.14, -0.03], s: 0.95 }, face: { at: head, p: [0, 0.045, 0.15], s: 0.85 },
+    return { g, fly: 1.2, eyes, skin: [[vio, 0], [wm, 0.35]], hat: { at: head, p: [0, 0.14, -0.03], s: 0.95 }, face: { at: head, p: [0, 0.045, 0.15], s: 0.85 },
       anim(t, s) {
         common(b, t, s, 0);
         b.position.y += Math.sin(t * 2.6) * 0.07;
@@ -376,7 +376,7 @@ const BUILD: Record<PetId, () => Built> = {
   },
 };
 
-function heartShape(r: number) {
+export function heartShape(r: number) {
   const s = new THREE.Shape();
   s.moveTo(0, -r);
   s.bezierCurveTo(-r * 0.2, -r * 0.6, -r * 1.2, -r * 0.3, -r * 1.1, r * 0.35);
@@ -500,7 +500,7 @@ function accessory(id: string): { o: THREE.Object3D, face: boolean, spin?: (t: n
 }
 
 // Viste a una mascota recién armada con su piel y su accesorio; devuelve lo que se anima cada cuadro (o nada)
-function dress(b: Built, look: Look): ((t: number) => void) | null {
+export function dress(b: Built, look: Look): ((t: number) => void) | null {
   if (look.skin) for (const [m, l] of b.skin) paint(m, look.skin, l);
   let spin: ((t: number) => void) | null = null;
   if (look.acc) {
@@ -522,7 +522,7 @@ function dress(b: Built, look: Look): ((t: number) => void) | null {
 
 // ---- La mano y los corazones de las caricias ---------------------------------------------------------------------------
 // La mano del jugador (de dibujito: color piel y dedos gorditos que apuntan hacia la nuca de la mascota)
-function glove(): THREE.Group {
+export function glove(): THREE.Group {
   const h = new THREE.Group(), w = mat('#ffd2bb', { roughness: 0.6 });
   ball(0.075, w, 0, 0, 0, h, 1.1, 0.5, 1.15);
   for (let k = 0; k < 4; k++) { const f = mesh(new THREE.CapsuleGeometry(0.02, 0.06, 4, 8), w, -0.05 + k * 0.033, -0.018, -0.105 + Math.abs(k - 1.5) * 0.012, h); f.rotation.x = Math.PI / 2 - 0.45; }
@@ -530,7 +530,7 @@ function glove(): THREE.Group {
   return h;
 }
 let heartTex: THREE.CanvasTexture | null = null;
-function heartSprite(): THREE.Sprite {
+export function heartSprite(): THREE.Sprite {
   if (!heartTex) {
     const cv = document.createElement('canvas'); cv.width = cv.height = 64;
     const g = cv.getContext('2d')!;
@@ -545,108 +545,6 @@ function heartSprite(): THREE.Sprite {
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: heartTex, transparent: true, depthWrite: false }));
   sp.scale.setScalar(0.2);
   return sp;
-}
-
-export class PetCtl {
-  readonly id: PetId; readonly root = new THREE.Group(); private b: Built; private holder = new THREE.Group(); private spin: ((t: number) => void) | null;
-  private hand = glove(); private top = new THREE.Vector3(); private hearts: { s: THREE.Sprite, t: number, vx: number, vz: number }[] = []; private heartT = 0;
-  x: number; y = 0; z: number; vx = 0; vz = 0; face = 0; t = 0; mood: Mood = 'idle'; moodT = 0; move = 0; pats = 0;
-  onFx: ((kind: FxKind, x: number, y: number, z: number) => void) | null = null;
-  constructor(id: PetId, x: number, z: number, look: Look = NO_LOOK) {
-    this.id = id, this.b = BUILD[id]();
-    this.spin = dress(this.b, look);
-    this.root.add(this.holder);
-    this.holder.add(this.b.g, this.hand);
-    // la mano, sobre la cabeza en reposo
-    this.b.anim(0, { move: 0, mood: 'idle', moodT: 9 });
-    this.b.g.updateMatrixWorld(true);
-    this.b.hat.at.localToWorld(this.top.set(...this.b.hat.p));
-    this.hand.visible = false;
-    this.x = x, this.z = z;
-  }
-  cheer() { if (this.mood !== 'love') this.mood = 'happy', this.moodT = 0; }
-  sad() { this.mood = 'sad', this.moodT = 0; }
-  // Una caricia: si ya estaba contenta, vuelve a empezar y suelta más corazones
-  love() {
-    if (this.mood !== 'love' || this.moodT > 0.5) this.mood = 'love', this.moodT = 0;
-    this.pats++;
-    for (let k = 0; k < 3; k++) this.addHeart();
-  }
-  get loving() { return this.mood === 'love'; }
-  place(x: number, z: number) { this.x = x, this.z = z, this.vx = this.vz = 0; }
-  // Para apuntarle: el centro de su cuerpo y un radio generoso
-  aim(): { c: THREE.Vector3, r: number } { return { c: new THREE.Vector3(this.x, this.y + this.top.y * 0.6, this.z), r: 0.42 }; }
-
-  private addHeart() {
-    const s = heartSprite();
-    const p = this.holder.localToWorld(this.top.clone());
-    s.position.set(p.x + (Math.random() - 0.5) * 0.3, p.y + 0.1, p.z + (Math.random() - 0.5) * 0.3);
-    this.root.add(s);
-    this.hearts.push({ s, t: 0, vx: (Math.random() - 0.5) * 0.3, vz: (Math.random() - 0.5) * 0.3 });
-  }
-
-  // landAt: si hay piso (las que caminan no se meten en el vacío: esperan en el borde)
-  update(dt: number, p: { x: number, y: number, z: number, yaw: number, speed: number }, groundAt: (x: number, z: number) => number, landAt: (x: number, z: number) => boolean = () => true) {
-    this.t += dt, this.moodT += dt;
-    if (this.mood !== 'idle' && this.moodT > (this.mood === 'love' ? LOVE_T : 1.1)) this.mood = 'idle';
-    const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw), rx = Math.cos(p.yaw), rz = -Math.sin(p.yaw);
-    const fly = this.b.fly > 0, loving = this.mood === 'love';
-    const ahead = fly ? 2.1 : 2.6, side = fly ? 0.85 : -0.95;
-    let tx = p.x + fx * ahead + rx * side, tz = p.z + fz * ahead + rz * side;
-    // con el jugador quieto, se queda donde está mientras siga a la vista y cerca (así se le puede apuntar para acariciarla)
-    const ox = this.x - p.x, oz = this.z - p.z, od = Math.hypot(ox, oz), inView = od > 0.5 && (ox * fx + oz * fz) / od > 0.6;
-    const stay = loving || (p.speed < 0.5 && inView && od < 4.5);
-    if ((!fly && !landAt(tx, tz)) || stay) tx = this.x, tz = this.z;
-    let dx = tx - this.x, dz = tz - this.z;
-    const d = Math.hypot(dx, dz);
-    if (d > 16) { this.place(tx, tz); dx = dz = 0; }
-    if (!fly && Math.hypot(p.x - this.x, p.z - this.z) > 16 && landAt(p.x, p.z) && p.y >= -0.1) { this.place(p.x + fx * 1.6, p.z + fz * 1.6); dx = dz = 0; }
-    const want = d < 0.35 ? 0 : Math.min(Math.max(6, p.speed * 1.5), d * 3);
-    const k = 1 - Math.exp(-8 * dt);
-    this.vx += ((d > 1e-3 ? dx / d : 0) * want - this.vx) * k;
-    this.vz += ((d > 1e-3 ? dz / d : 0) * want - this.vz) * k;
-    const nx = this.x + this.vx * dt, nz = this.z + this.vz * dt;
-    if (fly || landAt(nx, nz)) this.x = nx, this.z = nz; else this.vx = this.vz = 0;
-    // nunca pegada a la cámara (al girar quedaría tapando la vista)
-    const px = this.x - p.x, pz = this.z - p.z, pd = Math.hypot(px, pz), MIN = fly ? 1.2 : 1.5;
-    if (pd < MIN) { const k = pd > 1e-3 ? MIN / pd : 0; this.x = p.x + (pd > 1e-3 ? px * k : fx * MIN), this.z = p.z + (pd > 1e-3 ? pz * k : fz * MIN); }
-    const sp = Math.hypot(this.vx, this.vz);
-    this.move += ((sp > 0.4 && !loving ? 1 : 0) - this.move) * Math.min(1, dt * 8);
-    // mira hacia donde va; quieta (o acariciada), al jugador
-    const look = sp > 0.4 && !loving ? Math.atan2(this.vx, this.vz) : Math.atan2(p.x - this.x, p.z - this.z);
-    let da = look - this.face;
-    da = Math.atan2(Math.sin(da), Math.cos(da));
-    this.face += da * Math.min(1, dt * (loving ? 12 : 7));
-    const gy = fly ? p.y + this.b.fly : groundAt(this.x, this.z);
-    this.y += (gy - this.y) * Math.min(1, dt * (fly ? 4 : 14));
-    this.holder.position.set(this.x, this.y, this.z);
-    this.holder.rotation.y = this.face;
-    this.b.anim(this.t, { move: this.move, mood: this.mood, moodT: this.moodT });
-    this.spin?.(this.t);
-    // la caricia: la mano va y viene sobre la cabeza, corazones y las partículas de cada una
-    const h = this.hand, m = loving ? this.moodT : 9;
-    h.visible = m < 1.7;
-    if (h.visible) {
-      const s = Math.min(1, m / 0.15, (1.7 - m) / 0.2) * 1.7;
-      h.scale.setScalar(Math.max(0.01, s));
-      h.position.set(this.top.x, this.top.y + 0.08 + Math.abs(Math.cos(m * 9)) * 0.03, this.top.z - 0.1 + Math.sin(m * 9) * 0.07);
-      h.rotation.set(0.15 + Math.sin(m * 9) * 0.15, 0, 0);
-      if ((this.heartT -= dt) <= 0 && m < 1.5) { this.heartT = 0.22; this.addHeart(); }
-      const f = this.b.fx?.(m);
-      if (f && this.onFx) { const w = this.b.g.localToWorld(new THREE.Vector3(...f.at)); this.onFx(f.kind, w.x, w.y, w.z); }
-    }
-    for (const q of this.hearts) {
-      q.t += dt;
-      q.s.position.x += q.vx * dt, q.s.position.z += q.vz * dt, q.s.position.y += (0.75 - q.t * 0.25) * dt;
-      q.s.scale.setScalar(0.2 * Math.min(1, q.t * 6) * (1 + Math.sin(q.t * 9) * 0.06));
-      (q.s.material as THREE.SpriteMaterial).opacity = Math.max(0, 1 - Math.max(0, q.t - 0.8) / 0.6);
-    }
-    this.hearts = this.hearts.filter(q => { if (q.t < 1.4) return true; this.root.remove(q.s); q.s.material.dispose(); return false; });
-  }
-  dispose() {
-    this.root.traverse(o => { const m = o as THREE.Mesh; m.geometry?.dispose(); });
-    for (const q of this.hearts) q.s.material.dispose();
-  }
 }
 
 // ---- Miniaturas (un renderer chico y aparte, que queda vivo: la ruleta de los cofres saca muchas) ---------------------

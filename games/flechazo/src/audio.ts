@@ -1,6 +1,7 @@
 // Sonido procedural con Web Audio (sin archivos): pasos, saltos, el «fiuuu» de una flecha que sale (cada una una nota más
-// arriba en la escala), el golpe seco de un choque, el «fiuuup» de un portal, monedas, compras, la fanfarria de victoria y
-// una música tranquila de pads y arpegio pentatónico que se puede apagar.
+// arriba en la escala), el golpe seco de un choque, el «fiuuup» de un portal, monedas, compras, la fanfarria de victoria, las
+// voces de las mascotas (caricias, lanzarlas, rebotes según su cuerpo y el pleito) y una música tranquila de pads y arpegio
+// pentatónico que se puede apagar.
 let ac: AudioContext | null = null, master: GainNode | null = null, sfx: GainNode | null = null, mus: GainNode | null = null, noiseBuf: AudioBuffer | null = null;
 let sfxOn = true, musOn = true;
 
@@ -55,6 +56,8 @@ function wob(type: OscillatorType, f0: number, f1: number, dur: number, v: numbe
 }
 
 const PENTA = [0, 2, 4, 7, 9];
+// La voz de cada mascota (para las caricias nuevas, los gritos y el pleito): tono base y forma de onda
+const VOICE: Record<string, [number, OscillatorType]> = { gomita: [520, 'sine'], michi: [700, 'triangle'], pio: [1500, 'sine'], croac: [230, 'square'], bu: [480, 'sine'], ajolote: [900, 'sine'], zumbi: [600, 'sawtooth'], robi: [800, 'square'], dragui: [300, 'sawtooth'] };
 const note = (k: number, base = 523.25) => base * 2 ** ((PENTA[((k % 5) + 5) % 5] + 12 * Math.floor(k / 5)) / 12);
 
 export const S = {
@@ -118,6 +121,49 @@ export const S = {
       [0, 4, 7, 11].forEach((k, i) => tone('sine', note(k + 8), note(k + 8), 0.2, 0.04, 1.3 + i * 0.07));
     }
   },
+  // Las otras caricias (la de la cabeza es `love`): rascadita (ronroneo), panza (risitas y pataleo) y cosquillas (carcajadas)
+  caress(id: string, k: string) {
+    if (k === 'cabeza') { S.love(id); return; }
+    const [f, w] = VOICE[id] ?? [600, 'sine'];
+    tone('sine', note(9), note(9), 0.16, 0.04);
+    if (k === 'menton') {
+      for (let i = 0; i < 26; i++) noise(0.04, 240, 130, 0.05 + 0.025 * Math.sin(i / 2.5), 'lowpass', 0.05 + i * 0.05, 0.7);
+      wob(w, f * 0.9, f * 1.25, 0.35, 0.05, 0.25, 7, f * 0.04); wob(w, f * 1.25, f * 0.95, 0.4, 0.05, 1.2, 7, f * 0.04);
+    } else if (k === 'panza') {
+      for (let i = 0; i < 7; i++) tone(w, f * (1.1 + (i % 2) * 0.25), f * (1.4 + (i % 2) * 0.3), 0.08, 0.05, 0.35 + i * 0.16);
+      noise(0.5, 1200, 2400, 0.03, 'bandpass', 0.3, 2, 0.1);
+    } else {
+      for (let i = 0; i < 12; i++) tone(w, f * (1.5 + Math.random() * 0.4), f * (1.9 + Math.random() * 0.5), 0.05, 0.05, 0.05 + i * 0.09 + Math.random() * 0.03);
+    }
+  },
+  // En la mano y por el aire: agarrar, lanzar (más fuerte con más carga), dejar, rebotar (según el cuerpo), aterrizar contenta,
+  // mecerla (le gusta), marearse y el grito al caer al vacío
+  grab() { tone('sine', 500, 900, 0.09, 0.08); noise(0.06, 2000, 900, 0.05, 'bandpass', 0, 1.5); },
+  throw(p: number) { noise(0.22 + p * 0.2, 500, 2500 + p * 3500, 0.09 + p * 0.1, 'bandpass', 0, 1.2, 0.02); tone('triangle', 300, 650 + p * 650, 0.2, 0.08); },
+  drop() { tone('sine', 700, 420, 0.12, 0.07); },
+  bounce(v: number, feel: string) {
+    const k = Math.min(1, v / 12);
+    if (feel === 'saltarin') wob('sine', 170 + 220 * k, 480 + 320 * k, 0.24, 0.06 + 0.1 * k, 0, 24, 30);
+    else if (feel === 'blando') { noise(0.16, 800, 180, 0.07 + 0.12 * k, 'lowpass', 0, 2.2); wob('sine', 260, 110, 0.22, 0.05 + 0.07 * k, 0, 16, 25); }
+    else { noise(0.06, 1500, 400, 0.08 + 0.14 * k); tone('sine', 170, 80, 0.12, 0.08 + 0.1 * k); }
+  },
+  yay(id: string) { const [f, w] = VOICE[id] ?? [600, 'sine']; tone(w, f, f * 1.5, 0.12, 0.06); tone(w, f * 1.3, f * 1.9, 0.16, 0.06, 0.12); },
+  coo(id: string) { const [f, w] = VOICE[id] ?? [600, 'sine']; wob(w, f * 0.9, f * 1.1, 0.5, 0.05, 0, 5, f * 0.03); tone('sine', note(7), note(7), 0.2, 0.03, 0.1); },
+  dizzy() { wob('sine', 950, 480, 0.9, 0.06, 0, 6, 120); for (let i = 0; i < 3; i++) tone('sine', 1900, 2500, 0.08, 0.03, 0.15 + i * 0.2); },
+  scream(id: string) { const [f, w] = VOICE[id] ?? [600, 'sine']; wob(w, f * 1.7, f * 0.45, 1.3, 0.08, 0, 7, f * 0.05); },
+  // El pleito: vuelve gruñendo, avisa, embiste, te pega o se da contra el piso, la atajás, se calma, hacen las paces o gana ella
+  growl(id: string) { const [f] = VOICE[id] ?? [600]; noise(0.5, 500, 200, 0.12, 'lowpass', 0, 3); wob('sawtooth', f * 0.35, f * 0.28, 0.5, 0.05, 0, 28, 14); },
+  windup() { tone('sawtooth', 110, 280, 0.75, 0.035, 0, sfx, 0.3); noise(0.75, 300, 1400, 0.04, 'bandpass', 0, 3, 0.5); },
+  lunge() { noise(0.35, 400, 3000, 0.16, 'bandpass', 0, 1.4, 0.02); tone('triangle', 400, 200, 0.25, 0.06); },
+  bonk() { noise(0.12, 900, 150, 0.35); tone('sine', 220, 70, 0.3, 0.2); wob('triangle', 700, 300, 0.35, 0.06, 0.06, 18, 40); },
+  thud() { noise(0.18, 700, 120, 0.22); tone('sine', 140, 55, 0.25, 0.14); for (let i = 0; i < 3; i++) tone('sine', 1800, 2300, 0.07, 0.03, 0.25 + i * 0.16); },
+  calm() { [0, 4, 7].forEach((k, i) => tone('sine', note(k + 5), note(k + 5), 0.3, 0.07, i * 0.07)); },
+  parry() { noise(0.15, 4000, 9000, 0.12, 'highpass', 0, 1, 0.003); tone('square', 880, 880, 0.08, 0.06); tone('triangle', 1320, 1760, 0.25, 0.08, 0.05); },
+  peace() { [0, 4, 7, 12, 9, 12, 16].forEach((k, i) => tone('triangle', note(k + 5), note(k + 5), 0.3, 0.1, i * 0.09)); noise(0.8, 3000, 9000, 0.06, 'highpass', 0.2, 1, 0.2); },
+  taunt(id: string) { const [f, w] = VOICE[id] ?? [600, 'sine']; [0, 1, 0, 1, 0].forEach((k, i) => tone(w, f * (1.2 + k * 0.25), f * (1.2 + k * 0.25), 0.12, 0.05, i * 0.15)); },
+  hmpf(id: string) { const [f, w] = VOICE[id] ?? [600, 'sine']; tone(w, f * 0.8, f * 0.62, 0.16, 0.06); noise(0.12, 900, 400, 0.05, 'bandpass', 0.02, 2); },
+  blink() { tone('sine', 300, 1200, 0.12, 0.08); noise(0.15, 2000, 6000, 0.05, 'highpass', 0, 1); },
+  combo() { [0, 2, 4, 7, 9, 12, 14, 16, 19].forEach((k, i) => tone('triangle', note(k + 5), note(k + 5), 0.25, 0.09, i * 0.06)); noise(1, 3000, 9000, 0.07, 'highpass', 0.1, 1, 0.3); },
   warp() { tone('sine', 220, 1320, 0.32, 0.11); tone('triangle', 330, 1980, 0.28, 0.06, 0.04); noise(0.4, 300, 5000, 0.1, 'bandpass', 0, 2.5, 0.03); },
 };
 

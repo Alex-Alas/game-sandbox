@@ -1,7 +1,9 @@
 // FLECHAZO: el rompecabezas de flechas, en 3D y en primera persona. Estás parado sobre el tablero: las flechas son paredes
 // bajas de colores; caminás (o saltás por encima) hasta la que querés liberar, la apuntás y sale hacia donde mira su punta.
 // Si algo se le cruza, choca, vuelve y perdés una de las 3 vidas. Con islas, se pasa de una a otra pisando un portal o, con
-// el equipo (planeo y velocidad 3), saltando; caerse al vacío también cuesta una vida y te devuelve a un lugar seguro.
+// el equipo (planeo y velocidad 3), saltando; caerse al vacío también cuesta una vida y te devuelve a un lugar seguro. La
+// mascota te acompaña: se acaricia (según dónde le apuntes), se agarra y se lanza (petctl.ts); tirada al vacío, vuelve y
+// se arma un pleito.
 // Flujo: al entrar arranca directo en el nivel que sigue (la primera vez, el tutorial) → nivel resuelto (monedas) → el
 // siguiente. Física a 120 Hz con paso fijo, dibujo por rAF.
 import * as THREE from 'three';
@@ -11,7 +13,10 @@ import { initInput, read, clearInput, IN } from './input.ts';
 import * as H from './hud.ts';
 import { drawMini, drawBig, pickArrow, type MapState, type Mark } from './minimap.ts';
 import * as M from './menus.ts';
-import { PetCtl, petThumbs, petThumb, type FxKind } from './pets.ts';
+import { petThumbs, petThumb, type FxKind } from './pets.ts';
+import { PetCtl, GRAB_T, type Caress, type PetEv, type PlayerView, type PetEnv } from './petctl.ts';
+import { FEEL, landSolids, boxSolid, playerSolid, throwVel, predict, type Solid, type V3 } from './sim/petphys.ts';
+import { BR } from './sim/brawl.ts';
 import { Tutorial, HEX, type TutCtx } from './tutorial.ts';
 import { Pilot } from './pilot.ts';
 import * as A from './audio.ts';
@@ -24,7 +29,7 @@ import { occupancy, blockerOf, freeArrows, cx, cy, head, isleOf, type Board } fr
 import { groundOf, isleAt, roundCorner, safeAt, PAD_R, type Ground } from './sim/ground.ts';
 import { newBody, stepBody, arrowBoxes, boxDist, onLand, type Box, type Lim, type Body } from './sim/body.ts';
 import { navOf, type Nav } from './sim/nav.ts';
-import { parse, phys, buyUp, buyPet, unlocked, upCost, freeTravel, lookOf, wear, type Gfx, FOG, MAP_R, TRAJ_AT, HINT_COST, UNLOCK, TIP, type Save, type PetId, type UpKind } from './sim/meta.ts';
+import { parse, phys, buyUp, buyPet, unlocked, upCost, freeTravel, lookOf, feelOf, wear, type Gfx, FOG, MAP_R, TRAJ_AT, HINT_COST, UNLOCK, TIP, PETS, type Save, type PetId, type UpKind } from './sim/meta.ts';
 import type { V2 } from './sim/geom.ts';
 
 const KEY = 'flechazo.save', params = new URLSearchParams(location.search);
@@ -45,12 +50,15 @@ type Level = {
   lives: number, errors: number, falls: number, fallTip: number, t: number, left: number, over: '' | 'won' | 'lost', overT: number,
   dest: number, hint: number, tut: Tutorial | null, mapOpened: boolean, idle: number, shopTip: number, news: News[], warps: number,
   ev: LevelEvent | null, chest: boolean, // el evento del nivel y si ya se ganó su cofre (se lleva al pasar el nivel)
+  landS: Solid[],                        // el piso y su bordecito, para la física de la mascota
 };
 type Mode = 'play' | 'menu';
 const app = { mode: 'play' as Mode, lockFails: 0, lockTry: false, overArrow: false, jumpPend: false, mapOpen: false, acc: 0, last: performance.now(), auto: false, shake: 0, dip: 0, bob: 0, stepD: 0, eye: EYE, hintNag: 0, noTargetNag: 0, padLock: -1,
-  safe: [0, 0] as V2, isle: 0, freeze: 0, frame: 0 }; // freeze: segundos sin caminar después de caer
+  safe: [0, 0] as V2, isle: 0, freeze: 0, frame: 0, // freeze: segundos sin caminar después de caer (o de un golpe)
+  press: null as { t: number, zone: { k: Caress, side: number } } | null, // apretando sobre la mascota: al soltar, caricia; mantenido, la agarra
+  refuseNag: 0, fightCoach: false };
 const FALL_Y = -9; // más abajo que esto, cayó al vacío
-let L!: Level, body: Body = newBody(0, 0), yaw = 0, pitch = 0, target = -1, petAim = false, pet: PetCtl | null = null, win: M.WinInfo | null = null;
+let L!: Level, body: Body = newBody(0, 0), yaw = 0, pitch = 0, target = -1, petAim = false, petZone: { k: Caress, side: number } = { k: 'cabeza', side: 0 }, pet: PetCtl | null = null, win: M.WinInfo | null = null;
 const markers: Marker[] = [];
 const pilot = new Pilot();
 const ray = new THREE.Raycaster();
@@ -78,7 +86,7 @@ function startLevel(d: Diff, n: number) {
     views, gone: b.arrows.map(() => false), boxCache: b.arrows.map(a => arrowBoxes(b, a.id, ox, oz)), solid: b.arrows.map(() => true),
     ghost: new Set(), boxes: [], navBoxes: [], nav: null, lives: 3, errors: 0, falls: 0, fallTip: 0, t: 0, left: b.arrows.length, over: '', overT: 0,
     dest: -1, hint: -1, tut: tutorial ? new Tutorial() : null, mapOpened: false, idle: 0, shopTip: !tutorial && save.tut === 1 ? 0 : -1,
-    news: tutorial ? [] : newsOf(d, b), warps: 0, ev: planEvent(tutorial, b), chest: false,
+    news: tutorial ? [] : newsOf(d, b), warps: 0, ev: planEvent(tutorial, b), chest: false, landS: landSolids(gr),
   };
   H.event(null);
   app.padLock = -1, app.safe = [...L.spawn] as V2;
@@ -94,7 +102,8 @@ function startLevel(d: Diff, n: number) {
   persist();
   H.level(`${DIFF_NAME[d]} · ${n}`);
   H.hearts(3), H.left(L.left, b.arrows.length), H.time(0), H.coins(save.coins), H.hint(HINT_COST, !tutorial);
-  H.coach(null);
+  H.coach(null); H.brawl(null); H.charge(null);
+  app.press = null, app.fightCoach = false;
   const isl = b.isles && b.isles.length > 1 ? ` · ${b.isles.length} islas` : b.holes?.length ? ' · hueco al medio' : '';
   if (!tutorial) H.toast(`${DIFF_NAME[d]} · nivel ${n} · ${b.arrows.length} flechas${isl}`, '', 2600);
 }
@@ -129,7 +138,6 @@ function updateEvent(dt: number) {
       const mine = cand.filter(a => L.isle[a.id] === app.isle), pool = mine.length ? mine : cand, stuck = pool.filter(a => !free.has(a.id)), pick = stuck.length ? stuck : pool;
       e.gold = pick[Math.floor(Math.random() * pick.length)].id;
       L.views[e.gold].setGold(true);
-      if (target === e.gold) H.prompt(L.views[e.gold].hex);
     } else {
       if (!e.begin(evWorld())) { L.ev = null; return; }
       W.scene.add(e.root);
@@ -187,7 +195,9 @@ function newsOf(d: Diff, b: Board): News[] {
   if (b.pads?.length && freeTravel(save) && !seen(TIP.fly)) out.push({ bit: TIP.fly, t: 0, tag: 'NUEVO · VUELO LIBRE', text: 'Ya podés saltar de una isla a otra',
     tip: `Corré hacia el borde, saltá, hacé el <b>doble salto</b> y mantené ${IN.touch ? '<b>SALTAR</b>' : '<b>ESPACIO</b>'} para planear hasta la isla de enfrente.` });
   if (save.pet && !seen(TIP.pet)) out.push({ bit: TIP.pet, t: 0, tag: 'NUEVO · CARICIAS', text: 'Acariciá a tu mascota',
-    tip: `Apuntale con la mira y ${IN.touch ? 'tocá <b>ACARICIAR</b>' : 'hacé <b>clic</b> (o <b>E</b>)'}: cada una reacciona a su manera.` });
+    tip: `Apuntale con la mira y ${IN.touch ? 'tocá el botón del corazón' : 'hacé <b>clic</b> (o <b>E</b>)'}. Según dónde apuntes es otra caricia: <b>la cabeza, el mentón, la panza o un costado</b> (cosquillas).` });
+  else if (save.pet && !seen(TIP.grab)) out.push({ bit: TIP.grab, t: 0, tag: 'NUEVO · AGARRAR', text: 'Mantené apretado sobre tu mascota para agarrarla',
+    tip: `En brazos, mantené ${IN.touch ? '<b>LANZAR</b>' : '<b>clic</b>'} para cargar y soltá para lanzarla${IN.touch ? '' : ' (<b>Q</b> la deja)'}. Su cuerpo (sólido, blando o saltarín) se elige en MASCOTAS → ESTILOS. <b>No la tires al vacío…</b>` });
   if (b.rings?.length && !seen(TIP.ring)) out.push({ bit: TIP.ring, t: 0, tag: 'NUEVO · ANILLOS', text: 'Una flecha larga encierra a otras',
     tip: 'Las de adentro de un anillo chocan contra él: <b>primero sale el anillo</b>. Seguilo hasta encontrar su punta.' });
   if (d === 'extremo' && b.twins?.length && !seen(TIP.twins)) out.push({ bit: TIP.twins, t: 0, tag: 'EXTREMO', text: 'Gemelas del mismo color',
@@ -208,36 +218,172 @@ const navNow = () => L.nav ??= navOf(L.lim, L.navBoxes);
 function spawnPet() {
   if (pet) { W.scene.remove(pet.root); pet.dispose(); pet = null; }
   if (!save.pet) return;
-  pet = new PetCtl(save.pet, body.x - 1, body.z - 2.5, lookOf(save, save.pet));
+  pet = new PetCtl(save.pet, body.x - 1, body.z - 2.5, lookOf(save, save.pet), feelOf(save, save.pet));
   pet.onFx = petFx;
+  pet.onEv = onPetEv;
   W.scene.add(pet.root);
+  app.press = null;
+  H.brawl(null), H.charge(null);
 }
+const petName = () => PETS.find(p => p.id === pet?.id)?.name ?? 'Tu mascota';
 // Las partículas de cada caricia: el fuego de Dragui, las burbujas del ajolote, chispas y gotitas de gelatina
-const FX_COL: Record<FxKind, string[]> = { fire: ['#ffb31a', '#ff6a5a', '#ff4fb8'], bubbles: ['#bfe9ff', '#ffffff'], sparkle: ['#ffd23f', '#fff1a8'], jelly: ['#45e3b0', '#ff8fc8'] };
+const FX_COL: Record<FxKind, string[]> = { fire: ['#ffb31a', '#ff6a5a', '#ff4fb8'], bubbles: ['#bfe9ff', '#ffffff'], sparkle: ['#ffd23f', '#fff1a8'], jelly: ['#45e3b0', '#ff8fc8'],
+  steam: ['#ffffff', '#e9e6f5'], notes: ['#8b5cff', '#4f8cff', '#ff5fb4'] };
 function petFx(k: FxKind, x: number, y: number, z: number) {
   const c = new THREE.Color(FX_COL[k][Math.floor(Math.random() * FX_COL[k].length)]);
   if (k === 'fire') W.fx.emit(x, y, z, c, 10, { speed: 2.4, up: 1.6, size: 0.13, life: 0.6, grav: -1.5, spread: 0.1 });
   else if (k === 'bubbles') W.fx.emit(x, y, z, c, 2, { speed: 0.5, up: 1.2, size: 0.1, life: 1.2, grav: -0.8, spread: 0.2 });
+  else if (k === 'steam') W.fx.emit(x, y + 0.05, z, c, 1, { speed: 0.4, up: 1.6, size: 0.16, life: 0.7, grav: -0.6, spread: 0.15 });
+  else if (k === 'notes') W.fx.emit(x, y, z, c, 2, { speed: 0.6, up: 1.3, size: 0.09, life: 1, grav: -0.4, spread: 0.2 });
   else W.fx.emit(x, y, z, c, 3, { speed: 1.2, up: 1.4, size: 0.09, life: 0.8, grav: 1.5, spread: 0.25 });
 }
-function petIt() {
+
+// ---- La mascota: caricias, agarrarla, lanzarla y el pleito -----------------------------------------------------------
+function petCaress(z: { k: Caress, side: number }) {
   if (!pet) return;
-  pet.love();
-  A.S.love(pet.id);
+  if (!pet.caress(z.k, z.side)) return;
+  A.S.caress(pet.id, z.k);
   save.stats.pats++;
   persist();
 }
+const petIt = (k: Caress = 'cabeza') => petCaress({ k, side: 1 });
+function grabPet() {
+  if (!pet || !pet.grab()) return;
+  A.S.grab();
+}
+const lookDir = (): V3 => { const v = W.camera.getWorldDirection(new THREE.Vector3()); return [v.x, v.y, v.z]; };
+function pview(): PlayerView {
+  const fwd = W.camera.getWorldDirection(new THREE.Vector3());
+  return { x: body.x, y: body.y, z: body.z, vx: body.vx, vy: body.vy, vz: body.vz, yaw, speed: Math.hypot(body.vx, body.vz), eye: W.camera.position.clone(), fwd, right: new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw)) };
+}
+// Lo sólido para la mascota: el piso, las flechas en reposo cerca y el jugador
+const solidCache = new WeakMap<Box, Solid>();
+const solidOf = (k: Box) => { let s = solidCache.get(k); if (!s) solidCache.set(k, s = boxSolid(k)); return s; };
+const petSolids = (x: number, z: number, rad: number): Solid[] =>
+  [...L.landS, ...L.boxes.filter(k => boxDist(x, z, k) < rad).map(solidOf), playerSolid(body.x, body.y, body.z, R, [body.vx, body.vy, body.vz])];
+const petEnv: PetEnv = { groundAt: (x, z) => groundAt(x, z), landAt: (x, z) => landAt(x, z), solids: () => petSolids(pet?.x ?? body.x, pet?.z ?? body.z, 4) };
+
+// La mira de lanzar: por dónde va a volar con la carga de ahora (puntos hasta donde toca; rojos si termina en el vacío)
+const arcDots = new THREE.InstancedMesh(new THREE.SphereGeometry(0.07, 8, 6), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.95, depthWrite: false, fog: false }), 64);
+arcDots.frustumCulled = false, arcDots.count = 0, arcDots.renderOrder = 3;
+const arcRing = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.3, 28).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.9, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+arcRing.visible = false, arcRing.renderOrder = 3;
+W.scene.add(arcDots, arcRing);
+function throwArc() {
+  if (!pet?.held || pet.charge < 0 || app.mode !== 'play') { arcDots.count = 0; arcRing.visible = false; return; }
+  const b = { ...pet.ball };
+  [b.vx, b.vy, b.vz] = throwVel(pet.ball, lookDir(), pet.power);
+  const pr = predict(b, FEEL[pet.feel], petSolids(body.x, body.z, 20), 1 / 120, 2.5, 4), m = new THREE.Matrix4();
+  const pts = pr.pts.slice(2), n = Math.min(pts.length, arcDots.instanceMatrix.count), col = pr.end === 'void' ? '#ff3d6a' : '#ffb24a';
+  for (let i = 0; i < n; i++) { const sc = 1 - (i / n) * 0.4; m.makeScale(sc, sc, sc).setPosition(pts[i][0], pts[i][1], pts[i][2]); arcDots.setMatrixAt(i, m); }
+  arcDots.count = n;
+  arcDots.instanceMatrix.needsUpdate = true;
+  (arcDots.material as THREE.MeshBasicMaterial).color.set(col);
+  arcRing.visible = pr.end === 'touch';
+  if (arcRing.visible) { arcRing.position.set(pr.at[0], pr.at[1] - pet.r + 0.03, pr.at[2]); (arcRing.material as THREE.MeshBasicMaterial).color.set(col); }
+}
+
+// Lo que pasa con la mascota: sonidos, partículas, carteles y, en el pleito, el empujón
+function onPetEv(e: PetEv) {
+  if (!pet) return;
+  const name = petName(), at = (c: string, n: number, o: Parameters<typeof W.fx.emit>[5] = {}) => W.fx.emit(e.x ?? pet!.x, e.y ?? pet!.y, e.z ?? pet!.z, new THREE.Color(c), n, o);
+  switch (e.k) {
+    case 'throw': A.S.throw(e.v ?? 0); save.stats.throws++; persist(); break;
+    case 'drop': A.S.drop(); break;
+    case 'bounce': A.S.bounce(e.v ?? 0, pet.feel); if ((e.v ?? 0) > 5) at('#ffffff', 6, { speed: 1.6, up: 1, size: 0.12, life: 0.45, grav: 3 }); break;
+    case 'land': A.S.yay(pet.id); break;
+    case 'dizzy': A.S.dizzy(); break;
+    case 'rock': A.S.coo(pet.id); break;
+    case 'falling': A.S.scream(pet.id); break;
+    case 'void': H.toast(`¡${name} cayó al vacío!`, 'bad', 1800); break;
+    case 'back':
+      A.S.growl(pet.id);
+      at('#ff2a3d', 26, { speed: 4, up: 3, size: 0.16, life: 0.8, grav: 4 }); at('#b9a8ff', 16, { speed: 3, up: 2.5, size: 0.14, life: 0.7, grav: 3 });
+      app.shake = Math.max(app.shake, 0.35);
+      save.stats.fights++, persist();
+      H.toast(`¡${name} volvió del vacío… <b>y está furiosa!</b>`, 'bad', 3000);
+      break;
+    case 'windup': A.S.windup(); break;
+    case 'lunge': A.S.lunge(); break;
+    case 'hit': {
+      // te pega: un empujón hacia donde iba, un instante sin control y la pantalla roja
+      body.vx += (e.dx ?? 0) * 6.5, body.vz += (e.dz ?? 0) * 6.5, body.vy = Math.max(body.vy, 5), body.ground = false;
+      app.freeze = Math.max(app.freeze, 0.3), app.shake = 0.7, app.dip = 0.1;
+      H.flash(); A.S.bonk();
+      W.fx.emit(body.x, body.y + 1.1, body.z, new THREE.Color('#ffd23f'), 14, { speed: 4, up: 2, size: 0.12, life: 0.5, grav: 4 });
+      break;
+    }
+    case 'miss': A.S.thud(); at('#ffffff', 12, { speed: 2.5, up: 1.4, size: 0.14, life: 0.6, grav: 3 }); H.toast('¡La esquivaste! Ahora <b>acariciala</b>', 'good', 1400); break;
+    case 'calm': A.S.calm(); at('#ff4f9a', 14, { speed: 2, up: 2, size: 0.12, life: 0.8, grav: 1 }); break;
+    case 'parry': A.S.parry(); at('#ffc21a', 20, { speed: 3.5, up: 2, size: 0.14, life: 0.7, grav: 3 }); H.toast('¡ATAJADA!', 'gold', 1200); break;
+    case 'growl': A.S.growl(pet.id); if (performance.now() - app.refuseNag > 2500) { app.refuseNag = performance.now(); H.toast('Todavía está enojada: esquivala y acariciala cuando quede <b>mareada</b>', 'bad', 2200); } break;
+    case 'blink': A.S.blink(); at('#b9a8ff', 16, { speed: 3, up: 2, size: 0.14, life: 0.6, grav: 3 }); break;
+    case 'won':
+      A.S.peace(); save.stats.peace++, persist();
+      for (let k = 0; k < 3; k++) at(['#ff4f9a', '#ffc21a', '#ffffff'][k], 18, { speed: 4, up: 3, size: 0.15, life: 1.1, grav: 3 });
+      H.toast(`¡Hicieron las paces con ${name}!`, 'gold', 3000);
+      break;
+    case 'lost': A.S.taunt(pet.id); H.toast(`${name} ganó el pleito… y quedó <b>ofendida</b>`, 'bad', 3000); break;
+    case 'tired': A.S.hmpf(pet.id); H.toast(`${name} se cansó de pelear, pero sigue <b>ofendida</b>`, 'bad', 3000); break;
+    case 'combo':
+      A.S.combo();
+      for (let k = 0; k < 3; k++) at(['#ff4f9a', '#ff8fc8', '#ffffff'][k], 16, { speed: 3, up: 3, size: 0.14, life: 1.2, grav: 2 });
+      H.toast(`¡<b>Mimos completos!</b> ${name} está feliz`, 'gold', 2600);
+      break;
+    case 'refuse':
+      A.S.hmpf(pet.id);
+      if (pet.sulk > 0 && performance.now() - app.refuseNag > 2500) { app.refuseNag = performance.now(); H.toast(`${name} está ofendida: no se deja tocar (${Math.ceil(pet.sulk)} s)`, 'bad', 1800); }
+      break;
+  }
+}
+
+// El cartel de la mira según lo que haría apretar ahora
+const CARE_LABEL: Record<Caress, [string, string]> = { cabeza: ['ACARICIAR LA CABEZA', 'CABEZA'], menton: ['RASCAR EL MENTÓN', 'MENTÓN'], panza: ['SOBAR LA PANZA', 'PANZA'], cosquillas: ['HACER COSQUILLAS', 'COSQUILLAS'] };
+function promptNow(): H.Prompt {
+  if (pet?.held) return { hex: '#ff8a1f', kind: 'held', label: 'LANZAR', key: 'mantené clic · E', sub: IN.touch ? 'mantené para lanzar más lejos' : 'Q: dejarla en el piso' };
+  if (petAim && pet) {
+    if (pet.fighting) {
+      const h = pet.fightHint(body);
+      return h === 'calmar' ? { hex: '#ff4f9a', kind: 'pet', label: 'CALMAR', short: 'CALMAR' } : h === 'atajar' ? { hex: '#ffb31a', kind: 'fight', label: '¡ATAJAR!', short: 'ATAJAR' }
+        : { hex: '#ff2a3d', kind: 'mad', label: '¡ENOJADA!', short: 'ENOJADA', key: 'esquivala' };
+    }
+    if (pet.sulk > 0) return { hex: '#9a97b8', kind: 'mad', label: 'OFENDIDA', short: 'OFENDIDA', key: `${Math.ceil(pet.sulk)} s` };
+    const [l, sh] = CARE_LABEL[petZone.k];
+    return { hex: '#ff4f9a', kind: 'pet', label: l, short: sh, sub: IN.touch ? 'mantené: agarrarla' : 'mantené o Q: agarrarla' };
+  }
+  if (target >= 0) return { hex: L.views[target].hex, kind: 'arrow', label: 'LIBERAR' };
+  return null;
+}
 
 // ---- Liberar -------------------------------------------------------------------------------------------------------
-function act() {
+// Apretar: con la mascota en brazos, empieza a cargar el lanzamiento; apuntándole, en el pleito la ataja o la calma y si
+// no, empieza la caricia (que sale al soltar) o, mantenido, la agarra; si no, libera la flecha apuntada
+function actDown() {
   if (app.mode !== 'play' || app.mapOpen || L.over) return;
   A.unlock();
-  if (petAim) { petIt(); return; }
+  if (pet?.held) { pet.startCharge(); return; }
+  if (petAim && pet) {
+    if (pet.fighting) pet.fightAct(pview());
+    else app.press = { t: performance.now() / 1000, zone: petZone };
+    return;
+  }
   if (target < 0) {
     if (performance.now() - app.noTargetNag > 2500) { app.noTargetNag = performance.now(); H.toast('Acercate a una flecha y apuntala con la mira'); }
     return;
   }
   release(target);
+}
+function actUp() {
+  if (pet?.held && pet.charge >= 0) { pet.throwIt(lookDir()); return; }
+  if (app.press) { const z = app.press.zone; app.press = null; petCaress(z); }
+}
+const act = () => { actDown(); actUp(); };
+// Q / clic derecho: agarrarla o, en brazos, dejarla
+function grabKey() {
+  if (app.mode !== 'play' || app.mapOpen) return;
+  A.unlock();
+  if (pet?.held) { pet.drop(lookDir()); return; }
+  if (petAim && pet && !pet.fighting) grabPet();
 }
 
 function release(id: number) {
@@ -335,9 +481,12 @@ const ctx = (): M.MenuCtx => ({
     done: () => { H.coins(save.coins); M.show(back, ctx()); },
   }),
   lostChest: L.over === 'lost' && L.chest,
+  feel: (p, f) => { save.feel[p] = f; persist(); if (pet && pet.id === p) pet.setFeel(f); },
 });
 function openMenu(p: M.Page) {
   if (app.mapOpen) closeMap(false);
+  app.press = null;
+  if (pet) pet.charge = -1; // el botón se suelta en el menú: no queda cargando
   app.mode = 'menu';
   clearInput(); unlockPointer();
   document.body.classList.remove('playing');
@@ -394,7 +543,7 @@ document.addEventListener('pointerlockchange', () => {
 document.addEventListener('visibilitychange', () => { if (document.hidden && app.mode === 'play' && !L.over && !app.auto) openMenu('pause'); });
 
 initInput(cv, {
-  act, map: openMap, hint: useHint,
+  act: actDown, actUp, grab: grabKey, map: openMap, hint: useHint,
   shop: () => openMenu('shop'), pause: () => openMenu('pause'),
   gesture: begin, active: () => app.mode === 'play' && !app.mapOpen,
   click: () => { if (!IN.locked && lockable()) { lock(true); return true; } return false; },
@@ -463,13 +612,20 @@ function pickTarget(): number {
   ray.setFromCamera(new THREE.Vector2(0, 0), W.camera);
   ray.far = REACH;
   // solo las que están al alcance (el rayo contra todas las mallas, triángulo por triángulo, cuesta en un teléfono)
+  if (pet?.held) { petAim = false; return -1; } // con la mascota en brazos se lanza: no se apunta
   const meshes = L.views.filter(v => v.mode === 'rest' && !L.gone[v.id] && L.boxCache[v.id].some(k => boxDist(eye.x, eye.z, k) < REACH + 0.5)).map(v => v.mesh);
   const hit = ray.intersectObjects(meshes, false)[0];
   petAim = false;
-  if (pet && !app.auto) { // el piloto automático no acaricia (y la mascota no le tapa las flechas)
-    const a = pet.aim();
+  const a = pet && !app.auto ? pet.aim() : null; // el piloto automático no acaricia (y la mascota no le tapa las flechas)
+  if (pet && a) {
     petRay.copy(ray.ray);
-    if (petRay.intersectSphere(new THREE.Sphere(a.c, a.r), petHit) && petHit.distanceTo(eye) < Math.min(REACH + 0.6, hit?.distance ?? Infinity)) { petAim = true; return -1; }
+    // en el pleito se la ataja de más lejos
+    const far = pet.fighting ? BR.PARRY_D + 1.6 : REACH + 0.6;
+    if (petRay.intersectSphere(new THREE.Sphere(a.c, a.r * (pet.fighting ? 1.5 : 1)), petHit) && petHit.distanceTo(eye) < Math.min(far, hit?.distance ?? Infinity)) {
+      petAim = true;
+      petZone = pet.zone(petRay, new THREE.Vector3(0, 1, 0).applyQuaternion(W.camera.quaternion), new THREE.Vector3(1, 0, 0).applyQuaternion(W.camera.quaternion));
+      return -1;
+    }
   }
   if (hit) return hit.object.userData.id as number;
   // sin pegarle con la mira: la flecha cercana más alineada con la vista (ayuda en el teléfono)
@@ -563,14 +719,17 @@ function tick(dt: number) {
   // apuntar
   const wasPet = petAim;
   const nt = playing && !app.mapOpen && !L.over ? pickTarget() : (petAim = false, -1);
-  if (petAim !== wasPet) { H.prompt(petAim ? '#ff4f9a' : target >= 0 ? L.views[target].hex : null, petAim); if (petAim) A.S.target(); }
+  if (petAim && !wasPet) A.S.target();
   if (nt !== target) {
     if (target >= 0) L.views[target].lit = false;
     target = nt;
     if (target >= 0) { L.views[target].lit = true; A.S.target(); }
-    if (!petAim) H.prompt(target >= 0 ? L.views[target].hex : null);
     W.setTrajectory(target >= 0 && save.up.vis >= TRAJ_AT ? L.views[target].trajectory() : null, target >= 0 ? L.views[target].hex : '#fff');
   }
+  // mantener apretado sobre la mascota: la agarra
+  if (app.press && performance.now() / 1000 - app.press.t >= GRAB_T) { app.press = null; grabPet(); }
+  H.prompt(playing && !app.mapOpen && !L.over ? promptNow() : null);
+  H.charge(pet?.held && pet.charge >= 0 ? pet.power : null);
 
   // portales: giran y sueltan chispas que suben (solo los cercanos: los lejos no se ven entre la niebla)
   const cam = W.camera.position;
@@ -586,15 +745,27 @@ function tick(dt: number) {
   updateEvent(dt);
   if (playing) eventHud();
 
-  // mascota, marcadores, tutorial
-  pet?.update(dt, { x: body.x, y: body.y, z: body.z, yaw, speed: sp }, groundAt, landAt);
+  // mascota (con su mira de lanzar y el pleito), marcadores, tutorial
+  if (pet) {
+    pet.update(dt, pview(), petEnv);
+    throwArc();
+    const br = pet.brawl;
+    H.brawl(br && playing ? { name: petName(), anger: br.anger, maxAnger: BR.ANGER, hp: BR.HITS - br.hits, maxHp: BR.HITS } : null);
+  }
   const ms = marks();
   while (markers.length < ms.length) { const m = new Marker(); markers.push(m); W.scene.add(m.g); }
   markers.forEach((m, i) => {
     m.g.visible = i < ms.length;
     if (i < ms.length) { m.set(ms[i].x, ms[i].z, ms[i].y, ms[i].hex); m.update(dt, Math.hypot(ms[i].x - cam.x, ms[i].z - cam.z)); }
   });
-  if (L.fallTip > 0 && playing) {
+  const fighting = !!pet?.brawling && playing && !L.over;
+  if (fighting) {
+    app.fightCoach = true;
+    H.coach({ tag: 'PLEITO', text: pet!.brawl?.phase === 'daze' ? `¡${petName()} está mareada! Acariciala` : `¡${petName()} quiere pelea!`,
+      tip: `Esquivá sus embestidas corriéndote de costado${pet!.fly ? '' : ' o saltándola'}. Cuando quede <b>mareada</b>, acariciala para calmarla; si la <b>atajás</b> justo cuando llega, también cuenta.` });
+  } else if (app.fightCoach) { app.fightCoach = false; H.coach(null); }
+  if (fighting) { /* el pleito manda */ }
+  else if (L.fallTip > 0 && playing) {
     // después de caer sin el equipo: por qué
     L.fallTip -= dt;
     if (L.fallTip <= 0) H.coach(null);
@@ -608,7 +779,8 @@ function tick(dt: number) {
     // lo nuevo: el de las islas se va al usar un portal; los demás, a los 14 s
     const nw = L.news[0];
     nw.t += dt;
-    const done = nw.bit === TIP.isles ? L.warps > 0 && nw.t > 3 : nw.bit === TIP.pet ? ((pet?.pats ?? 0) > 0 && nw.t > 2) || nw.t > 25 : nw.t > 14;
+    const done = nw.bit === TIP.isles ? L.warps > 0 && nw.t > 3 : nw.bit === TIP.pet ? ((pet?.pats ?? 0) > 0 && nw.t > 2) || nw.t > 25
+      : nw.bit === TIP.grab ? ((pet?.throws ?? 0) > 0 && nw.t > 2) || nw.t > 30 : nw.t > 14;
     if (done) { save.tips |= nw.bit; persist(); L.news.shift(); H.coach(null); }
     else H.coach({ tag: nw.tag, text: nw.text, tip: nw.tip });
   } else if (L.shopTip >= 0 && playing) {
@@ -669,6 +841,7 @@ function fell() {
   body = newBody(x, z);
   app.eye = EYE, app.dip = 0.2, app.shake = 0.45, app.jumpPend = false, app.freeze = 0.6;
   pet?.place(x - 1, z - 1);
+  app.press = null;
   L.lives = Math.max(0, L.lives - 1), L.falls++;
   H.hearts(L.lives), H.flash();
   A.S.fall();
@@ -720,7 +893,13 @@ Object.assign(window, {
       isle: isleAt(L.gr, body.x, body.z), isles: L.gr.floors.length, warps: L.warps,
       p: { x: body.x, y: body.y, z: body.z, yaw, pitch, on: body.on }, tut: L.tut?.i ?? -1, up: { ...save.up }, pet: save.pet }),
     begin, play: (d: Diff, n: number) => { startLevel(d, n); resume(); },
-    petIt, petAim: () => petAim,
+    petIt, petAim: () => petAim, petZone: () => petZone, grab: grabPet, drop: () => pet?.drop(lookDir()),
+    throwIt: (power = 1) => { if (pet?.held) { pet.charge = power * 0.9; pet.throwIt(lookDir()); } },
+    petMode: () => pet && { mode: pet.mode, feel: pet.feel, sulk: pet.sulk, dizzy: pet.dizzy, brawl: pet.brawl && { ...pet.brawl }, ball: { ...pet.ball } },
+    // tira la mascota al vacío (para probar el pleito)
+    toVoid: () => { if (!pet) return; if (!pet.held) pet.grab(); pet.throwIt([0, -1, 0]); pet.mode = 'gone'; pet.modeT = 0; pet.ball.x = body.x + 12, pet.ball.z = body.z; },
+    petAct: () => pet?.fightAct(pview()),
+    petCtl: () => pet,
     event: (k: EvKind) => { if (L.ev) { W.scene.remove(L.ev.root); L.ev.dispose(); } L.ev = new LevelEvent(k, L.t); },
     ev: () => L.ev && { kind: L.ev.kind, state: L.ev.state, t: L.ev.t, gold: L.ev.gold, next: L.ev.next, rings: L.ev.rings.map(r => ({ x: r.x, y: r.y, z: r.z })), c: { x: L.ev.cx, y: L.ev.cy, z: L.ev.cz }, chest: L.chest },
     chests: (n: number) => { save.chests += n; persist(); },
@@ -732,7 +911,7 @@ Object.assign(window, {
       const i = W.renderer.info.render;
       return { ms: +(ms / n).toFixed(2), calls: i.calls, tris: i.triangles, points: i.points, pr: +W.renderer.getPixelRatio().toFixed(2) };
     },
-    perf: () => ({ fps: +(1000 / W.res.avg).toFixed(1), scale: W.res.scale, pr: +W.renderer.getPixelRatio().toFixed(2), quality: W.quality, calls: W.renderer.info.render.calls, tris: W.renderer.info.render.triangles }), petAt: () => pet && { x: pet.x, y: pet.y, z: pet.z, mood: pet.mood },
+    perf: () => ({ fps: +(1000 / W.res.avg).toFixed(1), scale: W.res.scale, pr: +W.renderer.getPixelRatio().toFixed(2), quality: W.quality, calls: W.renderer.info.render.calls, tris: W.renderer.info.render.triangles }), petAt: () => pet && { x: pet.x, y: pet.y, z: pet.z, mood: pet.mood, mode: pet.mode },
     release, act, auto: (on: boolean) => { app.auto = on; if (on) unlockPointer(); },
     solve: () => { for (;;) { const f = freeArrows(L.b, L.gone).filter(id => L.views[id].mode === 'rest'); if (!f.length) break; f.forEach(release); } },
     tp: (x: number, z: number) => { body.x = x, body.z = z, body.vx = body.vz = 0; },
