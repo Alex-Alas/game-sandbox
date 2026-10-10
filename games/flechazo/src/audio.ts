@@ -43,6 +43,17 @@ function noise(dur: number, f0: number, f1: number, v: number, type: BiquadFilte
   src.connect(f).connect(g).connect(sfx); src.start(t, Math.random()); src.stop(t + dur + 0.05);
 }
 
+// un tono con vibrato (rate Hz, depth en Hz)
+function wob(type: OscillatorType, f0: number, f1: number, dur: number, v: number, delay: number, rate: number, depth: number) {
+  if (!ac || !sfx) return;
+  const t = ac.currentTime + delay, o = ac.createOscillator(), l = ac.createOscillator(), lg = ac.createGain(), g = ac.createGain();
+  o.type = type, l.frequency.value = rate, lg.gain.value = depth;
+  o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + 0.04); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  l.connect(lg).connect(o.frequency); o.connect(g).connect(sfx);
+  o.start(t); l.start(t); o.stop(t + dur + 0.05); l.stop(t + dur + 0.05);
+}
+
 const PENTA = [0, 2, 4, 7, 9];
 const note = (k: number, base = 523.25) => base * 2 ** ((PENTA[((k % 5) + 5) % 5] + 12 * Math.floor(k / 5)) / 12);
 
@@ -72,6 +83,41 @@ export const S = {
   step2() { tone('sine', note(7), note(7), 0.18, 0.08); tone('sine', note(9), note(9), 0.22, 0.08, 0.08); },
   pet() { tone('sine', 1200, 1700, 0.08, 0.06); tone('sine', 1500, 2100, 0.08, 0.05, 0.09); },
   hint() { [0, 4, 7].forEach((k, i) => tone('sine', note(k + 5), note(k + 5), 0.25, 0.08, i * 0.06)); },
+  fall() { noise(0.7, 2400, 160, 0.16, 'bandpass', 0, 1.2, 0.02); tone('sine', 700, 90, 0.7, 0.12); tone('triangle', 330, 50, 0.6, 0.08, 0.15); },
+  // Cofre: temblor que crece, estallido, el tic de cada carta (más grave al frenar) y la fanfarria según la rareza
+  shake() { for (let i = 0; i < 9; i++) noise(0.07, 300 + i * 90, 120, 0.05 + i * 0.012, 'lowpass', i * 0.115, 1.5); tone('sine', 110, 220, 1.1, 0.06, 0, sfx, 0.6); },
+  burst() { noise(0.6, 600, 9000, 0.22, 'highpass', 0, 0.8, 0.01); tone('triangle', 330, 1320, 0.35, 0.12); [0, 4, 7].forEach((k, i) => tone('sine', note(k + 5), note(k + 5), 0.3, 0.06, 0.05 + i * 0.04)); },
+  tick(k: number) { tone('square', 1900 - k * 900, 1700 - k * 900, 0.025, 0.04 + k * 0.03); },
+  reveal(t: number) {
+    const seq = [[0, 4, 7], [0, 4, 7, 9], [0, 4, 7, 9, 12, 14], [0, 2, 4, 7, 9, 12, 14, 16]][t];
+    seq.forEach((k, i) => { tone('triangle', note(k + 5), note(k + 5), 0.32, 0.12, i * 0.075); tone('sine', note(k + 10), note(k + 10), 0.3, 0.05, i * 0.075 + 0.02); });
+    if (t >= 2) noise(1.2, 4000, 9000, 0.08, 'highpass', 0.2, 1, 0.3);
+    if (t >= 3) { tone('sine', note(17), note(17), 1.4, 0.12, seq.length * 0.075); wob('triangle', note(12), note(12), 1.2, 0.07, seq.length * 0.075, 6, 8); }
+  },
+  // Eventos: aparece algo, juntaste una parte, lo lograste (cofre) o se escapó
+  event() { [0, 4, 7, 12].forEach((k, i) => tone('sine', note(k + 7), note(k + 7), 0.22, 0.09, i * 0.06)); noise(0.4, 3000, 8000, 0.05, 'highpass', 0, 1, 0.1); },
+  ring(n: number) { tone('triangle', note(n + 5), note(n + 5), 0.25, 0.12); tone('sine', note(n + 9), note(n + 9), 0.3, 0.06, 0.04); },
+  gotChest() { [0, 4, 7, 9, 12, 16].forEach((k, i) => tone('triangle', note(k + 5), note(k + 5), 0.3, 0.12, i * 0.07)); noise(0.8, 3000, 9000, 0.08, 'highpass', 0.1, 1, 0.2); },
+  miss() { [7, 4, 0].forEach((k, i) => tone('triangle', note(k + 2), note(k + 2) * 0.97, 0.25, 0.09, i * 0.12)); },
+  // Caricias: un brillito de corazón y la voz de cada mascota
+  love(id: string) {
+    tone('sine', note(9), note(9), 0.18, 0.05); tone('sine', note(12), note(12), 0.25, 0.04, 0.07);
+    const r = Math.random;
+    if (id === 'gomita') { wob('sine', 200, 520, 0.4, 0.13, 0.05, 14, 40); wob('sine', 300, 800, 0.35, 0.09, 0.5, 18, 50); }
+    else if (id === 'michi') {
+      for (let i = 0; i < 44; i++) noise(0.035, 260, 140, 0.07 + 0.03 * Math.sin(i / 3), 'lowpass', 0.05 + i * 0.042, 0.7);
+      wob('triangle', 520, 820, 0.16, 0.07, 1.9, 9, 30); wob('triangle', 820, 600, 0.22, 0.06, 2.06, 9, 30);
+    } else if (id === 'pio') { for (let i = 0; i < 6; i++) { tone('sine', 2500, 3600, 0.06, 0.06, i * 0.13 + 0.05); tone('sine', 3600, 2800, 0.05, 0.05, i * 0.13 + 0.11); } }
+    else if (id === 'croac') { for (const d of [0.05, 0.42]) { wob('square', 170, 130, 0.13, 0.05, d, 32, 25); wob('square', 210, 150, 0.14, 0.05, d + 0.17, 32, 25); } tone('sine', 260, 900, 0.25, 0.08, 1.35); }
+    else if (id === 'bu') { wob('sine', 560, 380, 0.8, 0.09, 0.05, 5.5, 18); wob('sine', 420, 720, 0.6, 0.08, 1.2, 7, 22); }
+    else if (id === 'ajolote') { for (let i = 0; i < 9; i++) tone('sine', 280 + r() * 400, 900 + r() * 700, 0.07, 0.06, 0.08 + i * 0.16 + r() * 0.06); }
+    else if (id === 'zumbi') { wob('sawtooth', 210, 300, 1.9, 0.035, 0.05, 26, 18); wob('sawtooth', 420, 520, 1.6, 0.015, 0.3, 30, 25); }
+    else if (id === 'robi') { [0, 4, 7, 12, 9, 14].forEach((k, i) => tone('square', note(k + 3), note(k + 3), 0.09, 0.045, 0.06 + i * 0.12)); }
+    else if (id === 'dragui') {
+      noise(0.5, 900, 250, 0.1, 'lowpass', 0.75, 1.2); wob('sawtooth', 190, 120, 0.45, 0.05, 0.75, 12, 15);
+      [0, 4, 7, 11].forEach((k, i) => tone('sine', note(k + 8), note(k + 8), 0.2, 0.04, 1.3 + i * 0.07));
+    }
+  },
   warp() { tone('sine', 220, 1320, 0.32, 0.11); tone('triangle', 330, 1980, 0.28, 0.06, 0.04); noise(0.4, 300, 5000, 0.1, 'bandpass', 0, 2.5, 0.03); },
 };
 

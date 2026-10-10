@@ -28,7 +28,7 @@ calibrado con gente: tamaños, precios, premios y alturas son un primer tiro.
 | ¿Bloquean el paso? | **Sí, son paredes**: hay que rodearlas o **subirse saltando** (el salto base alcanza para subirse, así nunca quedás encerrado) y caminar por arriba | que se puedan atravesar (solo dibujo) |
 | Cómo se libera | Apuntar con la mira **a cualquier parte de la flecha** a menos de 3,4 m y clic / E / botón LIBERAR. En el teléfono, si la mira no le pega a ninguna, se toma la flecha cercana más alineada con la vista | solo tocando la punta |
 | Vista del mundo | **Pastel claro**, como estar adentro de la pantalla de las referencias: piso blanco con puntos, cielo celeste-lila-rosa, nubes y flechas gigantes flotando a lo lejos | neón sobre fondo oscuro (la 4.ª referencia) |
-| Dónde termina | El tablero **flota en el cielo**; hay un borde bajo y no se puede caer. Las flechas que salen cruzan el borde y **suben al cielo** desvaneciéndose | caer y reaparecer |
+| Dónde termina | El tablero **flota en el cielo**; hay un borde bajo y por el borde de afuera no se puede caer (por el vacío entre islas y los huecos, sí: ver la última sección). Las flechas que salen cruzan el borde y **suben al cielo** desvaneciéndose | caer y reaparecer |
 | Minimapa | Redondo, **centrado en el jugador y girado hacia donde mira**; su radio crece con la visibilidad. Tocarlo (o M) abre el **mapa grande** con el norte arriba, donde **tocar una flecha la marca como destino** (columna de luz celeste en el mundo y flechita en el borde del minimapa) | minimapa con el norte fijo |
 | Dificultades | Tres escaleras de niveles **infinitas e independientes** (generadas y deterministas). FÁCIL de 6×6 a 10×10, flechas de 2–5; DIFÍCIL de 10×10 a 16×16, de 3–8; EXTREMO de 15×15 a 24×24, de 4–13 y con más cadenas. Cada 4 niveles el tablero tiene **figura** (rombo, círculo, corazón, cruz, estrella) | niveles a mano |
 | Desbloqueo | DIFÍCIL con 3 niveles de FÁCIL; EXTREMO con 3 de DIFÍCIL (`?todo=1` abre todo para probar) | todo abierto desde el principio |
@@ -58,7 +58,7 @@ más extremo EXTREMO. Cómo los llevé al generador (lo marcado *decidí yo*, pa
 | --- | --- |
 | Flechas larguísimas que encierran a otras | **Anillos**: un cuarto de 2×2 a 4×4 lleno de flechas cortas y una flecha que lo rodea entero (12–28 celdas) con la punta en una esquina, hacia afuera. Ninguna de adentro sale antes que el anillo. *El cuarto se arma a mitad del llenado*, así el anillo también traba flechas de afuera. EXTREMO: *la mitad son anillos dobles* (un anillo alrededor de otro). |
 | Flechas largas, escalonadas y entrelazadas | **Escaleras** (doblan a un lado y al otro cada uno o dos pasos, a veces cambian de costado) y **gemelas** (el mismo camino corrido una celda, pegado al original). *En EXTREMO las gemelas son del mismo color* y el tablero usa *6, después 5 y después 4 colores* (vecinas del mismo color). Apuntar a una flecha la ilumina entera: así se ve dónde está su punta. |
-| Bordes falsos e islas | **Dos o cuatro islas** sobre el vacío y **huecos al medio**. Las rectas cruzan el vacío: una flecha que apunta al borde de su isla puede chocar con la de enfrente. A otra isla se pasa **pisando un portal** (*en una celda del borde que mira a la otra isla, en el medio; los de un par, del mismo color y unidos con una línea punteada en el mapa grande*). No se cae ni se salta el vacío (*es una pared invisible, como el borde del tablero*). |
+| Bordes falsos e islas | **Dos o cuatro islas** sobre el vacío y **huecos al medio**. Las rectas cruzan el vacío: una flecha que apunta al borde de su isla puede chocar con la de enfrente. A otra isla se pasa **pisando un portal** (*en una celda del borde que mira a la otra isla, en el medio; los de un par, del mismo color y unidos con una línea punteada en el mapa grande*). ~~No se cae ni se salta el vacío~~ (desde la segunda tanda del 2026-10-10 el vacío es de verdad: ver la última sección). |
 | Además | *Las flechas apuntan más hacia adentro* (la recta más larga), así lo que se pone después las tapa: menos libres al empezar. |
 
 Cuándo aparece cada cosa: FÁCIL, un anillo en los impares desde el 3, dos islas en el 6, 14, 22… y hueco en el 10, 18…;
@@ -96,5 +96,34 @@ que la traba puede estar en otra isla.
 - Niebla base (17 m): ¿se siente perdido en EXTREMO sin mejoras?
 - Precios de mejoras, mascotas y pista, y los premios; cuántos niveles para desbloquear.
 - Si hace falta un «modo planificar» (ver el mapa grande mientras se camina) o si con el minimapa alcanza.
-- Si las gemelas del mismo color y los 4 colores de EXTREMO son demasiado; cuántos anillos por nivel; si el vacío entre
-  islas debería poder cruzarse con el planeo (hoy no).
+- Si las gemelas del mismo color y los 4 colores de EXTREMO son demasiado; cuántos anillos por nivel. (El vacío entre islas
+  ya se cruza con planeo y velocidad 3: ver la última sección.)
+
+## Caricias, tableros sin huecos, vuelo entre islas y cofres (pedido del usuario, 2026-10-10)
+
+> «Opción para acariciar a las mascotas y generar una reacción adorable única para cada una. Nueva regla: no deben haber
+> espacios en blanco o sin usar entre flecha y flecha. La distancia entre isla e isla se debe incrementar y eliminar las
+> barreras invisibles […]: un jugador solo puede saltar entre isla e isla después de desbloquear el doble salto más la
+> mejora de planear (y al menos 3 mejoras de velocidad); si no, está obligado a usar los portales […] y si no cumple,
+> debe estar garantizado que caerá, quitándole 1 vida y regresándolo a un punto seguro, con un mensaje. Mecánica de
+> farmeo de dopamina: un evento al azar […] da un cofre que, al pasar el nivel (si pierde, lo pierde), desbloquea estilos
+> para las mascotas que ya tiene, con una animación como la de las cajas de MEGABONK.»
+
+Lo marcado *decidí yo*, para confirmar:
+
+| Tema | Quedó así |
+| --- | --- |
+| Acariciar | Apuntarle a la mascota con la mira (si le pega antes que a una flecha) cambia LIBERAR por **ACARICIAR** (clic / E / botón táctil con corazón). *Baja una mano de dibujito sobre la nuca*, salen corazones y la mascota se queda quieta mirándote ~2,5 s. *Con el jugador quieto la mascota no se mueve mientras la veas* (si no, al girar para apuntarle se corría). |
+| Reacciones | Gomita tiembla entera, se pone rosada y suelta gotitas; Michi cierra los ojos, ronronea, frota la cabeza y amasa; Pío se esponja, aletea y da tres saltitos piando y un giro; Croac infla el buche, saca la lengua y da un mortal hacia atrás; Bu se tapa la cara colorado y después saluda dando una vuelta; el ajolote baila con las branquias encendidas soltando burbujas; Zumbi hace la danza del ocho de las abejas; Robi pone ojos de corazón, gira la cabeza y la antena titila en arcoíris con un bip-bup; Dragui abre las alas, ruge echando chispas y da una vuelta en el aire. Cada una con su sonido. |
+| Sin huecos | **Toda celda de la figura es parte de una flecha**, también en el tutorial (rehecho: 7 × 5, la roja trabada por la verde). *Los huecos que deja el llenado al azar se los llevan flechas vecinas que se alargan; si no, flechas nuevas cortas o una vecina partida en dos*, siempre que el tablero siga teniendo solución. Llenar todo duplicó la profundidad: rondas para resolverlo / libres al empezar, FÁCIL 7,8 / 35 %, DIFÍCIL 13,1 / 26 %, EXTREMO 23,0 / 19 %, ISLAS 14,2 / 21 % (antes 4,9 / 41 %, 7,3 / 38 %, 8,8 / 31 %, 6,9 / 36 %). EXTREMO tiene ~74 flechas por nivel (antes 44): *quizá convenga achicar sus tableros*. |
+| Distancia entre islas | De 3,6 m a **10,8 m** de vacío (6 columnas de la grilla en vez de 3: las rectas de las flechas lo cruzan igual). |
+| El vacío | **Sin paredes invisibles**: entre islas y en los huecos no hay piso y se cae. *El borde de afuera del mapa sigue siendo una pared* (como antes; para no caerse por accidente rodeando el tablero). *Los huecos del medio también se volvieron vacío de verdad*, por coherencia. |
+| La regla | Con **Salto 4** (doble salto + planeo) y **Velocidad 3** se salta de una isla a otra (con planeo llega a ~21 m; cualquier momento del doble salto sirve). Sin eso, *sobre el vacío la gravedad es 2,6 veces mayor y no hay planeo ni saltos en el aire*: nadie pasa de ~6 m, así que **siempre cae** (lo prueba un test con las 36 combinaciones de mejoras). |
+| Caer | Cuesta **una vida** (cuenta como un choque para el premio sin errores), vuelve al último lugar firme a más de 2,2 m del vacío y frena el movimiento 0,6 s. Sin el equipo, el cartel dice «Aún no tenés suficiente velocidad y salto para viajar libremente» y explica qué mejoras faltan. La tienda MEJORAS muestra cuánto falta; la primera vez que se tiene el equipo en un mapa con islas, un cartel lo explica. |
+| Eventos | *Con al menos una mascota adoptada*, el *55 %* de los niveles (no el tutorial) tiene **uno**, entre los 14 y 44 s: **FLECHA DORADA** (una de tu isla, mejor trabada, se vuelve de oro: liberarla sin que choque; si choca, pierde el brillo), **CHISPITA** (una estrellita con alas que salta escapándose, también por encima de las flechas: tocarla en 30 s; se cansa con el tiempo) y **SENDERO** (6 anillos dorados en el aire, de 1,7 a 3,4 m, uno detrás de otro: pasar por todos en ~35 s). Un chip del HUD dice qué hacer y cuánto falta; una columna de luz y el minimapa marcan hacia dónde. |
+| El cofre | Ganado el evento, queda **pendiente** («COFRE · pasá el nivel»). Al ganar el nivel se guarda y se abre desde el cartel de nivel resuelto (o después, desde MASCOTAS). Perder o reiniciar el nivel **lo pierde**. |
+| Estilos | *24 por mascota*: 16 pieles (6 colores comunes; rayas, lunares, cuadros y corazones raros; noche estrellada y neón épicos; oro, galaxia, arcoíris y cristal legendarios) y 8 accesorios (moño, flor y gorrito raros; galera, lentes y auriculares épicos; corona y aureola legendarios). Rarezas 52 / 29 / 15 / 4 %. Cada estilo es de una mascota y solo salen para las adoptadas; *nunca repite* (con todo ganado, 120 monedas). Cada mascota lleva una piel y un accesorio a la vez (MASCOTAS → ESTILOS). |
+| Apertura | Como MEGABONK / Counter-Strike: el cofre tiembla cada vez más, revienta en luz, una tira de estilos (con su mascota y el color de su rareza) pasa a toda velocidad, frena de a poco con un tic por carta y cae en el premio; *a veces la de al lado es legendaria*. Al caer: destello y rayos del color de la rareza, papelitos, fanfarria que crece con la rareza y vibración. PONÉRSELO viste a la mascota y la lleva; ABRIR OTRO si quedan; tocar salta. |
+
+Pendiente: calibrar la probabilidad de los eventos, el tiempo de la chispita y del sendero, los pesos de las rarezas y si
+EXTREMO (ahora mucho más profundo) necesita tableros más chicos.

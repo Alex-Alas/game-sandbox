@@ -1,18 +1,20 @@
 // El piso en el mundo (puro). Sin islas, un rectángulo con MARGIN celdas de piso alrededor del rompecabezas. Con islas, un
 // piso por isla, todos iguales y con el mismo margen (ISLE_M) de los cuatro lados, así el mapa y el mundo son simétricos;
-// además los huecos del medio y los portales. Para la colisión y la navegación, el vacío entre islas y los huecos son cajas infranqueables (`top` infinito):
-// no se cae ni se salta por encima; a otra isla se pasa pisando un portal.
+// además los huecos del medio y los portales. El vacío entre islas y los huecos no tienen piso: se cae (body.ts → `land`)
+// y cuesta una vida. A otra isla se pasa pisando un portal o, con el equipo (planeo y velocidad 3), saltando. El borde de
+// afuera del mapa sigue siendo una pared (`lim`). Para la navegación (piloto automático) el vacío y los huecos son cajas
+// infranqueables (`voids`, `top` infinito).
 import { C, MARGIN } from './const.ts';
 import { cx, cy, type Board } from './puzzle.ts';
 import type { Box, Lim } from './body.ts';
 
-export const ISLE_M = 0.75; // celdas de piso alrededor de cada isla, más allá de la media celda (con GAP = 3 quedan 1,5 de vacío)
+export const ISLE_M = 0.75; // celdas de piso alrededor de cada isla, más allá de la media celda (con GAP = 6 quedan 4,5 de vacío)
 export const HOLE_IN = 0.1; // cuánto entra el piso en las celdas de un hueco
 export const PAD_R = 0.8;   // radio del portal (m)
 export const VOID = -2;     // id de las cajas del vacío
 export type Floor = Lim & { r: number }; // r: radio de las esquinas
 export type PadW = { x: number, z: number, to: number, isle: number };
-export type Ground = { lim: Lim, floors: Floor[], holes: Lim[], voids: Box[], pads: PadW[] };
+export type Ground = { lim: Lim, floors: Floor[], holes: Lim[], voids: Box[], pads: PadW[], open: boolean }; // open: hay vacío adentro del mapa
 
 export function groundOf(b: Board, ox: number, oz: number): Ground {
   const isles = b.isles ?? [[0, 0, b.w - 1, b.h - 1]], many = isles.length > 1, m = (many ? ISLE_M : MARGIN) + 0.5, r = C * (many ? 0.6 : 0.75);
@@ -35,22 +37,33 @@ export function groundOf(b: Board, ox: number, oz: number): Ground {
     ...holes.map(h => ({ ...h, top: Infinity, id: VOID })),
   ];
   const pads = (b.pads ?? []).map(p => ({ x: ox + cx(b, p.cell) * C, z: oz + cy(b, p.cell) * C, to: p.to, isle: p.isle }));
-  return { lim, floors, holes, voids, pads };
+  return { lim, floors, holes, voids, pads, open: floors.length > 1 || holes.length > 0 };
 }
 
 // Isla del piso en (x, z) (−1 = afuera)
 export const isleAt = (g: Ground, x: number, z: number) => g.floors.findIndex(f => x >= f.x0 - 0.05 && x <= f.x1 + 0.05 && z >= f.z0 - 0.05 && z <= f.z1 + 0.05);
 
-// Las esquinas del piso son redondas: un cuerpo de media anchura R que se pasa del arco vuelve a él
+// Las esquinas del piso que dan al borde de afuera del mapa son redondas: un cuerpo de media anchura R que se pasa del arco
+// vuelve a él (en las que dan al vacío, se cae)
 export function roundCorner(g: Ground, x: number, z: number, R: number): [number, number] {
   const f = g.floors[isleAt(g, x, z)];
   if (!f) return [x, z];
-  const r = f.r - R;
-  const cxp = x < f.x0 + f.r ? f.x0 + f.r : x > f.x1 - f.r ? f.x1 - f.r : NaN;
-  const czp = z < f.z0 + f.r ? f.z0 + f.r : z > f.z1 - f.r ? f.z1 - f.r : NaN;
+  const r = f.r - R, E = 1e-6;
+  const cxp = x < f.x0 + f.r && f.x0 <= g.lim.x0 + E ? f.x0 + f.r : x > f.x1 - f.r && f.x1 >= g.lim.x1 - E ? f.x1 - f.r : NaN;
+  const czp = z < f.z0 + f.r && f.z0 <= g.lim.z0 + E ? f.z0 + f.r : z > f.z1 - f.r && f.z1 >= g.lim.z1 - E ? f.z1 - f.r : NaN;
   if (isNaN(cxp) || isNaN(czp)) return [x, z];
   const dx = x - cxp, dz = z - czp, d = Math.hypot(dx, dz);
   return d > r ? [cxp + (dx / d) * r, czp + (dz / d) * r] : [x, z];
+}
+
+// Lejos (al menos `m`) de todo borde que da al vacío: ahí se vuelve después de caerse
+export function safeAt(g: Ground, x: number, z: number, m: number): boolean {
+  const f = g.floors[isleAt(g, x, z)];
+  if (!f) return false;
+  const E = 1e-6;
+  if ((f.x0 > g.lim.x0 + E && x - f.x0 < m) || (f.x1 < g.lim.x1 - E && f.x1 - x < m)) return false;
+  if ((f.z0 > g.lim.z0 + E && z - f.z0 < m) || (f.z1 < g.lim.z1 - E && f.z1 - z < m)) return false;
+  return !g.holes.some(h => x > h.x0 - m && x < h.x1 + m && z > h.z0 - m && z < h.z1 + m);
 }
 
 // Islas por las que hay que pasar para ir de una a otra (portales: la lista de islas, sin la de partida)

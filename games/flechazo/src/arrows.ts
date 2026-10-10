@@ -16,12 +16,12 @@ type Mode = 'rest' | 'out' | 'fly' | 'bump' | 'wait' | 'back' | 'done';
 
 export class ArrowView {
   readonly a: Arrow; readonly id: number; readonly mesh: THREE.Mesh; readonly mat: THREE.MeshStandardMaterial;
-  readonly track: V2[]; readonly L: number; readonly hex: string; readonly color: THREE.Color; readonly sGrid: number; readonly sEdge: number;
-  s = 0; v = 0; mode: Mode = 'rest'; sHit = 0; by = -1; wait = 0; flash = 0; glow = 0; lit = false; edged = false;
+  readonly track: V2[]; readonly L: number; hex: string; readonly color: THREE.Color; readonly sGrid: number; readonly sEdge: number;
+  s = 0; v = 0; mode: Mode = 'rest'; sHit = 0; by = -1; wait = 0; flash = 0; glow = 0; lit = false; edged = false; gold = false; readonly hex0: string;
 
   constructor(b: Board, ox: number, oz: number, a: Arrow) {
     this.a = a, this.id = a.id;
-    this.hex = COLORS[a.c % COLORS.length];
+    this.hex = this.hex0 = COLORS[a.c % COLORS.length];
     this.color = new THREE.Color(this.hex);
     const P: V2[] = a.cells.map(i => [ox + cx(b, i) * C, oz + cy(b, i) * C]);
     this.L = plen(P);
@@ -38,6 +38,15 @@ export class ArrowView {
   private geometry() { return toGeometry(arrowMesh(this.poly(), [this.color.r, this.color.g, this.color.b])); }
   private rebuild() { const old = this.mesh.geometry; this.mesh.geometry = this.geometry(); old.dispose(); }
 
+  // La flecha dorada del evento: se pinta de oro y brilla (false: vuelve a su color)
+  setGold(on: boolean) {
+    if (this.gold === on) return;
+    this.gold = on;
+    this.hex = on ? '#ffc21a' : this.hex0;
+    this.color.set(this.hex);
+    this.mat.metalness = on ? 0.35 : 0, this.mat.roughness = on ? 0.25 : 0.36;
+    this.rebuild();
+  }
   poly(): V2[] { return clip(this.track, this.s, this.s + this.L); }
   headAt() { return pointAt(this.track, this.s + this.L); }
   get moving() { return this.mode !== 'rest' && this.mode !== 'done'; }
@@ -84,7 +93,7 @@ export class ArrowView {
     this.glow += ((this.lit ? 1 : 0) - this.glow) * Math.min(1, dt * 14);
     const t = performance.now() / 1000;
     if (this.flash > 0) this.mat.emissive.setRGB(0.9 * this.flash, 0.05 * this.flash, 0.15 * this.flash);
-    else this.mat.emissive.copy(this.color).multiplyScalar(this.glow * (0.32 + Math.sin(t * 9) * 0.1));
+    else this.mat.emissive.copy(this.color).multiplyScalar(this.glow * (0.32 + Math.sin(t * 9) * 0.1) + (this.gold ? 0.3 + Math.sin(t * 5) * 0.12 : 0));
   }
 
   // Puntos cada medio metro desde la punta hasta el borde del piso (para la trayectoria)

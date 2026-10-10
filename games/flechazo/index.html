@@ -67,6 +67,10 @@
   #prompt.on { opacity: 1; }
   #prompt .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--tc, #888); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .15); }
   #prompt .k { font-size: 11px; color: var(--dim); border: 1.5px solid var(--line); border-radius: 6px; padding: 1px 6px; font-weight: 800; }
+  #prompt.petting .dot { border-radius: 0; background: none; box-shadow: none; width: 16px; height: 15px;
+    background: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23ff4f9a' d='M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.2 0 3.6 1.2 5.3 3.1 1.7-1.9 3.1-3.1 5.3-3.1 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z'/%3E%3C/svg%3E"); }
+  #prompt.petting { color: #e0287a; }
+  #t-act .heart { display: none; } #t-act.petting .heart { display: block; fill: #fff; stroke: none; } #t-act.petting .arr { display: none; }
   body.touch #prompt .k { display: none; }
 
   #coach { position: absolute; left: 50%; bottom: calc(18px + var(--sb)); transform: translateX(-50%); width: min(520px, calc(100% - 24px)); pointer-events: none;
@@ -186,6 +190,7 @@
   .stat { background: #f7f6ff; border-radius: 16px; padding: 10px; text-align: center; }
   .stat b { display: block; font-size: 22px; } .stat span { font-size: 12px; color: var(--ink2); font-weight: 700; }
   .note { margin-top: 12px; text-align: center; font-size: 14px; color: var(--ink2); font-weight: 650; }
+  .note.fly { background: #f1efff; border-radius: 14px; padding: 8px 12px; } .note.fly.on { background: #e3fbef; color: #0b8f5c; }
   .tabs { display: flex; gap: 6px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
   .tabs button { border: 0; background: #f1efff; border-radius: 999px; padding: 8px 14px; font-weight: 800; cursor: pointer; font-size: 14px; }
   .tabs button.on { background: var(--violet); color: #fff; }
@@ -215,7 +220,100 @@
     #bar-r { top: calc(94px + var(--st)); }
     body.touch #coach, #coach { top: calc(140px + var(--st)); bottom: auto; left: calc(10px + var(--sl)); transform: none; width: calc(100% - 20px - var(--sl) - var(--sr)); }
     #coach.swap { transform: translateY(-8px); }
+    body:has(#event:not([hidden])) #bar-r { top: calc(134px + var(--st)); }
+    body:has(#event:not([hidden])) #coach { top: calc(180px + var(--st)); }
   }
+
+  /* ── Cofre (ruleta) ── */
+  #case { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; overflow: hidden; color: #fff; touch-action: none;
+    background: radial-gradient(ellipse at 50% 42%, rgba(74, 42, 168, .96), rgba(14, 8, 38, .98)); padding: calc(10px + var(--st)) 10px calc(10px + var(--sb)); }
+  #case .rays { position: absolute; left: 50%; top: 42%; width: 220vmax; height: 220vmax; margin: -110vmax 0 0 -110vmax; pointer-events: none; opacity: 0;
+    background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--r) 70%, transparent) 0 7deg, transparent 7deg 18deg); transition: opacity .4s; }
+  #case.won .rays { opacity: .22; animation: crays 16s linear infinite; }
+  #case.won.t3 .rays { opacity: .38; animation-duration: 7s; }
+  @keyframes crays { to { transform: rotate(360deg); } }
+  .cbox { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(720px, 100%); }
+  .ctitle { font-weight: 900; letter-spacing: 6px; font-size: 14px; color: #ffd23f; text-shadow: 0 2px 10px rgba(0, 0, 0, .4); display: flex; align-items: center; gap: 8px; }
+  .ctitle svg { width: 22px; height: 22px; }
+  .chestart { width: 190px; height: 162px; filter: drop-shadow(0 0 22px color-mix(in srgb, var(--r) 60%, transparent)) drop-shadow(0 12px 18px rgba(0, 0, 0, .45)); }
+  .chestart .lid { transform-origin: 30px 70px; transform-box: view-box; }
+  #case.shake .chestart { animation: cshake 1.1s cubic-bezier(.5, 0, 1, 1) forwards; }
+  @keyframes cshake { 0% { transform: rotate(0); } 10% { transform: rotate(-3deg); } 20% { transform: rotate(3deg); } 30% { transform: rotate(-4deg) scale(1.02); }
+    40% { transform: rotate(5deg) scale(1.03); } 50% { transform: rotate(-6deg) scale(1.04); } 60% { transform: rotate(7deg) scale(1.05) translateY(-3px); }
+    70% { transform: rotate(-9deg) scale(1.07) translateY(-5px); } 80% { transform: rotate(10deg) scale(1.09) translateY(-8px); } 90% { transform: rotate(-12deg) scale(1.12) translateY(-10px); } 100% { transform: rotate(0) scale(1.16) translateY(-12px); } }
+  #case:not(.shake) .chestart { display: none; }
+  .reel { position: relative; width: min(94vw, 680px); height: 172px; overflow: hidden; border-radius: 18px; background: rgba(255, 255, 255, .08);
+    border: 2px solid rgba(255, 255, 255, .22); box-shadow: inset 0 0 40px rgba(0, 0, 0, .45); }
+  #case.shake .reel { display: none; }
+  #case.spin .reel { animation: cin .35s ease-out; }
+  @keyframes cin { from { transform: scale(.7); opacity: 0; } }
+  .reel::before, .reel::after { content: ""; position: absolute; top: 0; bottom: 0; width: 70px; z-index: 2; pointer-events: none; }
+  .reel::before { left: 0; background: linear-gradient(90deg, rgba(14, 8, 38, .85), transparent); }
+  .reel::after { right: 0; background: linear-gradient(-90deg, rgba(14, 8, 38, .85), transparent); }
+  .strip { position: absolute; left: 0; top: 12px; display: flex; gap: 8px; will-change: transform; }
+  .ccard { flex: none; width: 118px; height: 146px; border-radius: 14px; color: var(--ink); text-align: center; overflow: hidden;
+    background: linear-gradient(180deg, #ffffff 55%, color-mix(in srgb, var(--r) 30%, #ffffff)); border-bottom: 7px solid var(--r);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--r) 55%, transparent); transition: opacity .3s, transform .3s; }
+  .ccard .cimg { width: 96px; height: 96px; display: block; margin: 3px auto 0; }
+  .ccard b { display: block; font-size: 12.5px; line-height: 1.1; padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ccard small { display: block; font-size: 10.5px; color: var(--ink2); font-weight: 700; }
+  .cimg.coin { display: grid !important; place-items: center; } .cimg.coin svg { width: 60px; height: 60px; }
+  #case.won .ccard { opacity: .28; }
+  #case.won .ccard.win { opacity: 1; transform: scale(1.06); box-shadow: 0 0 0 3px var(--r), 0 0 30px var(--r); }
+  .marker { position: absolute; left: 50%; top: 0; bottom: 0; width: 4px; margin-left: -2px; z-index: 3; background: #ffd23f; box-shadow: 0 0 12px #ffd23f; }
+  .marker::before, .marker::after { content: ""; position: absolute; left: 50%; margin-left: -10px; border: 10px solid transparent; }
+  .marker::before { top: -2px; border-top-color: #ffd23f; } .marker::after { bottom: -2px; border-bottom-color: #ffd23f; }
+  .marker.tk { animation: tk .12s; } @keyframes tk { 50% { transform: scaleX(1.8); } }
+  .prize { display: none; align-items: center; gap: 14px; background: #fff; color: var(--ink); border-radius: 22px; padding: 10px 18px 10px 10px;
+    box-shadow: 0 0 0 4px var(--r), 0 0 50px color-mix(in srgb, var(--r) 70%, transparent); }
+  #case.won .prize { display: flex; animation: cpop .5s cubic-bezier(.2, 1.6, .4, 1); }
+  #case.won.t3 .prize { animation: cpop .5s cubic-bezier(.2, 1.6, .4, 1), cbump .5s .5s 2; }
+  @keyframes cpop { from { transform: scale(.4); opacity: 0; } } @keyframes cbump { 50% { transform: scale(1.06); } }
+  .prize img, .prize .cimg { width: 110px; height: 110px; border-radius: 16px; background: radial-gradient(circle at 50% 35%, #fff, color-mix(in srgb, var(--r) 25%, #fff)); }
+  .prize b { display: block; font-size: 24px; font-weight: 900; line-height: 1.1; }
+  .prize small { display: block; font-size: 13px; color: var(--ink2); font-weight: 700; margin-top: 2px; }
+  .prize .ptier { display: inline-block; font-size: 11px; font-weight: 900; letter-spacing: 1.5px; color: #fff; background: var(--r); border-radius: 999px; padding: 2px 9px; margin-bottom: 4px; }
+  .prize em { display: inline-block; margin-top: 6px; font-style: normal; font-weight: 900; font-size: 12px; color: #16c47f; letter-spacing: 1px; }
+  #case.won.t3 .prize .ptier { background: linear-gradient(90deg, #ffb020, #ff5fb4, #ffb020); background-size: 200%; animation: shine 1.2s linear infinite; }
+  @keyframes shine { to { background-position: 200%; } }
+  .cbtns { display: none; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  #case.won .cbtns { display: flex; }
+  .cskip { margin: 0; font-size: 13px; font-weight: 800; opacity: .7; } #case.won .cskip { display: none; }
+  #case-fx { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+  #case-fx i { position: absolute; width: 10px; height: 14px; border-radius: 3px; animation: conf 1.5s cubic-bezier(.1, .7, .3, 1) forwards; }
+  @keyframes conf { to { transform: translate(var(--x), calc(var(--y) + 160px)) rotate(var(--rot)); opacity: 0; } }
+  #case::after { content: ""; position: fixed; inset: 0; pointer-events: none; background: #fff; opacity: 0; }
+  #case.spin::after { animation: cflash .5s ease-out; } #case.won::after { background: var(--r); animation: cflash .7s ease-out; }
+  @keyframes cflash { from { opacity: .85; } }
+
+  /* ── Estilos de una mascota ── */
+  .look { display: grid; grid-template-columns: 140px 1fr; gap: 14px; align-items: center; margin-top: 12px; }
+  .look img, .look .ph { width: 140px; height: 140px; border-radius: 18px; background: radial-gradient(circle at 50% 35%, #fff, #e3dcff); }
+  .look p { margin: 4px 0 0; font-size: 13px; color: var(--ink2); font-weight: 650; }
+  .sgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+  .sty { position: relative; border: 0; border-radius: 14px; padding: 6px 4px 6px; background: #f7f6ff; cursor: pointer; font: inherit; color: var(--ink);
+    box-shadow: inset 0 -5px 0 var(--r); text-align: center; }
+  .sty img { width: 64px; height: 64px; display: block; margin: 0 auto; }
+  .sty b { display: block; font-size: 11px; line-height: 1.15; margin-top: 2px; }
+  .sty.on { background: #efeaff; outline: 3px solid var(--violet); }
+  .sty.locked { cursor: default; opacity: .55; }
+  .sty.locked .q { width: 64px; height: 64px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center; font-size: 28px; font-weight: 900; color: #fff;
+    background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--r) 60%, #fff), var(--r)); }
+  .sty.none .q { width: 64px; height: 64px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center; font-size: 22px; color: var(--dim); background: #ecebf7; }
+  .chests { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  .btn .chest, .chip .chest { width: 1.3em; height: 1.3em; }
+  .pet .btn + .btn { margin-top: 6px; } .pet .sty-b { font-size: 11.5px; white-space: nowrap; padding: 6px 8px; min-height: 32px; }
+
+  /* ── Evento del nivel ── */
+  #event { gap: 7px; pointer-events: none; padding: 0 12px 0 9px; background: linear-gradient(90deg, #ffcf3a, #ff9a3c); color: #4a2a00; font-weight: 900; font-size: 13.5px;
+    box-shadow: 0 3px 0 rgba(176, 109, 0, .35), 0 8px 18px -8px rgba(176, 109, 0, .7); }
+  #event svg { width: 20px; height: 20px; }
+  #event .tm { background: rgba(255, 255, 255, .55); border-radius: 999px; padding: 1px 8px; font-variant-numeric: tabular-nums; }
+  #event.won { background: linear-gradient(90deg, #8b5cff, #ff5fb4); color: #fff; animation: evwon 1.6s ease-in-out infinite; }
+  #event.won .chest { filter: drop-shadow(0 0 4px #fff); }
+  #event.warn .tm { background: #ff4d6d; color: #fff; }
+  @keyframes evwon { 50% { box-shadow: 0 6px 18px -6px rgba(176, 109, 0, .7), 0 0 0 3px #fff, 0 0 26px #ff5fb4; } }
+  @media (max-width: 760px), (max-height: 520px) { #event { font-size: 11.5px; } #event svg { width: 16px; height: 16px; } }
   @media (prefers-reduced-motion: reduce) { .tap, #lockhint { animation: none; } #splash { animation-duration: .01s; animation-delay: 2.4s; } }
 </style>
 </head>
@@ -230,6 +328,7 @@
     <span class="chip" id="hearts"></span>
     <span class="chip" id="left"></span>
     <span class="chip" id="time">0:00</span>
+    <span class="chip" id="event" hidden></span>
   </div>
   <div class="bar" id="bar-r">
     <span class="chip" id="coins"></span>
@@ -239,13 +338,13 @@
   <canvas id="minimap" title="mapa (M)"></canvas>
   <div id="maptag">MAPA · <span class="kmap">M</span></div>
   <div id="cross"></div>
-  <div id="prompt"><span class="dot"></span>LIBERAR <span class="k">clic · E</span></div>
+  <div id="prompt"><span class="dot"></span><span class="pl">LIBERAR</span> <span class="k">clic · E</span></div>
   <div id="toasts"></div>
   <div id="coach" hidden><span class="tag"></span><div class="txt"></div><div class="tip"></div></div>
   <div id="touch">
     <div id="stickhint"></div>
     <div id="stick"><div id="knob"></div></div>
-    <button class="tbtn" id="t-act"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h12M12 6l6 6-6 6"/></svg><span>LIBERAR</span></button>
+    <button class="tbtn" id="t-act"><svg class="i arr" viewBox="0 0 24 24"><path d="M5 12h12M12 6l6 6-6 6"/></svg><svg class="i heart" viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.2 0 3.6 1.2 5.3 3.1 1.7-1.9 3.1-3.1 5.3-3.1 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z"/></svg><span>LIBERAR</span></button>
     <button class="tbtn" id="t-jump"><svg class="i" viewBox="0 0 24 24"><path d="M12 19V7M6 12l6-6 6 6"/></svg><span>SALTAR</span></button>
   </div>
 </div>
@@ -267,6 +366,34 @@
 <div id="lockhint" hidden>Hacé clic para mirar con el ratón</div>
 
 <div id="modal" class="screen veil" hidden></div>
+<div id="case" hidden>
+  <div class="rays"></div>
+  <div class="cbox">
+    <div class="ctitle"><svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z" fill="#ffd23f"/></svg>COFRE DE ESTILOS<svg viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z" fill="#ffd23f"/></svg></div>
+    <svg class="chestart" viewBox="0 0 200 170">
+      <defs>
+        <linearGradient id="cb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a98bff"/><stop offset="1" stop-color="#5a38d6"/></linearGradient>
+        <linearGradient id="cgd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe680"/><stop offset="1" stop-color="#ffb21a"/></linearGradient>
+      </defs>
+      <rect x="20" y="70" width="160" height="90" rx="12" fill="url(#cb)" stroke="#3b2296" stroke-width="5"/>
+      <path d="M62 72V158M138 72V158" stroke="url(#cgd)" stroke-width="13"/>
+      <g class="lid">
+        <path d="M18 72Q18 22 100 22Q182 22 182 72Z" fill="url(#cb)" stroke="#3b2296" stroke-width="5"/>
+        <path d="M62 27V72M138 27V72" stroke="url(#cgd)" stroke-width="13"/>
+        <path d="M40 46Q100 28 160 46" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="6" stroke-linecap="round"/>
+      </g>
+      <rect x="16" y="66" width="168" height="13" rx="4" fill="url(#cgd)" stroke="#b07a00" stroke-width="3"/>
+      <rect x="85" y="74" width="30" height="36" rx="7" fill="url(#cgd)" stroke="#b07a00" stroke-width="4"/>
+      <circle cx="100" cy="89" r="5" fill="#7a4d00"/><path d="M100 92v8" stroke="#7a4d00" stroke-width="4" stroke-linecap="round"/>
+    </svg>
+    <div id="case-reel" class="reel"><div id="case-strip" class="strip"></div><div id="case-marker" class="marker"></div></div>
+    <div id="case-prize" class="prize"></div>
+    <div class="cbtns"><button class="btn" id="case-wear">PONÉRSELO</button><button class="btn ghost" id="case-again"></button><button class="btn ghost" id="case-ok">SEGUIR</button></div>
+    <p class="cskip">Tocá para saltar</p>
+    <div id="case-fx"></div>
+  </div>
+  <span id="case-left" hidden></span>
+</div>
 <button id="fsbtn" aria-label="pantalla completa"></button>
 
 <script type="module" src="./src/main.ts"></script>

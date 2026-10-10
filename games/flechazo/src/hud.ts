@@ -18,6 +18,9 @@ export const ICON = {
   x: '<svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
   lock: '<svg class="i" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
   map: '<svg class="i" viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14"/></svg>',
+  chest: '<svg class="i chest" viewBox="0 0 24 24"><path d="M3 10a6 6 0 0 1 6-5h6a6 6 0 0 1 6 5z" fill="#9b6bff" stroke="#5b3bc4" stroke-width="1.4"/><rect x="3" y="10" width="18" height="10" rx="2" fill="#7b5cff" stroke="#4b2fa8" stroke-width="1.4"/><path d="M3 13h18" stroke="#ffcf3a" stroke-width="2"/><rect x="10" y="11" width="4" height="5" rx="1" fill="#ffcf3a" stroke="#b07a00" stroke-width="1"/></svg>',
+  star: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z" fill="currentColor"/></svg>',
+  brush: '<svg class="i" viewBox="0 0 24 24"><path d="M14 4l6 6-8 8H6v-6zM4 20h4"/></svg>',
 };
 
 const last: Record<string, string | number> = {};
@@ -45,9 +48,13 @@ export function hint(cost: number, show: boolean) {
   set('b-hint', cost, () => `${ICON.bulb}PISTA <span class="price">${ICON.coin}${cost}</span>`);
 }
 
-export function prompt(hex: string | null) {
+// El cartel de la mira: LIBERAR (con el color de la flecha apuntada) o ACARICIAR (apuntando a la mascota)
+export function prompt(hex: string | null, pet = false) {
   const p = $('prompt'), c = $('cross'), a = $('t-act');
   p.classList.toggle('on', !!hex), c.classList.toggle('on', !!hex), a.classList.toggle('on', !!hex);
+  for (const e of [p, c, a]) e.classList.toggle('petting', pet);
+  const label = pet ? 'ACARICIAR' : 'LIBERAR';
+  for (const e of [p.querySelector('.pl'), a.querySelector('span')]) if (e && e.textContent !== label) e.textContent = label;
   if (hex) for (const e of [p, c, a]) e.style.setProperty('--tc', hex);
 }
 
@@ -77,6 +84,20 @@ export function coach(v: { tag: string, text: string, tip: string } | null) {
   if (first) { fill(); return; }
   el.classList.add('swap');
   setTimeout(fill, 220);
+}
+
+// El evento del nivel: qué hay que hacer (y cuánto tiempo queda) o el cofre ya ganado
+export function event(v: { text: string, time?: number, won?: boolean } | null) {
+  const el = $('event');
+  const sec = v?.time === undefined ? -1 : Math.ceil(v.time), t = sec < 0 ? '' : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  const key = v ? `${v.text}|${t}|${v.won}` : '';
+  if (last.event === key) return;
+  last.event = key;
+  el.hidden = !v;
+  if (!v) return;
+  el.classList.toggle('won', !!v.won);
+  el.classList.toggle('warn', v.time !== undefined && v.time < 6);
+  el.innerHTML = `${v.won ? ICON.chest : ICON.star}${v.text}${t ? ` <span class="tm">${t}</span>` : ''}`;
 }
 
 let flashT = 0;
