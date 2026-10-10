@@ -46,8 +46,49 @@ Arma el tablero **al revés de como se resuelve**: cada flecha nueva sale antes 
 tiene que estar libre de ellas; su cuerpo, en cambio, puede tapar las rectas de las anteriores (eso crea las dependencias).
 Así todo tablero generado tiene solución por construcción. Para que no queden casi todas libres al empezar, en cada lugar
 prueba varias flechas y se queda con la que **traba más flechas todavía libres**, y entre varios tableros candidatos se
-queda con el más **profundo** (más rondas de «sacar todas las libres» para resolverlo). Hoy: FÁCIL 3–4 rondas, DIFÍCIL 5–8,
-EXTREMO 5–9.
+queda con el más **profundo** (más rondas de «sacar todas las libres» para resolverlo), con menos flechas libres al empezar
+y sin huecos grandes.
+
+## Más difícil (pedido del usuario, 2026-10-10)
+
+El usuario notó que los juegos de flechas suben la dificultad con tres trucos y pidió aplicarlos a todo el juego y volver
+más extremo EXTREMO. Cómo los llevé al generador (lo marcado *decidí yo*, para confirmar):
+
+| Truco | Cómo quedó |
+| --- | --- |
+| Flechas larguísimas que encierran a otras | **Anillos**: un cuarto de 2×2 a 4×4 lleno de flechas cortas y una flecha que lo rodea entero (12–28 celdas) con la punta en una esquina, hacia afuera. Ninguna de adentro sale antes que el anillo. *El cuarto se arma a mitad del llenado*, así el anillo también traba flechas de afuera. EXTREMO: *la mitad son anillos dobles* (un anillo alrededor de otro). |
+| Flechas largas, escalonadas y entrelazadas | **Escaleras** (doblan a un lado y al otro cada uno o dos pasos, a veces cambian de costado) y **gemelas** (el mismo camino corrido una celda, pegado al original). *En EXTREMO las gemelas son del mismo color* y el tablero usa *6, después 5 y después 4 colores* (vecinas del mismo color). Apuntar a una flecha la ilumina entera: así se ve dónde está su punta. |
+| Bordes falsos e islas | **Dos o cuatro islas** sobre el vacío y **huecos al medio**. Las rectas cruzan el vacío: una flecha que apunta al borde de su isla puede chocar con la de enfrente. A otra isla se pasa **pisando un portal** (*en una celda del borde que mira a la otra isla, en el medio; los de un par, del mismo color y unidos con una línea punteada en el mapa grande*). No se cae ni se salta el vacío (*es una pared invisible, como el borde del tablero*). |
+| Además | *Las flechas apuntan más hacia adentro* (la recta más larga), así lo que se pone después las tapa: menos libres al empezar. |
+
+Cuándo aparece cada cosa: FÁCIL, un anillo en los impares desde el 3, dos islas en el 6, 14, 22… y hueco en el 10, 18…;
+DIFÍCIL, 1–2 anillos, escaleras y gemelas siempre, y cada 4 niveles dos islas → hueco → cuatro islas; EXTREMO, 2–4
+anillos, y dos o cuatro islas o un hueco en 2 de cada 4 niveles. La primera vez que aparece algo nuevo, un cartel lo
+explica (una sola vez).
+
+Promedio de los niveles 2–25 (rondas para resolverlo / flechas libres al empezar): FÁCIL 5,2 / 43 %, DIFÍCIL 7,1 / 37 %,
+EXTREMO 9,0 / 33 % (antes 4,1 / 53 %, 6,4 / 47 %, 7,5 / 46 %).
+
+## Modo ISLAS (pedido de un tester, 2026-10-10)
+
+> «Añade un nuevo modo de juego con mapas segmentados en islas. La flecha solo puede ser liberada si su camino está libre de
+> obstáculos en su isla y en todas las islas por las que tenga que pasar para salir del mapa. […] El jugador debe poder
+> transportarse entre islas mediante puntos de teletransportación identificados claramente y visibles. El mapa al
+> agrandarlo muestra todas las flechas sin liberar en cada isla así como se encuentran dispuestas en juego 3D, sin
+> asimetrías.»
+
+Antes del pedido el tester comentó que en EXTREMO la dificultad está más en el tamaño del mapa que en cómo se reparten las
+flechas, porque desde donde estás ves la flecha entera y solo hay que recordar su dirección. ISLAS ataca eso: la flecha
+que la traba puede estar en otra isla.
+
+| Tema | Quedó así |
+| --- | --- |
+| Dónde | Cuarta tarjeta en NIVELES, con su escalera infinita; se abre con 3 niveles de FÁCIL (como DIFÍCIL). |
+| Mapas | Grillas de islas cuadradas iguales, de lado impar (el portal queda justo en el medio): 2×1 de 5 → 1×2 → 2×1 de 7 → 2×2 → 3×1 → 1×3 → … → 3×3; después rotan 2×2, 3×2, 2×3 y 3×3 y crecen. Tres columnas de vacío entre islas. |
+| La regla | La de siempre: la recta de la punta llega hasta el borde del tablero y cruza el vacío y las islas que haya en el camino. *El generador pone más flechas en el borde de una isla mirando a otra* (parecen libres) y prefiere tapar rectas de otras islas: ~45–60 % de las flechas trabadas lo están por una de otra isla. Flechas medianas (3–9), con algún anillo. |
+| Portales | Uno por cada isla vecina, en el medio del lado que la mira. Remolino, aro y columna de luz del color de su par, y encima un cartel «→ ISLA n» que se lee de lejos (sin niebla). Al pasar: destello del color, sonido y el aviso «Isla n». El HUD dice en qué isla estás. |
+| Mapa grande | Todas las flechas sin liberar de todas las islas, tal como están en 3D (misma escala en los dos ejes). Cada isla con su número en la esquina, cada portal con el número de la isla a la que lleva y una línea punteada hasta su par. El título dice «ESTÁS EN LA ISLA n DE m». |
+| Simetría | Todas las islas del mismo tamaño y con el mismo margen de piso en los cuatro lados (también en las islas de las otras dificultades). |
 
 ## Pendiente / para calibrar jugando
 
@@ -55,3 +96,5 @@ EXTREMO 5–9.
 - Niebla base (17 m): ¿se siente perdido en EXTREMO sin mejoras?
 - Precios de mejoras, mascotas y pista, y los premios; cuántos niveles para desbloquear.
 - Si hace falta un «modo planificar» (ver el mapa grande mientras se camina) o si con el minimapa alcanza.
+- Si las gemelas del mismo color y los 4 colores de EXTREMO son demasiado; cuántos anillos por nivel; si el vacío entre
+  islas debería poder cruzarse con el planeo (hoy no).

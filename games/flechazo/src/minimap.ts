@@ -1,7 +1,8 @@
 // Minimapa (redondo, centrado en el jugador y girado hacia donde mira; su radio crece con la visibilidad) y mapa grande
 // (todo el rompecabezas con el norte arriba; tocar una flecha la marca como destino). Los dos dibujan las flechas como en
-// los juegos de flechas en 2D, también las que se están moviendo.
+// los juegos de flechas en 2D, también las que se están moviendo, y las islas, los huecos y los portales.
 import { C } from './sim/const.ts';
+import { PAD_R, type Ground } from './sim/ground.ts';
 import type { Board } from './sim/puzzle.ts';
 import type { Lim } from './sim/body.ts';
 import type { V2 } from './sim/geom.ts';
@@ -9,7 +10,7 @@ import type { ArrowView } from './arrows.ts';
 
 export type Mark = { x: number, z: number, hex: string };
 export type MapState = {
-  b: Board, ox: number, oz: number, lim: Lim, views: ArrowView[],
+  b: Board, ox: number, oz: number, lim: Lim, gr: Ground, padHex: string[], views: ArrowView[],
   px: number, pz: number, yaw: number, radius: number,
   marks: Mark[], target: number, dest: number,
 };
@@ -43,10 +44,11 @@ function drawArrows(g: CanvasRenderingContext2D, st: MapState, px: number, hi: n
 }
 const path = (g: CanvasRenderingContext2D, P: V2[]) => { g.beginPath(); g.moveTo(P[0][0], P[0][1]); for (let i = 1; i < P.length; i++) g.lineTo(P[i][0], P[i][1]); };
 
-function floor(g: CanvasRenderingContext2D, st: MapState, dots: boolean) {
-  const { lim, b, ox, oz } = st;
+// holeFill: con qué se tapan los huecos (null = se recortan)
+function floor(g: CanvasRenderingContext2D, st: MapState, dots: boolean, holeFill: string | null) {
+  const { b, ox, oz, gr } = st;
   g.fillStyle = '#ffffff';
-  g.beginPath(); g.roundRect(lim.x0, lim.z0, lim.x1 - lim.x0, lim.z1 - lim.z0, C * 0.75); g.fill();
+  for (const f of gr.floors) { g.beginPath(); g.roundRect(f.x0, f.z0, f.x1 - f.x0, f.z1 - f.z0, f.r); g.fill(); }
   g.fillStyle = '#f1eeff';
   if (b.mask) { for (let y = 0; y < b.h; y++) for (let x = 0; x < b.w; x++) if (b.mask[y * b.w + x]) g.fillRect(ox + (x - 0.5) * C - 0.02, oz + (y - 0.5) * C - 0.02, C + 0.04, C + 0.04); }
   else { g.beginPath(); g.roundRect(ox - C / 2, oz - C / 2, b.w * C, b.h * C, C * 0.3); g.fill(); }
@@ -57,6 +59,32 @@ function floor(g: CanvasRenderingContext2D, st: MapState, dots: boolean) {
       g.beginPath(); g.arc(ox + x * C, oz + y * C, 0.16, 0, Math.PI * 2); g.fill();
     }
   }
+  if (holeFill) g.fillStyle = holeFill; else g.globalCompositeOperation = 'destination-out';
+  for (const h of gr.holes) { g.beginPath(); g.roundRect(h.x0, h.z0, h.x1 - h.x0, h.z1 - h.z0, 0.3); g.fill(); }
+  g.globalCompositeOperation = 'source-over';
+}
+
+// Portales: un disco del color de su par; en el mapa grande, con el número de la isla a la que lleva y una línea punteada
+// hasta el otro, y el número de cada isla en su esquina
+function pads(g: CanvasRenderingContext2D, st: MapState, px: number, big: boolean) {
+  const P = st.gr.pads;
+  if (big) {
+    g.setLineDash([0.5, 0.5]); g.lineWidth = 0.22; g.lineCap = 'round';
+    P.forEach((p, i) => { if (i < p.to) { g.strokeStyle = st.padHex[i]; g.beginPath(); g.moveTo(p.x, p.z); g.lineTo(P[p.to].x, P[p.to].z); g.stroke(); } });
+    g.setLineDash([]);
+  }
+  const r = big ? Math.max(PAD_R * 1.15, 9 * px) : PAD_R * 1.15;
+  g.textAlign = 'center', g.textBaseline = 'middle';
+  P.forEach((p, i) => {
+    g.fillStyle = st.padHex[i]; g.strokeStyle = '#ffffff'; g.lineWidth = Math.max(0.18, 2 * px);
+    g.beginPath(); g.arc(p.x, p.z, r, 0, Math.PI * 2); g.fill(); g.stroke();
+    if (big) { g.fillStyle = '#ffffff'; g.font = `900 ${r * 1.15}px ui-rounded, system-ui, sans-serif`; g.fillText(String(P[p.to].isle + 1), p.x, p.z + r * 0.06); }
+  });
+  if (big && st.gr.floors.length > 1) st.gr.floors.forEach((f, i) => {
+    const R = Math.max(1, 12 * px), x = f.x0 + R * 0.6, z = f.z0 + R * 0.6;
+    g.fillStyle = '#24234a'; g.beginPath(); g.arc(x, z, R, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ffffff'; g.font = `900 ${R * 1.2}px ui-rounded, system-ui, sans-serif`; g.fillText(String(i + 1), x, z + R * 0.06);
+  });
 }
 
 function player(g: CanvasRenderingContext2D, s: number, cone: boolean) {
@@ -81,7 +109,8 @@ export function drawMini(cv: HTMLCanvasElement, st: MapState, t: number) {
   g.beginPath(); g.arc(R, R, R, 0, Math.PI * 2); g.clip();
   g.fillStyle = '#dcd5ff'; g.fillRect(0, 0, S, S);
   g.translate(R, R); g.rotate(st.yaw); g.scale(k, k); g.translate(-st.px, -st.pz);
-  floor(g, st, st.radius < 18);
+  floor(g, st, st.radius < 18, '#dcd5ff');
+  pads(g, st, 1 / k, false);
   drawArrows(g, st, 1 / k, 1);
   // marcas (las de afuera del radio, como flechita en el borde)
   for (const m of st.marks) {
@@ -122,9 +151,10 @@ export function drawBig(cv: HTMLCanvasElement, st: MapState, t: number): { k: nu
   g.save();
   g.translate(x0, y0); g.scale(k, k);
   g.shadowColor = 'rgba(60,40,140,.35)'; g.shadowBlur = 24; g.shadowOffsetY = 8;
-  floor(g, st, false);
+  floor(g, st, false, null);
   g.shadowColor = 'transparent';
-  floor(g, st, true);
+  floor(g, st, true, null);
+  pads(g, st, 1 / k, true);
   drawArrows(g, st, 1 / k, 1.1);
   for (const m of st.marks) {
     const r = 1.1 + Math.sin(t * 5) * 0.3;

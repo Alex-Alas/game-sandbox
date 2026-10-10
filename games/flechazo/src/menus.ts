@@ -1,4 +1,4 @@
-// Menús (DOM, en #modal): pausa, MEJORAS (la tienda del nivel), MASCOTAS, NIVELES (las tres dificultades), AJUSTES y los
+// Menús (DOM, en #modal): pausa, MEJORAS (la tienda del nivel), MASCOTAS, NIVELES (tres dificultades e ISLAS), AJUSTES y los
 // carteles de nivel resuelto y sin vidas. Cada página se arma de cero con el estado del momento.
 import { ICON } from './hud.ts';
 import { DIFFS, DIFF_NAME, levelOf, type Diff } from './sim/levels.ts';
@@ -60,11 +60,12 @@ export function show(p: Page, c: MenuCtx, from: Page | null = null) {
         return `<div class="pet ${on ? 'on' : ''} ${own ? '' : 'locked'}">${img}<b>${pt.name}</b><p>${pt.desc}</p>${btn}</div>`;
       }).join('') + `</div>${c.inLevel && !from ? `<div class="col"><button class="btn" data-a="resume">${ICON.play}SEGUIR</button></div>` : ''}</div>`;
   } else if (p === 'levels') {
-    const blurb: Record<Diff, string> = { facil: 'Tableros chicos, flechas cortas', dificil: 'Más grandes y más trabadas', extremo: 'Enormes, largas y con cadenas' };
-    h = `<div class="card wide">${backBtn}<h2>NIVELES</h2><p class="note">Cada dificultad tiene su propia escalera de niveles.</p><div class="diffs" style="margin-top:14px">` +
+    const blurb: Record<Diff, string> = { facil: 'Tableros chicos y algún anillo', dificil: 'Anillos, escaleras, islas y huecos', extremo: 'Anillos dobles, gemelas del mismo color y pocos colores',
+      islas: 'Modo: mapas partidos en islas con portales. Las flechas cruzan el vacío' };
+    h = `<div class="card wide">${backBtn}<h2>NIVELES</h2><p class="note">Cada dificultad y el modo ISLAS tienen su propia escalera de niveles.</p><div class="diffs" style="margin-top:14px">` +
       DIFFS.map(d => {
         const ok = unlocked(S, d), sp = levelOf(d, S.prog[d]);
-        const need = d === 'dificil' ? `Pasá ${UNLOCK} de FÁCIL` : `Pasá ${UNLOCK} de DIFÍCIL`;
+        const need = d === 'extremo' ? `Pasá ${UNLOCK} de DIFÍCIL` : `Pasá ${UNLOCK} de FÁCIL`;
         return `<button class="diff ${d}" data-play="${d}" ${ok ? '' : 'disabled'}><b>${DIFF_NAME[d]}</b><span>${blurb[d]}</span>
           <span class="lv">${ok ? `NIVEL ${S.prog[d]} · ${sp.w}×${sp.h}` : `${ICON.lock} ${need}`}</span></button>`;
       }).join('') + `</div></div>`;

@@ -6,7 +6,15 @@
 // hasta que no quede ninguna (si eso se traba, el tablero no tenía solución).
 
 export type Arrow = { id: number, cells: number[], c: number }; // cells: índices y·w + x de la cola a la punta; c: color
-export type Board = { w: number, h: number, arrows: Arrow[], mask: number[] | null }; // mask: 1 = celda de la figura
+export type Rect = [number, number, number, number]; // x0, y0, x1, y1 en celdas (inclusive)
+export type Pad = { cell: number, to: number, isle: number }; // portal: su celda (fuera de la figura), el portal al que lleva y su isla
+// mask: 1 = celda donde puede haber flechas. Con islas, `isles` son sus rectángulos (entre ellas hay vacío, que las rectas
+// cruzan igual), `holes` los huecos del medio (bordes falsos) y `pads` los portales para pasar de una isla a otra.
+// `rings` (las flechas que encierran un cuarto) y `twins` (pares [original, gemela]) los anota el generador.
+export type Board = {
+  w: number, h: number, arrows: Arrow[], mask: number[] | null,
+  isles?: Rect[], holes?: Rect[], pads?: Pad[], rings?: number[], twins?: [number, number][],
+};
 export type Gone = ArrayLike<boolean>;
 
 export const DX = [1, 0, -1, 0], DY = [0, 1, 0, -1]; // 0 este, 1 sur, 2 oeste, 3 norte
@@ -68,6 +76,13 @@ export function layers(b: Board): number {
   }
 }
 
+// Isla de una celda (−1 = vacío entre islas; sin islas, 0)
+export function isleOf(b: Board, i: number): number {
+  if (!b.isles) return 0;
+  const x = cx(b, i), y = cy(b, i);
+  return b.isles.findIndex(([x0, y0, x1, y1]) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
+}
+
 // Errores de forma de un tablero (vacío = válido)
 export function validate(b: Board): string[] {
   const err: string[] = [], seen = new Int16Array(b.w * b.h).fill(-1);
@@ -82,6 +97,12 @@ export function validate(b: Board): string[] {
       if (j && Math.abs(cx(b, i) - cx(b, a.cells[j - 1])) + Math.abs(cy(b, i) - cy(b, a.cells[j - 1])) !== 1) err.push(`flecha ${k}: salto en ${i}`);
     }
     if (a.cells.length >= 2 && rayOf(b, a).some(i => a.cells.includes(i))) err.push(`flecha ${k}: su recta cruza su cuerpo`);
+    if (b.mask && a.cells.some(i => !b.mask![i])) err.push(`flecha ${k}: fuera de la figura`);
   });
+  for (const p of b.pads ?? []) {
+    if (seen[p.cell] >= 0) err.push(`portal en ${p.cell}: lo pisa la flecha ${seen[p.cell]}`);
+    if (b.pads![p.to]?.to !== b.pads!.indexOf(p)) err.push(`portal en ${p.cell}: el enlace no vuelve`);
+    if (isleOf(b, p.cell) !== p.isle) err.push(`portal en ${p.cell}: fuera de su isla`);
+  }
   return err;
 }

@@ -29,6 +29,10 @@ export function hearts(n: number) {
   set('hearts', n, () => [0, 1, 2].map(i => ICON.heart.replace('<svg', `<svg class="${i < n ? 'on' : 'off'}"`)).join(''));
   if (prev !== undefined && n < prev) { const e = $('hearts'); e.classList.remove('hurt'); void e.offsetWidth; e.classList.add('hurt'); }
 }
+// En qué isla estás (oculto si el mapa es de una sola)
+export function isle(n: number, total: number) {
+  set('isle', `${n}/${total}`, () => { $('isle').hidden = total < 2; return `${ICON.map}ISLA ${n}<small>/${total}</small>`; });
+}
 export function left(n: number, total: number) { set('left', `${n}/${total}`, () => `${ICON.arrow}${n}`); }
 export function time(s: number) { const t = Math.floor(s), v = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; set('time', v, () => v); }
 export function coins(n: number) {
@@ -81,4 +85,14 @@ export function flash() {
   f.classList.add('on');
   clearTimeout(flashT);
   flashT = window.setTimeout(() => f.classList.remove('on'), 60);
+}
+
+// Al pasar por un portal: un destello del color del portal desde los bordes
+let warpT = 0;
+export function warp(css: string) {
+  const f = $('warp');
+  f.style.setProperty('--wc', css);
+  f.classList.add('on');
+  clearTimeout(warpT);
+  warpT = window.setTimeout(() => f.classList.remove('on'), 90);
 }

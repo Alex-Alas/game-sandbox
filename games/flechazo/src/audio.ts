@@ -1,6 +1,6 @@
 // Sonido procedural con Web Audio (sin archivos): pasos, saltos, el «fiuuu» de una flecha que sale (cada una una nota más
-// arriba en la escala), el golpe seco de un choque, monedas, compras, la fanfarria de victoria y una música tranquila de
-// pads y arpegio pentatónico que se puede apagar.
+// arriba en la escala), el golpe seco de un choque, el «fiuuup» de un portal, monedas, compras, la fanfarria de victoria y
+// una música tranquila de pads y arpegio pentatónico que se puede apagar.
 let ac: AudioContext | null = null, master: GainNode | null = null, sfx: GainNode | null = null, mus: GainNode | null = null, noiseBuf: AudioBuffer | null = null;
 let sfxOn = true, musOn = true;
 
@@ -72,6 +72,7 @@ export const S = {
   step2() { tone('sine', note(7), note(7), 0.18, 0.08); tone('sine', note(9), note(9), 0.22, 0.08, 0.08); },
   pet() { tone('sine', 1200, 1700, 0.08, 0.06); tone('sine', 1500, 2100, 0.08, 0.05, 0.09); },
   hint() { [0, 4, 7].forEach((k, i) => tone('sine', note(k + 5), note(k + 5), 0.25, 0.08, i * 0.06)); },
+  warp() { tone('sine', 220, 1320, 0.32, 0.11); tone('triangle', 330, 1980, 0.28, 0.06, 0.04); noise(0.4, 300, 5000, 0.1, 'bandpass', 0, 2.5, 0.03); },
 };
 
 // Música: cuatro acordes de pad y un arpegio suave, programados con anticipación
