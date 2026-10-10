@@ -88,6 +88,14 @@ const GAMES = {
       await pumpFor(page, 3.5);
     },
   },
+  filo: {
+    // la pelea de la portada del kit: el combo de La Errante, el amague contra el hachazo y la onda cargada
+    url: '/games/filo/?modo=scene', view: [1280, 720], size: [1280, 720], secs: 6, seed: 7, crf: 27,
+    async setup(page) {
+      await page.waitForFunction(() => window.__filo && window.__filo.ready, null, { timeout: 60000, polling: 200 });
+      await pumpFor(page, 2.7);
+    },
+  },
   vortice: {
     url: '/games/vortice/', view: [1152, 720], size: [960, 600], secs: 6, seed: 3, sub: 4, crf: 31, // 120 Hz: 4 pasos por cuadro
     async setup(page) {

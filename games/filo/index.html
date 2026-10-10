@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="theme-color" content="#0b1118" />
+<meta name="description" content="FILO: kit de assets 2D dibujado a mano con animación, efectos y shaders. Una heroína, un bruto, un escenario por capas y una interfaz." />
+<title>FILO · kit de assets 2D</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 14 L13 2 L14 3 L4 14 Z' fill='%23e6edf5'/%3E%3Cpath d='M3 15 L1 13' stroke='%23b8263a' stroke-width='2'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bone: #efe7d8; --bone2: #b9ad9c; --ink: #0b0910; --crim: #c22a3a; --crim2: #7a1426; --ember: #ffad5a; --teal: #6fc6d2;
+    --panel: rgba(10, 12, 18, 0.72); --panel2: rgba(24, 22, 32, 0.86); --line: rgba(239, 231, 216, 0.22);
+    --serif: "Cormorant Garamond", "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, "Times New Roman", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --sat: env(safe-area-inset-top); --sab: env(safe-area-inset-bottom); --sal: env(safe-area-inset-left); --sar: env(safe-area-inset-right);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #07090d; color: var(--bone); font-family: var(--sans);
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  canvas#over { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  [hidden] { display: none !important; }
+  button { font: inherit; color: inherit; }
+
+  /* ---- cabecera ---- */
+  #top { position: fixed; top: calc(10px + var(--sat)); left: calc(14px + var(--sal)); right: calc(14px + var(--sar)); display: flex; align-items: flex-start; gap: 10px; pointer-events: none; }
+  #brand { display: flex; align-items: center; gap: 10px; pointer-events: auto; }
+  #logo { height: 46px; width: auto; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
+  #brand .sub { font: 600 11px var(--sans); letter-spacing: .28em; text-transform: uppercase; color: var(--bone2); line-height: 1.5; }
+  #brand .sub b { color: var(--bone); font-weight: 700; }
+  .grow { flex: 1; }
+  .icons { display: flex; gap: 8px; pointer-events: auto; }
+  .ib { width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); display: grid; place-items: center; cursor: pointer; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); transition: transform .12s, background .2s; }
+  .ib:hover { background: var(--panel2); }
+  .ib:active { transform: scale(.92); }
+  .ib svg { width: 20px; height: 20px; }
+  .ib[aria-pressed=false] { opacity: .55; }
+
+  /* ---- pestañas ---- */
+  #tabs { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(12px + var(--sab)); display: flex; gap: 2px; padding: 4px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); max-width: calc(100vw - 20px); overflow-x: auto; scrollbar-width: none; z-index: 5; }
+  #tabs::-webkit-scrollbar { display: none; }
+  #tabs button { border: 0; background: transparent; padding: 9px 16px; border-radius: 999px; cursor: pointer; font: 600 12px var(--sans); letter-spacing: .16em; text-transform: uppercase; color: var(--bone2); white-space: nowrap; transition: background .2s, color .2s; }
+  #tabs button[aria-selected=true] { background: linear-gradient(180deg, #d3384a, #8f1a2c); color: #fff6ea; box-shadow: inset 0 1px 0 rgba(255,255,255,.25), 0 0 18px rgba(194,42,58,.45); }
+
+  /* ---- paneles ---- */
+  .panel { position: fixed; z-index: 4; background: var(--panel2); border: 1px solid var(--line); border-radius: 14px; padding: 14px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 20px 50px rgba(0,0,0,.5); max-height: calc(100vh - 140px - var(--sat) - var(--sab)); overflow-y: auto; scrollbar-width: thin; }
+  .panel.side { right: calc(14px + var(--sar)); top: calc(70px + var(--sat)); width: 300px; }
+  .panel h2 { margin: 0 0 2px; font: 600 22px var(--serif); letter-spacing: .04em; color: var(--bone); }
+  .panel .lead { margin: 0 0 12px; font-size: 12.5px; line-height: 1.5; color: var(--bone2); }
+  .panel h3 { margin: 14px 0 6px; font: 700 10px var(--sans); letter-spacing: .26em; text-transform: uppercase; color: var(--ember); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); background: rgba(255,255,255,.04); border-radius: 999px; padding: 7px 12px; font-size: 12.5px; cursor: pointer; transition: background .15s, border-color .15s; }
+  .chip:hover { background: rgba(255,255,255,.09); }
+  .chip[aria-pressed=true] { border-color: var(--crim); background: rgba(194,42,58,.28); color: #fff3e6; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .btn { border: 1px solid var(--line); background: rgba(255,255,255,.05); border-radius: 10px; padding: 8px 12px; font-size: 12.5px; cursor: pointer; min-height: 38px; display: inline-flex; align-items: center; gap: 6px; }
+  .btn:hover { background: rgba(255,255,255,.1); }
+  .btn.prim { background: linear-gradient(180deg, #d3384a, #8f1a2c); border-color: #e05a6a; color: #fff6ea; }
+  .btn svg { width: 16px; height: 16px; }
+  .tog { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 13px; cursor: pointer; }
+  .tog small { display: block; color: var(--bone2); font-size: 11px; margin-top: 1px; }
+  .sw { width: 38px; height: 22px; border-radius: 999px; background: #2a2734; position: relative; flex: none; transition: background .2s; border: 1px solid var(--line); }
+  .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--bone2); transition: transform .2s, background .2s; }
+  .tog[aria-checked=true] .sw { background: var(--crim2); }
+  .tog[aria-checked=true] .sw::after { transform: translateX(16px); background: var(--bone); }
+  .meta { font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--bone2); letter-spacing: .04em; }
+  input[type=range] { width: 100%; accent-color: var(--crim); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button { border: 0; background: transparent; padding: 7px 10px; font-size: 12px; cursor: pointer; }
+  .seg button[aria-pressed=true] { background: rgba(194,42,58,.35); }
+
+  /* ---- rótulo de la acción (en ESCENA) ---- */
+  #caption { position: fixed; left: 50%; bottom: calc(76px + var(--sab)); transform: translateX(-50%); font: italic 500 clamp(18px, 3.2vw, 30px) var(--serif); letter-spacing: .06em; color: var(--bone);
+    text-shadow: 0 2px 12px rgba(0,0,0,.8), 0 0 30px rgba(194,42,58,.4); pointer-events: none; transition: opacity .35s, transform .35s; white-space: nowrap; }
+  #caption small { display: block; text-align: center; font: 600 10px var(--sans); letter-spacing: .3em; text-transform: uppercase; color: var(--ember); font-style: normal; margin-bottom: 2px; }
+  #caption.off { opacity: 0; transform: translateX(-50%) translateY(6px); }
+
+  /* ---- etiquetas de capas (vista despiezada) ---- */
+  .tag { position: fixed; transform: translate(-50%, -100%); font: 600 10px var(--sans); letter-spacing: .14em; text-transform: uppercase; padding: 4px 8px; border-radius: 6px; background: rgba(8,10,14,.75); border: 1px solid var(--line); color: var(--bone); pointer-events: none; white-space: nowrap; }
+
+  /* ---- interfaz del kit ---- */
+  #uikit { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+  #uikit .hud { position: absolute; left: calc(18px + var(--sal)); top: calc(78px + var(--sat)); pointer-events: auto; }
+  #uikit .boss { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(86px + var(--sab)); width: min(620px, 86vw); pointer-events: auto; }
+  #uikit canvas { display: block; }
+  #uikit .dlg { position: absolute; left: 50%; transform: translateX(-50%); top: calc(110px + var(--sat)); width: min(560px, 90vw); pointer-events: auto; }
+  #uikit .slots { position: absolute; right: calc(18px + var(--sar)); top: calc(78px + var(--sat)); pointer-events: auto; display: grid; grid-template-columns: repeat(3, 58px); gap: 8px; }
+  #uikit .menu { position: absolute; left: calc(18px + var(--sal)); bottom: calc(86px + var(--sab)); display: flex; flex-direction: column; gap: 8px; pointer-events: auto; }
+  .kbtn { position: relative; width: 210px; height: 50px; border: 0; background: none; cursor: pointer; padding: 0; }
+  .kbtn canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .kbtn span { position: relative; font: 600 15px var(--serif); letter-spacing: .22em; text-transform: uppercase; color: var(--bone); text-shadow: 0 1px 0 #000; }
+  .kbtn:hover span { color: #fff; }
+
+  #panel-toggle { position: fixed; right: calc(12px + var(--sar)); bottom: calc(64px + var(--sab)); z-index: 6; }
+  .panel.collapsed { display: none; }
+  /* ---- teléfono ---- */
+  @media (max-width: 720px), (max-height: 520px) {
+    .panel.side { left: calc(10px + var(--sal)); right: calc(10px + var(--sar)); top: auto; bottom: calc(64px + var(--sab)); width: auto; max-height: 42vh; border-radius: 16px; padding: 12px; }
+    #logo { height: 36px; }
+    #brand .sub { display: none; }
+    #tabs button { padding: 8px 12px; font-size: 11px; letter-spacing: .12em; }
+    #caption { bottom: calc(66px + var(--sab)); }
+    .panel h2 { font-size: 18px; }
+    .panel .lead { display: none; }
+    body.sheet #caption { display: none; }
+    #panel-toggle { display: grid; }
+    body.sheet #panel-toggle { bottom: calc(64px + var(--sab) + 42vh + 8px); }
+  }
+  @media (min-width: 721px) and (min-height: 521px) { #panel-toggle { display: none !important; } }
+  @media (max-height: 520px) and (min-width: 600px) {
+    .panel.side { left: auto; right: calc(10px + var(--sar)); top: calc(58px + var(--sat)); bottom: calc(64px + var(--sab)); width: 270px; max-height: none; }
+    body.popen #panel-toggle { right: calc(290px + var(--sar)); }
+  }
+  /* carga */
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 45%, rgba(7,9,13,.55), #07090d 75%); z-index: 20; transition: opacity 1s; cursor: pointer; }
+  #loading.off { opacity: 0; pointer-events: none; }
+  #loading .card { display: flex; flex-direction: column; align-items: center; gap: 10px; animation: rise 1.4s cubic-bezier(.2,.8,.2,1) both; }
+  #loading canvas { width: min(560px, 80vw); height: auto; filter: drop-shadow(0 6px 24px rgba(0,0,0,.8)); }
+  #loading .t { font: italic 500 clamp(13px, 2vw, 17px) var(--serif); letter-spacing: .18em; color: var(--bone2); text-align: center; padding: 0 20px; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.98); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+  #toast { position: fixed; left: 50%; top: calc(70px + var(--sat)); transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; font-size: 13px; z-index: 30; max-width: 90vw; text-align: center; transition: opacity .3s; }
+  #toast.off { opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<canvas id="over"></canvas>
+<div id="uikit" hidden></div>
+<div id="top">
+  <div id="brand"><canvas id="logo" width="300" height="92" aria-label="FILO"></canvas><div class="sub"><b>Kit de assets 2D</b><br>Cementerio de filos</div></div>
+  <div class="grow"></div>
+  <div class="icons">
+    <button class="ib" id="btn-snd" title="sonido" aria-pressed="true"></button>
+    <button class="ib" id="btn-fs" title="pantalla completa"></button>
+  </div>
+</div>
+<div id="caption" class="off"></div>
+<nav id="tabs" role="tablist"></nav>
+<div id="panels"></div>
+<button id="panel-toggle" class="ib" title="opciones" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
+<div id="tags"></div>
+<div id="toast" class="off"></div>
+<div id="loading"><div class="card"><canvas id="logo-big" aria-label="FILO"></canvas><div class="t">kit de assets 2D · dibujado a mano, animado cuadro a cuadro</div></div></div>
+<script type="module" src="./src/main.ts"></script>
+</body>
+</html>
