@@ -64,6 +64,25 @@ function floor(g: CanvasRenderingContext2D, st: MapState, dots: boolean, holeFil
   g.globalCompositeOperation = 'source-over';
 }
 
+// El piso no cambia en todo el nivel: se dibuja una vez en un lienzo aparte (con sus cientos de puntitos) y en cada cuadro
+// solo se copia. Una copia por pedido (minimapa con o sin puntos, mapa grande con su escala).
+const floorCache = new Map<string, { b: Board, cv: HTMLCanvasElement }>();
+function cachedFloor(g: CanvasRenderingContext2D, st: MapState, dots: boolean, holeFill: string | null, ppm: number, key: string, shadow = false) {
+  const { lim } = st, M = shadow ? 40 / ppm : 0; // con sombra, margen para que no se corte
+  let c = floorCache.get(key);
+  if (c && c.b !== st.b) { floorCache.clear(); c = undefined; } // otro nivel
+  if (!c) {
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round((lim.x1 - lim.x0 + 2 * M) * ppm)), cv.height = Math.max(1, Math.round((lim.z1 - lim.z0 + 2 * M) * ppm));
+    const fg = cv.getContext('2d')!;
+    fg.setTransform(ppm, 0, 0, ppm, (M - lim.x0) * ppm, (M - lim.z0) * ppm);
+    if (shadow) { fg.shadowColor = 'rgba(60,40,140,.35)'; fg.shadowBlur = 24; fg.shadowOffsetY = 8; floor(fg, st, false, holeFill); fg.shadowColor = 'transparent'; }
+    floor(fg, st, dots, holeFill);
+    floorCache.set(key, c = { b: st.b, cv });
+  }
+  g.drawImage(c.cv, lim.x0 - M, lim.z0 - M, c.cv.width / ppm, c.cv.height / ppm);
+}
+
 // Portales: un disco del color de su par; en el mapa grande, con el número de la isla a la que lleva y una línea punteada
 // hasta el otro, y el número de cada isla en su esquina
 function pads(g: CanvasRenderingContext2D, st: MapState, px: number, big: boolean) {
@@ -109,7 +128,8 @@ export function drawMini(cv: HTMLCanvasElement, st: MapState, t: number) {
   g.beginPath(); g.arc(R, R, R, 0, Math.PI * 2); g.clip();
   g.fillStyle = '#dcd5ff'; g.fillRect(0, 0, S, S);
   g.translate(R, R); g.rotate(st.yaw); g.scale(k, k); g.translate(-st.px, -st.pz);
-  floor(g, st, st.radius < 18, '#dcd5ff');
+  const dots = st.radius < 18, ppm = Math.min(24, 2048 / Math.max(st.lim.x1 - st.lim.x0, st.lim.z1 - st.lim.z0), k * dpr * 1.2);
+  cachedFloor(g, st, dots, '#dcd5ff', ppm, `mini:${dots}:${ppm.toFixed(2)}`);
   pads(g, st, 1 / k, false);
   drawArrows(g, st, 1 / k, 1);
   // marcas (las de afuera del radio, como flechita en el borde)
@@ -150,10 +170,7 @@ export function drawBig(cv: HTMLCanvasElement, st: MapState, t: number): { k: nu
   const x0 = W / 2 - ((lim.x0 + lim.x1) / 2) * k, y0 = padT + (H - padT - padB) / 2 - ((lim.z0 + lim.z1) / 2) * k;
   g.save();
   g.translate(x0, y0); g.scale(k, k);
-  g.shadowColor = 'rgba(60,40,140,.35)'; g.shadowBlur = 24; g.shadowOffsetY = 8;
-  floor(g, st, false, null);
-  g.shadowColor = 'transparent';
-  floor(g, st, true, null);
+  cachedFloor(g, st, true, null, k * dpr, `big:${(k * dpr).toFixed(3)}`, true);
   pads(g, st, 1 / k, true);
   drawArrows(g, st, 1 / k, 1.1);
   for (const m of st.marks) {

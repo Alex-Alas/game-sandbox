@@ -5,12 +5,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rayOf, occupancy, blockerOf, freeArrows, solveOrder, layers, validate, dirOf, isleOf } from '../src/sim/puzzle.ts';
-import { generate, maskOf, layoutOf, crossBlocked } from '../src/sim/gen.ts';
+import { generate, maskOf, layoutOf, crossBlocked, gapsOf, GAP } from '../src/sim/gen.ts';
 import { TUTORIAL, TUT, levelOf, specOf, reward, islePlan, DIFFS } from '../src/sim/levels.ts';
-import { groundOf, isleAt, islePath, roundCorner, PAD_R } from '../src/sim/ground.ts';
-import { newBody, stepBody, arrowBoxes, boxDist } from '../src/sim/body.ts';
+import { groundOf, isleAt, islePath, roundCorner, safeAt, PAD_R } from '../src/sim/ground.ts';
+import { newBody, stepBody, arrowBoxes, boxDist, onLand } from '../src/sim/body.ts';
 import { arrowMesh, clip, plen, pointAt, rounded } from '../src/sim/geom.ts';
-import { fresh, parse, buyUp, buyPet, unlocked, phys, upCost, UP_MAX } from '../src/sim/meta.ts';
+import { fresh, parse, buyUp, buyPet, unlocked, phys, upCost, UP_MAX, openChest, wear, lookOf } from '../src/sim/meta.ts';
+import { STYLES, rollPrize, decoy, styleKey, DUP_COINS } from '../src/sim/styles.ts';
+import { rng, next } from '../src/sim/rng.ts';
+import { newRes, adaptRes } from '../src/sim/res.ts';
 import { navOf, findPath } from '../src/sim/nav.ts';
 import { C, MARGIN, WALL_H, R } from '../src/sim/const.ts';
 
@@ -19,20 +22,21 @@ const geoOf = (b) => ({ ox: -(b.w - 1) / 2 * C, oz: -(b.h - 1) / 2 * C });
 const limOf = (b) => { const { ox, oz } = geoOf(b), m = (MARGIN + 0.5) * C; return { x0: ox - m, z0: oz - m, x1: ox + (b.w - 1) * C + m, z1: oz + (b.h - 1) * C + m }; };
 const allBoxes = (b, gone = []) => b.arrows.filter(a => !gone[a.id]).flatMap(a => arrowBoxes(b, a.id, geoOf(b).ox, geoOf(b).oz));
 
-test('tutorial: válido, con solución y con los bloqueos que explica', () => {
+test('tutorial: válido, sin huecos, con solución y con los bloqueos que explica', () => {
   const b = TUTORIAL;
   assert.deepEqual(validate(b), []);
+  assert.deepEqual(gapsOf(b), [], 'sin huecos');
   assert.ok(solveOrder(b));
   const occ = occupancy(b), blk = (id) => blockerOf(b, b.arrows[id], occ);
   assert.equal(blk(TUT.A), null, 'A está libre');
   assert.equal(blk(TUT.C), null, 'C está libre');
   assert.equal(blk(TUT.B)?.id, TUT.C, 'C traba a B');
-  assert.equal(blk(TUT.B)?.k, 1);
-  assert.equal(blk(TUT.D)?.id, TUT.E, 'E traba a D');
   assert.equal(blk(TUT.G)?.id, TUT.A, 'A traba a G');
+  assert.equal(blk(TUT.D)?.id, TUT.G, 'G traba a D');
   const gone = []; gone[TUT.C] = true;
   assert.ok(freeArrows(b, gone).includes(TUT.B), 'sin C, B sale');
   assert.equal(dirOf(b, b.arrows[TUT.A]), 2);
+  assert.equal(layers(b), 4);
 });
 
 test('la recta de la punta llega al borde y no incluye la punta', () => {
@@ -40,10 +44,11 @@ test('la recta de la punta llega al borde y no incluye la punta', () => {
   assert.deepEqual(rayOf(b, b.arrows[0]), [8, 9]);
 });
 
-test('cada nivel generado es válido, tiene solución y es determinista', () => {
+test('cada nivel generado es válido, no tiene huecos, tiene solución y es determinista', () => {
   for (const d of DIFFS) for (let n = 1; n <= 14; n++) {
     const b = levelOf(d, n);
     assert.deepEqual(validate(b), [], `${d} ${n}`);
+    assert.deepEqual(gapsOf(b), [], `${d} ${n}: celdas sin flecha`);
     assert.ok(solveOrder(b), `${d} ${n}: sin solución`);
     if (n > 1 || d !== 'facil') assert.equal(J(generate(specOf(d, n), 1234)), J(generate(specOf(d, n), 1234)), `${d} ${n}: no determinista`);
     if (b.mask) for (const a of b.arrows) for (const i of a.cells) assert.equal(b.mask[i], 1, `${d} ${n}: flecha fuera de la figura`);
@@ -116,42 +121,96 @@ test('una gemela es el mismo camino corrido una celda', () => {
   assert.ok(n >= 5, `${n} gemelas`);
 });
 
-test('islas: portales enlazados en el borde de su isla, el vacío las separa y no se cruza caminando', () => {
-  for (const isl of ['two', 'four', 'hole']) for (const [w, h] of [[12, 9], [9, 12], [16, 16]]) {
+test('islas: portales enlazados en el borde de su isla y se llega a todas por portales', () => {
+  for (const isl of ['two', 'four', 'hole']) for (const [w, h] of [[16, 9], [9, 16], [20, 20]]) {
     const L = layoutOf(isl, w, h);
     const b = { w, h, arrows: [], mask: L.mask, isles: L.isles, holes: L.holes, pads: L.pads };
     assert.deepEqual(validate(b), [], `${isl} ${w}×${h}`);
     assert.equal(L.pads.length, isl === 'two' ? 2 : isl === 'four' ? 8 : 0);
     const { ox, oz } = geoOf(b), g = groundOf(b, ox, oz);
     assert.equal(g.floors.length, L.isles.length);
+    assert.ok(g.open, 'hay vacío adentro del mapa');
     for (const p of g.pads) {
       assert.equal(isleAt(g, p.x, p.z), p.isle, 'el portal está en el piso de su isla');
+      assert.ok(onLand(g, p.x, p.z) && safeAt(g, p.x, p.z, 1.6), 'el portal está lejos del vacío');
       assert.ok(!g.voids.some(k => boxDist(p.x, p.z, k) < PAD_R), 'el portal no toca el vacío');
     }
     for (let i = 0; i < L.isles.length; i++) for (let j = 0; j < L.isles.length; j++) assert.ok(islePath(g, i, j), 'se llega por portales');
-    // caminar hacia la otra isla (o hacia el hueco) frena en el vacío
-    const body = newBody(g.pads[0]?.x ?? 0, g.pads[0]?.z ?? oz - C), dir = isl === 'hole' ? [0, 1] : g.pads[0].x < g.pads[1].x ? [1, 0] : g.pads[0].z < g.pads[1].z ? [0, 1] : [-1, 0];
-    const target = isl === 'hole' ? null : g.pads[1];
-    for (let k = 0; k < 600; k++) stepBody(body, { mx: dir[0], mz: dir[1], jump: true, jumpHit: k % 40 === 0 }, g.voids, g.lim, { ...PH, air: 2, jumpH: 2.3, glide: true }, DT);
-    if (target) assert.equal(isleAt(g, body.x, body.z), 0, `${isl}: cruzó al vacío (${body.x}, ${body.z})`);
-    else assert.ok(!g.voids.some(k => body.x > k.x0 && body.x < k.x1 && body.z > k.z0 && body.z < k.z1), 'hueco: no entra');
   }
-  assert.deepEqual(islePath(groundOf({ w: 16, h: 16, arrows: [], mask: null, ...(({ isles, holes, pads }) => ({ isles, holes, pads }))(layoutOf('four', 16, 16)) }, 0, 0), 0, 3).length, 2);
+  assert.deepEqual(islePath(groundOf({ w: 20, h: 20, arrows: [], mask: null, ...(({ isles, holes, pads }) => ({ isles, holes, pads }))(layoutOf('four', 20, 20)) }, 0, 0), 0, 3).length, 2);
+});
+
+// Dos islas de 5 × 5: correr hacia la otra desde 7 m antes del borde, saltar a `jx` del borde, doble salto a los `dj` s (y
+// un tercero 0,45 s después) y SALTO mantenido (planeo). Devuelve si llegó a la isla 2.
+function leap(ph, jx, dj) {
+  const L = layoutOf('two', 16, 5), b = { w: 16, h: 5, arrows: [], mask: L.mask, isles: L.isles, holes: L.holes, pads: L.pads };
+  const g = groundOf(b, 0, 0), f = g.floors[0], bd = newBody(f.x1 - 7, (f.z0 + f.z1) / 2);
+  let t = 0, t0 = -1, n = 0;
+  for (let k = 0; k < 120 * 8; k++) {
+    let hit = false;
+    if (t0 < 0 && bd.x >= f.x1 - jx) hit = true, t0 = t;
+    else if (t0 >= 0 && n < 2 && t - t0 >= dj + n * 0.45) hit = true, n++;
+    stepBody(bd, { mx: 1, mz: 0, jump: true, jumpHit: hit }, [], g.lim, ph, DT, g);
+    t += DT;
+    if (bd.y < -6) return false;
+    if (bd.ground && isleAt(g, bd.x, bd.z) === 1) return true;
+  }
+  return false;
+}
+const physOf = (vel, salto) => { const s = fresh(); s.up.vel = vel, s.up.salto = salto; return phys(s); };
+
+test('el vacío entre islas: sin planeo y velocidad 3 siempre se cae; con eso, se cruza', () => {
+  assert.ok(GAP * C - 1.5 * C > 10, 'las islas están a más de 10 m');
+  for (let vel = 0; vel <= 5; vel++) for (let salto = 0; salto <= 5; salto++) {
+    const ph = physOf(vel, salto), free = salto >= 4 && vel >= 3;
+    assert.equal(ph.free, free);
+    let any = false;
+    for (let jx = -0.5; jx <= 1.5; jx += 0.5) for (let dj = 0.1; dj <= 0.9; dj += 0.2) any ||= leap(ph, jx, dj);
+    assert.equal(any, free, `velocidad ${vel}, salto ${salto}: ${any ? 'cruzó' : 'no cruzó'}`);
+  }
+  // con el equipo justo alcanza cualquier momento del doble salto
+  for (let dj = 0.1; dj <= 1.1; dj += 0.1) assert.ok(leap(physOf(3, 4), 0.5, dj), `doble salto a los ${dj} s`);
+});
+
+test('se cae del borde de una isla, el canto frena al que quedó abajo y del hueco no se sale', () => {
+  const L = layoutOf('two', 16, 5), b = { w: 16, h: 5, arrows: [], mask: L.mask, isles: L.isles, holes: L.holes, pads: L.pads };
+  const g = groundOf(b, 0, 0), f = g.floors[0], z = (f.z0 + f.z1) / 2;
+  const walk = newBody(f.x1 - 2, z);
+  for (let k = 0; k < 240; k++) stepBody(walk, { mx: 1, mz: 0, jump: false, jumpHit: false }, [], g.lim, PH, DT, g);
+  assert.ok(walk.y < -1 && walk.void, `cae: y = ${walk.y}`);
+  // abajo del piso, volver caminando hacia la isla choca con su canto
+  const low = newBody(f.x1 + 1, z); low.y = -1.5, low.ground = false, low.vy = 0;
+  for (let k = 0; k < 30; k++) stepBody(low, { mx: -1, mz: 0, jump: false, jumpHit: false }, [], g.lim, PH, DT, g);
+  assert.ok(low.x >= f.x1 + R - 1e-6, `atravesó el canto: x = ${low.x}`);
+  // un poco más abajo que el piso, se trepa (como al borde de una flecha)
+  const near = newBody(f.x1 + 0.6, z); near.y = -0.2, near.ground = false, near.vy = 3;
+  for (let k = 0; k < 60; k++) stepBody(near, { mx: -1, mz: 0, jump: false, jumpHit: false }, [], g.lim, { ...PH, free: true }, DT, g);
+  assert.ok(near.ground && near.y === 0, 'se trepó');
+  // hueco: se cae y no sale por el costado
+  const H = layoutOf('hole', 11, 11), hb = { w: 11, h: 11, arrows: [], mask: H.mask, isles: H.isles, holes: H.holes, pads: H.pads };
+  const hg = groundOf(hb, 0, 0), h = hg.holes[0], hole = newBody((h.x0 + h.x1) / 2, h.z0 - 1.5);
+  for (let k = 0; k < 240; k++) stepBody(hole, { mx: 0, mz: 1, jump: false, jumpHit: false }, [], hg.lim, PH, DT, hg);
+  assert.ok(hole.y < -1, 'cayó en el hueco');
+  assert.ok(hole.x - R >= h.x0 - 1e-6 && hole.x + R <= h.x1 + 1e-6 && hole.z - R >= h.z0 - 1e-6 && hole.z + R <= h.z1 + 1e-6, 'sigue adentro del hueco');
+  // sin islas ni hueco el piso está en todas partes y el borde de afuera es una pared
+  const solo = newBody(0, 0);
+  for (let k = 0; k < 600; k++) stepBody(solo, { mx: 1, mz: 0, jump: false, jumpHit: false }, [], LIM, PH, DT);
+  assert.equal(solo.y, 0);
 });
 
 // ---- Modo ISLAS -----------------------------------------------------------------------------------------------------
 test('ISLAS: una flecha libre en su isla no sale si la tapa una de otra isla que cruza', () => {
-  // dos islas de 3 × 3 con 3 columnas de vacío: A en la isla 1 mira al este; B, en la isla 2, está en su camino
-  const L = layoutOf('two', 9, 3), at = (x, y) => y * 9 + x;
-  const b = { w: 9, h: 3, mask: L.mask, isles: L.isles, holes: L.holes, pads: L.pads, arrows: [
-    { id: 0, c: 0, cells: [at(0, 0), at(1, 0), at(2, 0)] }, // A → este, nada de su isla adelante
-    { id: 1, c: 1, cells: [at(7, 2), at(7, 1), at(7, 0)] }, // B ↑ en la isla 2, en la fila de A
+  // dos islas de 3 × 3 con 6 columnas de vacío: A en la isla 1 mira al este; B, en la isla 2, está en su camino
+  const L = layoutOf('two', 12, 3), at = (x, y) => y * 12 + x;
+  const b = { w: 12, h: 3, mask: L.mask, isles: L.isles, holes: L.holes, pads: L.pads, arrows: [
+    { id: 0, c: 0, cells: [at(0, 0), at(1, 0), at(2, 0)] },   // A → este, nada de su isla adelante
+    { id: 1, c: 1, cells: [at(10, 2), at(10, 1), at(10, 0)] }, // B ↑ en la isla 2, en la fila de A
   ] };
   assert.deepEqual(validate(b), []);
-  assert.equal(isleOf(b, at(0, 0)), 0), assert.equal(isleOf(b, at(7, 0)), 1), assert.equal(isleOf(b, at(4, 0)), -1);
+  assert.equal(isleOf(b, at(0, 0)), 0), assert.equal(isleOf(b, at(10, 0)), 1), assert.equal(isleOf(b, at(5, 0)), -1);
   const hit = blockerOf(b, b.arrows[0], occupancy(b));
   assert.equal(hit?.id, 1, 'B traba a A desde la otra isla');
-  assert.equal(hit?.k, 4, 'A cruza el vacío (3) y una celda de la isla 2 antes del choque');
+  assert.equal(hit?.k, 7, 'A cruza el vacío (6) y una celda de la isla 2 antes del choque');
   assert.ok(!freeArrows(b).includes(0));
   assert.ok(freeArrows(b, [false, true]).includes(0), 'sin B, A sale');
   assert.equal(crossBlocked(b), 1);
@@ -180,14 +239,17 @@ test('ISLAS: islas iguales, pisos simétricos y un portal en el medio de cada la
   assert.equal(islePath(groundOf(g9, geoOf(g9).ox, geoOf(g9).oz), 0, 8).length, 4, '3 × 3: de una esquina a la otra, 4 portales');
 });
 
-test('ISLAS: muchas flechas parecen libres en su isla y chocan en otra', () => {
-  let blocked = 0, cross = 0;
+test('ISLAS: hay flechas que parecen libres en su isla y chocan en otra, y muchas dependen de otra isla', () => {
+  let blocked = 0, cross = 0, dep = 0;
   for (let n = 1; n <= 14; n++) {
     const b = levelOf('islas', n), occ = occupancy(b), x = crossBlocked(b);
     assert.ok(x >= 2, `nivel ${n}: ${x} trabadas por otra isla`);
     cross += x, blocked += b.arrows.filter(a => blockerOf(b, a, occ)).length;
+    // sin huecos, la mayoría choca primero en su isla; igual, para salir tienen que vaciar un camino en otra
+    dep += b.arrows.filter(a => rayOf(b, a).some(i => occ[i] >= 0 && isleOf(b, i) !== isleOf(b, a.cells[0]))).length;
   }
-  assert.ok(cross / blocked > 0.4, `${cross} de ${blocked}`);
+  assert.ok(cross / blocked > 0.25, `${cross} de ${blocked} chocan primero en otra isla`);
+  assert.ok(dep / blocked > 0.45, `${dep} de ${blocked} dependen de otra isla`);
 });
 
 test('las esquinas del piso son redondas y la isla de cada flecha es la de su punta', () => {
@@ -335,4 +397,73 @@ test('progreso: lo guardado roto vuelve a empezar; comprar cuesta y sube', () =>
   assert.equal(unlocked(u, 'islas'), true, 'ISLAS se abre con FÁCIL, como DIFÍCIL');
   const t = fresh(); t.prog.facil = 4;
   assert.equal(unlocked(t, 'dificil'), true);
+});
+
+// ---- Cofres y estilos ---------------------------------------------------------------------------------------------
+test('cofres: el premio es un estilo nuevo de una mascota adoptada; sin nada por ganar, monedas', () => {
+  const s = fresh(), r = rng(7), rnd = () => next(r);
+  s.coins = 1000; buyPet(s, 'michi'); buyPet(s, 'pio');
+  assert.equal(openChest(s, rnd), null, 'sin cofres no se abre nada');
+  s.chests = STYLES.length * 2 + 3;
+  const tiers = [0, 0, 0, 0];
+  for (let k = 0; k < STYLES.length * 2; k++) {
+    const p = openChest(s, rnd);
+    assert.ok(p && 'style' in p, `cofre ${k}: estilo`);
+    assert.ok(['michi', 'pio'].includes(p.pet), 'solo para las adoptadas');
+    tiers[p.tier]++;
+  }
+  assert.equal(new Set(s.styles).size, STYLES.length * 2, 'nunca repite');
+  assert.deepEqual(tiers, [0, 1, 2, 3].map(t => 2 * STYLES.filter(x => x.tier === t).length), 'al final, todos');
+  const c0 = s.coins, p = openChest(s, rnd);
+  assert.ok(p && 'coins' in p && s.coins === c0 + DUP_COINS, 'con todo ganado, monedas');
+  assert.equal(s.chests, 2);
+  assert.equal(s.stats.chests, STYLES.length * 2 + 1);
+  // las comunes salen más que las legendarias también en un solo sorteo
+  const n = [0, 0, 0, 0];
+  for (let k = 0; k < 4000; k++) n[rollPrize(['michi'], [], rnd).tier]++;
+  assert.ok(n[0] > n[1] && n[1] > n[2] && n[2] > n[3] && n[3] > 50, `${n}`);
+  for (let k = 0; k < 50; k++) { const d = decoy(['pio'], rnd); assert.equal(d.pet, 'pio'); assert.ok(STYLES.some(t => t.id === d.style && t.tier === d.tier)); }
+});
+
+test('estilos: solo se pone lo ganado y en su lugar; lo guardado se valida al leerlo', () => {
+  const s = fresh();
+  s.coins = 100; buyPet(s, 'gomita');
+  assert.equal(wear(s, 'gomita', 'oro', 'skin'), false, 'no ganado');
+  s.styles.push(styleKey('gomita', 'oro'), styleKey('gomita', 'corona'));
+  assert.equal(wear(s, 'gomita', 'corona', 'skin'), false, 'la corona no es una piel');
+  assert.equal(wear(s, 'gomita', 'oro', 'skin'), true);
+  assert.equal(wear(s, 'gomita', 'corona', 'acc'), true);
+  assert.deepEqual(lookOf(s, 'gomita'), { skin: 'oro', acc: 'corona' });
+  assert.equal(wear(s, 'gomita', null, 'acc'), true);
+  assert.deepEqual(lookOf(s, 'gomita'), { skin: 'oro', acc: null });
+  s.chests = 2;
+  assert.deepEqual(parse(JSON.stringify(s)), s, 'ida y vuelta');
+  const bad = parse(JSON.stringify({ ...s, styles: [...s.styles, 'michi:oro', 'gomita:nada', 4], look: { gomita: { skin: 'galaxia', acc: 'corona' }, michi: { skin: 'oro' } }, chests: -3 }));
+  assert.deepEqual(bad.styles, ['gomita:oro', 'gomita:corona'], 'sin estilos de mascotas que no se tienen ni inventados');
+  assert.deepEqual(bad.look, { gomita: { skin: null, acc: 'corona' } }, 'solo lo ganado');
+  assert.equal(bad.chests, 0);
+});
+
+// ---- Resolución adaptativa ----------------------------------------------------------------------------------------
+test('resolución adaptativa: baja si la GPU no da abasto, no baja por un tope de 30 fps y vuelve a subir', () => {
+  // la GPU tarda en proporción a los píxeles (escala²): a escala 1, 30 ms por cuadro
+  const gpu = newRes();
+  for (let k = 0; k < 60 * 30; k++) adaptRes(gpu, Math.max(16.7, 30 * gpu.scale * gpu.scale), 0.6);
+  assert.ok(gpu.scale < 0.9 && gpu.scale >= 0.6, `bajó: ${gpu.scale}`);
+  assert.ok(30 * gpu.scale * gpu.scale < 24, 'y anda cerca de los 45 fps o más');
+  // el teléfono en ahorro de batería: 33 ms por cuadro hagas lo que hagas
+  const cap = newRes();
+  let min = 1;
+  for (let k = 0; k < 30 * 60; k++) { adaptRes(cap, 33.3, 0.6); min = Math.min(min, cap.scale); }
+  assert.ok(cap.scale === 1, `vuelve a la escala completa: ${cap.scale}`);
+  assert.ok(min >= 0.85, `y casi no la toca: ${min}`);
+  // si después anda rápido, sube hasta 1
+  for (let k = 0; k < 60 * 20; k++) adaptRes(gpu, 12, 0.6);
+  assert.equal(gpu.scale, 1);
+  // pestaña oculta (cuadros larguísimos): no cuenta
+  const hid = newRes(); adaptRes(hid, 5000, 0.6); assert.equal(hid.clock, 0);
+  // un teléfono muy lento (120 ms por cuadro, que no mejora) también prueba bajar
+  const slow = newRes(); let low = 1;
+  for (let k = 0; k < 100; k++) { adaptRes(slow, 120 * Math.max(0.5, slow.scale * slow.scale), 0.6); low = Math.min(low, slow.scale); }
+  assert.ok(low < 1, 'probó bajar');
 });

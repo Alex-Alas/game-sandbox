@@ -1,5 +1,5 @@
 // Niveles: tres dificultades y el modo ISLAS, cada uno con su propia escalera infinita de niveles (determinista: modo +
-// número = el mismo tablero en cualquier máquina). Lo que crece es el tamaño del tablero, el largo y las vueltas de las
+// número = el mismo tablero en cualquier máquina). Ningún tablero tiene huecos: toda celda es parte de una flecha. Lo que crece es el tamaño del tablero, el largo y las vueltas de las
 // flechas, cuánto se tapan entre sí y las trampas de los juegos de flechas: anillos que encierran (desde FÁCIL 3),
 // escaleras y gemelas entrelazadas, islas con portales y huecos al medio (bordes falsos). EXTREMO suma anillos dobles,
 // gemelas del mismo color y menos colores. En ISLAS todo mapa es una grilla de islas iguales (de 2 a 9) y el generador
@@ -12,26 +12,29 @@ export const DIFFS = ['facil', 'dificil', 'extremo', 'islas'] as const; // 'isla
 export type Diff = typeof DIFFS[number];
 export const DIFF_NAME: Record<Diff, string> = { facil: 'FÁCIL', dificil: 'DIFÍCIL', extremo: 'EXTREMO', islas: 'ISLAS' };
 
-// Tutorial (7 × 6). Las letras son las flechas; el número de cada celda, el orden de la cola a la punta:
+// Tutorial (7 × 5, sin huecos como todo tablero). Las letras son las flechas; el número de cada celda, el orden de la cola a
+// la punta (el más alto es la punta):
 //   y\x 0  1  2  3  4  5  6
-//   0   D0 D1 D2 .  .  E1 .      D → este, trabada por E        E ↑ libre
-//   1   .  B0 G0 G1 .  E0 .      G ↓ trabada por A               B → trabada por C
-//   2   .  B1 .  G2 C2 .  .      C ↑ libre (tapa a B)
-//   3   .  B2 B3 .  C1 .  .
-//   4   .  .  .  .  C0 .  F2     F ↑ libre
-//   5   .  A2 A1 A0 .  F0 F1     A ← libre (la primera)
+//   0   D6 D5 D4 D3 D2 D1 D0     D ↓ trabada por G           I ↓ libre
+//   1   D7 B0 B1 F2 F1 F0 I0     B ↓ trabada por C           F ↓ trabada por H
+//   2   G1 G2 B2 F3 E0 E1 I1     C ↓ libre (tapa a B)        H → trabada por E y por I
+//   3   G0 G3 C0 H0 H1 E2 I2     G ↓ trabada por A           E ← trabada por C y por A
+//   4   A1 A0 C1 E5 E4 E3 I3     A ← libre (la primera)
+// B es roja y C verde, como dice el cartel.
 const T = (cells: [number, number][]) => cells.map(([x, y]) => y * 7 + x);
-export const TUT = { A: 0, C: 1, B: 2, D: 3, E: 4, F: 5, G: 6 } as const;
+export const TUT = { A: 0, C: 1, B: 2, D: 3, E: 4, F: 5, G: 6, H: 7, I: 8 } as const;
 export const TUTORIAL: Board = {
-  w: 7, h: 6, mask: null,
+  w: 7, h: 5, mask: null,
   arrows: [
-    { id: 0, c: 0, cells: T([[3, 5], [2, 5], [1, 5]]) },                 // A
-    { id: 1, c: 6, cells: T([[4, 4], [4, 3], [4, 2]]) },                 // C
-    { id: 2, c: 2, cells: T([[1, 1], [1, 2], [1, 3], [2, 3]]) },         // B
-    { id: 3, c: 4, cells: T([[0, 0], [1, 0], [2, 0]]) },                 // D
-    { id: 4, c: 8, cells: T([[5, 1], [5, 0]]) },                         // E
-    { id: 5, c: 7, cells: T([[5, 5], [6, 5], [6, 4]]) },                 // F
-    { id: 6, c: 9, cells: T([[2, 1], [3, 1], [3, 2]]) },                 // G
+    { id: 0, c: 0, cells: T([[1, 4], [0, 4]]) },                                                   // A
+    { id: 1, c: 3, cells: T([[2, 3], [2, 4]]) },                                                   // C
+    { id: 2, c: 5, cells: T([[1, 1], [2, 1], [2, 2]]) },                                           // B
+    { id: 3, c: 4, cells: T([[6, 0], [5, 0], [4, 0], [3, 0], [2, 0], [1, 0], [0, 0], [0, 1]]) },   // D
+    { id: 4, c: 7, cells: T([[4, 2], [5, 2], [5, 3], [5, 4], [4, 4], [3, 4]]) },                   // E
+    { id: 5, c: 2, cells: T([[5, 1], [4, 1], [3, 1], [3, 2]]) },                                   // F
+    { id: 6, c: 1, cells: T([[0, 3], [0, 2], [1, 2], [1, 3]]) },                                   // G
+    { id: 7, c: 6, cells: T([[3, 3], [4, 3]]) },                                                   // H
+    { id: 8, c: 8, cells: T([[6, 1], [6, 2], [6, 3], [6, 4]]) },                                   // I
   ],
 };
 
