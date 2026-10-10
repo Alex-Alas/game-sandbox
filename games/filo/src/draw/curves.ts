@@ -163,14 +163,33 @@ export function ik2(a: V, target: V, l1: number, l2: number, bend: number, stret
 
 // Contorno de un miembro de una sola pieza que pasa por las articulaciones `j` con anchos a cada lado.
 // `wl`/`wr`: anchos por articulación (izquierda/derecha de la marcha); entre medio interpola suave.
-export function limb(j: V[], wl: number[], wr: number[], per = 7, bulge?: (t: number, side: number) => number): V[] {
+export function limb(j: V[], wl: number[], wr: number[], per = 7, bulge?: (t: number, side: number) => number, caps = true): V[] {
   const c = spline(j, false, per);
   const segs = j.length - 1;
-  return taper(c, (t, side) => {
+  const w = (t: number, side: number) => {
     const x = t * segs, i = Math.min(segs - 1, Math.floor(x)), f = smooth(x - i);
     const arr = side > 0 ? wl : wr;
     return lerp(arr[i], arr[i + 1], f) + (bulge ? bulge(t, side) : 0);
-  });
+  };
+  if (!caps) return taper(c, w);
+  // con tapas redondas: el miembro no termina en un corte recto (eso lo hace ver de cartón)
+  const L = arcLengths(c), tot = L[L.length - 1] || 1, N = normals(c);
+  const left: V[] = [], right: V[] = [];
+  for (let i = 0; i < c.length; i++) {
+    const t = L[i] / tot, a = w(t, 1), b = w(t, -1);
+    left.push([c[i][0] + N[i][0] * a, c[i][1] + N[i][1] * a]);
+    right.push([c[i][0] - N[i][0] * b, c[i][1] - N[i][1] * b]);
+  }
+  const cap = (p: V, n: V, r: number, from: number): V[] => {
+    const out: V[] = [];
+    const base = Math.atan2(n[1], n[0]);
+    for (let k = 1; k < 6; k++) { const a = base + from * Math.PI * k / 6; out.push([p[0] + Math.cos(a) * r, p[1] + Math.sin(a) * r]); }
+    return out;
+  };
+  const e = c.length - 1;
+  const endCap = cap(c[e], N[e], (w(1, 1) + w(1, -1)) / 2, -1);
+  const startCap = cap(c[0], [-N[0][0], -N[0][1]], (w(0, 1) + w(0, -1)) / 2, -1);
+  return [...left, ...endCap, ...right.reverse(), ...startCap];
 }
 
 // Medialuna / arco relleno (para smears dibujados en el sprite)

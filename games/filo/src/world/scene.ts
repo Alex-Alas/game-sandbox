@@ -25,8 +25,8 @@ export function buildScene(q = 1): SceneDef {
   add('chains', 'Cadenas', chains, 0.5, { zb: 0.1, sway: 0.004, fog: 0.16 });
   const atm = (id: string, label: string, p: number, rect: [number, number, number, number], o: Partial<Layer>) => layers.push({ id, label, canvas: null as unknown as HTMLCanvasElement, p, rect, ...o });
   atm('fog1', 'Niebla lejana', 0.4, [-700, -50, 700, 60], { kind: 'fog', k: 0.5, col: [0.3, 0.42, 0.44], speed: 0.004, seed: 1, zb: 0.5 });
-  atm('shaft1', 'Haces de luz', 0.55, [-120, -40, 340, 260], { kind: 'shaft', k: 0.22, slant: 0.42, seed: 3, col: [1.0, 0.86, 0.62] });
-  atm('shaft2', 'Haces de luz', 0.62, [-420, -40, -80, 250], { kind: 'shaft', k: 0.14, slant: 0.42, seed: 7, col: [0.8, 0.92, 1.0] });
+  atm('shaft1', 'Haces cálidos', 0.55, [-120, -40, 340, 260], { kind: 'shaft', k: 0.22, slant: 0.42, seed: 3, col: [1.0, 0.86, 0.62] });
+  atm('shaft2', 'Haces fríos', 0.62, [-420, -40, -80, 250], { kind: 'shaft', k: 0.14, slant: 0.42, seed: 7, col: [0.8, 0.92, 1.0] });
   atm('fog2', 'Niebla baja', 0.85, [-700, -46, 700, 34], { kind: 'fog', k: 0.4, col: [0.22, 0.31, 0.33], speed: 0.008, seed: 4 });
   add('mid', 'Filos gigantes', mid.base, 0.72, { fog: 0.06, mist: 0.2, light: 0.25 });
   add('midGlow', 'Flores de luz', mid.glow, 0.72, { zb: 0.1, tint: [2.4, 2.4, 2.4], add: true });

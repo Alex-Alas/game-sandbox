@@ -28,7 +28,7 @@ export const HERO_BASE: Pose = {
   hf: [9.5, -17.5], hb: [-6, -18], ef: 1, eb: 1,
   ff: [6.5, 0], fb: [-7.5, 0], tf: 0, tb: 0,
   bl: 0.55, bz: 1, eye: 1, cl: 0, sm: 0, smR: 0,
-  rb: 0, // giro del cuerpo (para el torbellino: 0..1 = de perfil a de espaldas)
+  rb: 0, rot: 0, yw: 0, gl: 0, dk: 0, fl: 1,
 };
 
 export interface HeroPhys { tail: Chain; hem: Springs; sash: Chain }
@@ -66,11 +66,11 @@ const tailRest = (P: Pose): V => vnorm(vrot([-0.75, 0.66], num(P, 'lean') * 0.5)
 
 export const hero: CharDef<HeroPhys> = {
   id: 'errante', name: 'La Errante', desc: 'Heroína ágil de filo curvo: combos de tres golpes, torbellino, estocada y tajo cargado.',
-  box: [-78, -112, 78, 24],
+  box: [-96, -124, 96, 44],
   base: HERO_BASE,
   clips: HERO_CLIPS as Record<string, Clip>,
   order: Object.keys(HERO_CLIPS),
-  ink: { ink: HC.ink, ol: 0.85, olShadow: 0.7 },
+  ink: { ink: HC.ink, ol: 0.85, olShadow: 0.7, rimC: 'rgba(96,186,206,0.9)', rimW: 0.95 },
   phys(P) {
     const tail = new Chain(9, 3.9, tailAnchor(P), tailRest(P), 380, 2.4, 0.04);
     const hem = new Springs(hemRest(P), 300, 10, 3.4, 40, 12);
@@ -90,6 +90,10 @@ export const hero: CharDef<HeroPhys> = {
     return { a: g.bladeA, b: g.bladeB };
   },
   parts(P, ph, o) { return heroParts(P, ph, o); },
+  bones(P) {
+    const g = geom(P);
+    return [[g.hip, g.neck, g.hc], [g.shF, g.armF.mid, g.armF.end], [g.shB, g.armB.mid, g.armB.end], [g.hipF, g.legF.mid, g.legF.end], [g.hipB, g.legB.mid, g.legB.end], [g.bladeA, g.bladeB]];
+  },
 };
 
 function geom(P: Pose) {

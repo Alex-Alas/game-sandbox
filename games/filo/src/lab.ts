@@ -37,11 +37,12 @@ export function runLab() {
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;inset:0;overflow:auto;background:' + (q.get('bg') === 'dark' ? '#1b2330' : '#9a9aa2');
   document.body.appendChild(host);
-  void import('./chars/hero.ts').then(({ hero }) => {
+  void Promise.all([import('./chars/hero.ts'), import('./chars/brute.ts')]).then(([{ hero }, { brute }]) => {
+    const def = q.get('ch') === 'brute' ? brute : hero;
     const ids = (q.get('c') ?? 'idle').split(',');
     const s = +(q.get('s') ?? 4);
     for (const id of ids) {
-      const frames = contactSheet(hero, id, s, { flat: q.has('flat') });
+      const frames = contactSheet(def, id, s, { flat: q.has('flat') });
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;flex-wrap:wrap;align-items:flex-end;gap:0;padding:6px;border-bottom:1px solid #0003';
       const lab = document.createElement('div');
@@ -49,7 +50,9 @@ export function runLab() {
       lab.style.cssText = 'font:700 12px system-ui;color:#222;width:100%';
       row.appendChild(lab);
       const crop = q.get('crop');
+      const only = q.get('f');
       frames.forEach((c, i) => {
+        if (only && !only.split(',').some((t) => { const [a, b] = t.split('-').map(Number); return b === undefined ? i === a : i >= a && i <= b; })) return;
         const w = document.createElement('div');
         w.style.cssText = 'position:relative';
         let el: HTMLCanvasElement = c;

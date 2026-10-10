@@ -20,11 +20,20 @@ export class Actor<Ph = unknown> {
   boil = 0.32;
   mode: DrawMode = 'twos';
   flat = false;        // «vector crudo» (sin entintado ni sombras)
+  bake = true;         // smear dibujado en el sprite (hojas de sprites); en escena lo hace el rastro WebGL
   glow = 0; flash = 0; tint: [number, number, number, number] = [0, 0, 0, 0];
   alpha = 1;
+  clipY = -1e9;        // lo que queda por debajo no se dibuja (el filo clavado en el suelo)
+  dissolve = 0;        // 0..1 se deshace en brasas (shader): un frente que baja de la cabeza a los pies
+  disUp = false;       // al revés: se arma desde los pies
+  height = 120;        // alto del cuerpo (para el frente de la disolución)
+  hidden = false;
   light: V = [0.6, -0.8];
   onEvent?: (e: Ev, a: Actor<Ph>) => void;
+  onPlay?: (id: string, a: Actor<Ph>) => void;
   queue: string[] = [];
+  loopAll = false;     // visor: los clips que no son loop vuelven a empezar en el mismo lugar
+  anchor = 0;
   private acc = 0;
   private lastRoot: V = [0, 0];
   private lastF = -1;
@@ -47,7 +56,7 @@ export class Actor<Ph = unknown> {
   get fc() { return this.t * this.clip.fps; }
   get frame() { return Math.floor(this.fc + 1e-6); }
   rootX() { return this.x + this.facing * num(this.pose, 'x'); }
-  rootY() { return this.y - num(this.pose, 'yw'); }
+  rootY() { return this.y + num(this.pose, 'yw'); }
 
   play(id: string, restart = false) {
     const c = this.def.clips[id];
@@ -55,6 +64,7 @@ export class Actor<Ph = unknown> {
     if (c === this.clip && !restart) return;
     this.commitRoot();
     this.clip = c; this.t = 0; this.lastF = -1; this.queue = [];
+    this.onPlay?.(id, this);
   }
   // encadenar (combo): el siguiente empieza al terminar el actual
   then(...ids: string[]) { this.queue.push(...ids); }
@@ -71,7 +81,7 @@ export class Actor<Ph = unknown> {
     if (!this.clip) return;
     const end = this.pose;
     this.x += this.facing * num(end, 'x');
-    this.y -= num(end, 'yw');
+    this.y += num(end, 'yw');
     this.pose = { ...end, x: 0, yw: 0 };
   }
 
@@ -80,7 +90,9 @@ export class Actor<Ph = unknown> {
     if (this.playing) this.t += dt * this.speed;
     const c = this.clip;
     const dur = c.frames / c.fps;
-    if (!c.loop && this.t >= dur) {
+    if (!c.loop && this.t >= dur && this.loopAll) {
+      this.t -= dur; this.lastF = -1; this.x = this.anchor;
+    } else if (!c.loop && this.t >= dur) {
       const next = this.queue.shift() ?? c.next ?? 'idle';
       this.fireEvents(c.frames);
       this.commitRoot();
@@ -97,7 +109,7 @@ export class Actor<Ph = unknown> {
       this.phT += PH_DT;
       const fc = Math.min(this.fc, c.loop ? Infinity : c.frames - 1);
       const p = sample(c, this.def.base, fc);
-      const rx = this.x + this.facing * num(p, 'x'), ry = this.y - num(p, 'yw');
+      const rx = this.x + this.facing * num(p, 'x'), ry = this.y + num(p, 'yw');
       // movimiento del marco en coordenadas locales (x hacia donde mira, y hacia abajo)
       const sx = (rx - this.lastRoot[0]) * this.facing, sy = -(ry - this.lastRoot[1]);
       this.lastRoot = [rx, ry];
@@ -118,6 +130,22 @@ export class Actor<Ph = unknown> {
       for (const e of ev) if (e.f > this.lastF && e.f <= f) this.onEvent(e, this);
     }
     this.lastF = f;
+  }
+
+  // Pose continua en un cuadro fraccionario (para los rastros del arma)
+  poseAt(f: number): Pose { return sample(this.clip, this.def.base, f); }
+  // de local (x hacia donde mira, y abajo) al mundo (y arriba)
+  toWorld(lx: number, ly: number, p: Pose = this.pose): [number, number] {
+    const rot = num(p, 'rot'), hip = p.hip as [number, number], py = num(p, 'y');
+    let x = lx, y = ly;
+    if (rot) {
+      const hx = hip[0], hy = hip[1] + py, c = Math.cos(rot), s = Math.sin(rot);
+      const dx = x - hx, dy = y - hy;
+      x = hx + dx * c - dy * s; y = hy + dx * s + dy * c;
+    }
+    const sq = num(p, 'sq', 1);
+    x /= Math.sqrt(sq); y = py + (y - py) * sq;
+    return [this.x + this.facing * (num(p, 'x') + x), this.y + num(p, 'yw') - y];
   }
 
   // ¿Hace falta redibujar? (cambió el dibujo o se pide a la fuerza)
@@ -144,9 +172,11 @@ export class Actor<Ph = unknown> {
     const sq = num(p, 'sq', 1), py = num(p, 'y');
     // espejo + estirar/aplastar alrededor de los pies
     const s = this.scale, fx = this.facing;
-    const m = new DOMMatrix().translate(-x0 * s, -y0 * s).scale(s * fx, s).translate(0, py).scale(1 / Math.sqrt(sq), sq).translate(0, -py);
+    const rot = num(p, 'rot'), hip = p.hip as [number, number];
+    const m = new DOMMatrix().translate(-x0 * s, -y0 * s).scale(s * fx, s).translate(0, py).scale(1 / Math.sqrt(sq), sq).translate(0, -py)
+      .translate(hip[0], hip[1] + py).rotate(rot * 180 / Math.PI).translate(-hip[0], -hip[1] - py);
     c.setTransform(m); g.setTransform(m);
-    const parts = d.parts(p, this.ph, { seed: this.seed, boil: this.flat ? 0 : this.boil, t: this.phT, glow: this.glow, flash: this.flash });
+    const parts = d.parts(this.bake ? p : { ...p, sm: 0 }, this.ph, { seed: this.seed, boil: this.flat ? 0 : this.boil, t: this.phT, glow: Math.max(this.glow, num(p, 'gl')), flash: this.flash });
     paint(c, parts, { ...d.ink, light: [this.light[0] * fx, this.light[1]], flat: this.flat, seed: this.flat ? 0 : this.seed }, g);
     this.version++;
     return true;

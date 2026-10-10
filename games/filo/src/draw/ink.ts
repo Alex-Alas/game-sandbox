@@ -35,6 +35,8 @@ export interface InkStyle {
   olShadow: number;    // cuánto más gruesa del lado de la sombra
   light: V;            // dirección HACIA la luz principal (y hacia abajo), unitaria
   flat?: boolean;      // modo «vector crudo»: sin sombras ni contorno (para la comparación)
+  rimC?: string;       // color de la luz de contraluz en el borde de la silueta
+  rimW?: number;
 }
 
 const BIG = 1e5;
@@ -84,7 +86,7 @@ export function paint(c: CanvasRenderingContext2D, parts: Part[], st: InkStyle, 
       if (p.deep) shiftedMinus(c, path, lx * (p.deepW ?? 6), ly * (p.deepW ?? 6), p.deep);
       if (p.hatch) hatch(c, p, st, i);
       if (p.deco) p.deco(c);
-      if (p.rim) shiftedMinus(c, path, lx * (p.rimW ?? 0.8), ly * (p.rimW ?? 0.8), p.rim);
+      if (p.rim && !st.rimC) shiftedMinus(c, path, lx * (p.rimW ?? 0.8), ly * (p.rimW ?? 0.8), p.rim);
       if (p.hl) shiftedMinus(c, path, -lx * (p.hlW ?? 0.8), -ly * (p.hlW ?? 0.8), p.hl);
       c.restore();
       if (p.line) {
@@ -109,6 +111,33 @@ export function paint(c: CanvasRenderingContext2D, parts: Part[], st: InkStyle, 
   }
   c.globalAlpha = 1;
   if (g) g.globalAlpha = 1;
+  // 3. luz de contraluz: solo en el borde exterior de la silueta, del lado oscuro (aclara sin matar el color)
+  if (!st.flat && st.rimC) {
+    const sc = scratch(c.canvas.width, c.canvas.height);
+    const x = sc.getContext('2d')!;
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.clearRect(0, 0, sc.width, sc.height);
+    x.setTransform(c.getTransform());
+    x.fillStyle = st.rimC;
+    // unión pintando pieza por pieza (un solo Path2D con sentidos de giro mezclados deja huecos)
+    for (let i = 0; i < list.length; i++) if (list[i].outline !== false) x.fill(paths[i]);
+    x.globalCompositeOperation = 'destination-out';
+    x.translate(lx * (st.rimW ?? 1), ly * (st.rimW ?? 1));
+    for (let i = 0; i < list.length; i++) if (list[i].outline !== false) x.fill(paths[i]);
+    x.globalCompositeOperation = 'source-over';
+    c.save();
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.globalCompositeOperation = 'screen';
+    c.drawImage(sc, 0, 0);
+    c.restore();
+  }
+}
+
+let scr: HTMLCanvasElement | null = null;
+function scratch(w: number, h: number) {
+  if (!scr) scr = document.createElement('canvas');
+  if (scr.width < w || scr.height < h) { scr.width = Math.max(w, scr.width); scr.height = Math.max(h, scr.height); }
+  return scr;
 }
 
 // Trazo de pincel (relleno) a lo largo de una curva: para pliegues, marcas y líneas interiores

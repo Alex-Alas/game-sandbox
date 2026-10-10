@@ -96,7 +96,7 @@ void main(){
   vec3 col = c.rgb / c.a * uTint;
   // luz local (farol) que tiñe lo cercano
   float dl = length(vW.xy - uLight.xy);
-  col += uLightCol * uLight.w * exp(-dl / uLight.z) * c.a;
+  col += (col * 1.6 + 0.02) * uLightCol * uLight.w * exp(-dl / uLight.z);
   float mist = (1.0 - smoothstep(uMistY - 50.0, uMistY + 50.0, vW.y)) * uMist.a;
   col = mix(col, uFog.rgb, uFog.a);
   if (mist > 0.0) col = mix(col, uMist.rgb, mist * (0.55 + 0.45 * fbm(vW.xy * 0.004 + vec2(uTime * 0.012, 0.0))));
@@ -109,14 +109,16 @@ in vec2 vUV;
 in vec3 vW;
 uniform sampler2D uTex, uGlow;
 uniform float uTime, uGlowK, uFlash, uSeed, uDissolve;
+uniform vec2 uDisY;       // y del frente de la disolución en el mundo, y sentido (1: se va lo de arriba)
 uniform vec4 uTint;       // rgb, cantidad
 uniform vec4 uFog;
 uniform vec4 uLight;
 uniform vec3 uLightCol;
-uniform vec2 uGround;     // y del suelo, oscurecer los pies (oclusión)
+uniform vec2 uGround;     // y del suelo (oclusión de los pies) y por debajo de qué y no se dibuja (enterrado)
 uniform float uAlpha;
 out vec4 o;
 void main(){
+  if (vW.y < uGround.y) discard;
   vec4 c = texture(uTex, vUV);
   vec4 g = texture(uGlow, vUV);
   float a = c.a;
@@ -130,15 +132,16 @@ void main(){
   col *= mix(0.72, 1.0, occ);
   // luz local
   float dl = length(vW.xy - uLight.xy);
-  col += uLightCol * uLight.w * 0.6 * exp(-dl / uLight.z);
+  col += col * uLightCol * uLight.w * 1.5 * exp(-dl / uLight.z);
   col = mix(col, uTint.rgb, uTint.a);
   col = mix(col, uFog.rgb, uFog.a);
-  col = mix(col, vec3(1.0, 0.96, 0.9) * 2.2, uFlash);
+  col = mix(col, vec3(1.0, 0.94, 0.86), uFlash * 0.85);
   // disolución con borde quemado (muerte / teletransporte)
   if (uDissolve > 0.0) {
-    float d = fbm(vUV * 2.0 + uSeed) - uDissolve * 1.1 + 0.05;
+    // un frente con borde de brasa que recorre el cuerpo
+    float d = (uDisY.x - vW.y) * uDisY.y / 14.0 + (fbm(vW.xy * 0.035 + 0.37) - 0.5) * 1.6;
     if (d < 0.0) discard;
-    col += vec3(3.0, 1.2, 0.4) * (1.0 - smoothstep(0.0, 0.06, d));
+    col = mix(col, vec3(3.2, 1.2, 0.35), 1.0 - smoothstep(0.0, 0.35, d));
   }
   vec3 glow = g.a > 0.0 ? g.rgb / g.a : vec3(0.0);
   o = vec4(col * a + glow * g.a * uGlowK, max(a, g.a * 0.0)) * uAlpha;
@@ -203,6 +206,11 @@ uniform vec4 uWaves[4];   // centro uv, radio (fracción del alto), fuerza
 uniform vec3 uLift, uGamma, uGain;
 out vec4 o;
 vec3 aces(vec3 x){ return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
+// curva suave: casi identidad hasta 0.6 y después comprime las luces (no levanta los oscuros como ACES)
+vec3 tone(vec3 x){
+  vec3 k = 0.6 + 0.4 * (1.0 - exp(-(x - 0.6) / 0.4));
+  return mix(x, k, step(0.6, x));
+}
 void main(){
   vec2 uv = vUV;
   float asp = uRes.x / uRes.y;
@@ -222,9 +230,9 @@ void main(){
   col.g = texture(uScene, uv).g;
   col.b = texture(uScene, uv - cc * ca).b;
   col += texture(uBloom, uv).rgb * uBloomK;
-  col += texture(uRays, uv).rgb * uRayCol.rgb * uRayCol.a;
+  col += texture(uRays, uv).rgb * uRayCol.rgb * uRayCol.a * smoothstep(0.12, 0.5, vUV.y);
   col *= uExposure;
-  col = aces(col);
+  col = tone(col);
   // gradación: lift/gamma/gain por canal (sombras frías, luces cálidas)
   col = pow(max(vec3(0.0), col * uGain + uLift * (1.0 - col)), 1.0 / uGamma);
   float L = dot(col, vec3(0.299, 0.587, 0.114));

@@ -61,7 +61,7 @@ export class Renderer {
   stats = { draws: 0 };
   noise: WebGLTexture;
   occ!: Target; rays!: Target;
-  rayK = 1.0; rayCol: [number, number, number] = [1.0, 0.86, 0.62];
+  rayK = 0.8; rayCol: [number, number, number] = [1.0, 0.86, 0.62];
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -151,6 +151,7 @@ export class Renderer {
   }
 
   private bindQuad() { this.gl.bindVertexArray(this.quad); }
+  quadVAO() { return this.quad; }
   drawQuad() { this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4); this.stats.draws++; }
 
   drawLayer(L: Layer) {
@@ -187,20 +188,26 @@ export class Renderer {
     this.drawQuad();
   }
 
+  // mitad de pantalla (en px del lienzo): para comparar «vector crudo» y «final»
+  scissorX: [number, number] | null = null;
   drawActor(a: Actor<any>, fog = 0) {
     const gl = this.gl;
+    if (a.hidden) return;
+    if (this.scissorX) { gl.enable(gl.SCISSOR_TEST); gl.scissor(this.scissorX[0], 0, this.scissorX[1] - this.scissorX[0], this.H); }
     let st = this.sprites.get(a);
     if (!st) { st = { c: newTex(gl), g: newTex(gl), v: -1 }; this.sprites.set(a, st); }
     if (st.v !== a.version) { upload(gl, st.c, a.cv); upload(gl, st.g, a.g); st.v = a.version; }
     const r = a.rect(), e = this.env;
     const P = this.P.sprite.use();
     P.m4('uVP', this.VP).f('uRect', r[0], r[1], r[2], r[3]).f('uZ', 0)
-      .f('uTime', this.time).f('uGlowK', 2.2 + a.glow * 3).f('uFlash', a.flash).f('uSeed', a.seed % 97).f('uDissolve', 0)
+      .f('uTime', this.time).f('uGlowK', 2.2 + a.glow * 3).f('uFlash', a.flash).f('uSeed', a.seed % 97).f('uDissolve', a.dissolve)
+      .f('uDisY', a.disUp ? a.rootY() - 4 + (a.height + 8) * (1 - a.dissolve) : a.rootY() + a.height + 4 - (a.height + 8) * a.dissolve, 1)
       .f('uTint', a.tint[0], a.tint[1], a.tint[2], a.tint[3]).f('uFog', e.fog[0], e.fog[1], e.fog[2], fog)
       .f('uLight', e.light[0], e.light[1], e.light[2], e.light[3]).f('uLightCol', e.lightCol[0], e.lightCol[1], e.lightCol[2])
-      .f('uGround', e.ground, 0).f('uAlpha', a.alpha)
+      .f('uGround', e.ground, a.clipY).f('uAlpha', a.alpha)
       .tex('uTex', 0, st.c).tex('uGlow', 1, st.g).i('uNoise', 7);
     this.drawQuad();
+    if (this.scissorX) gl.disable(gl.SCISSOR_TEST);
   }
 
   // Dibuja el cuadro completo. `play` dibuja lo del plano de juego (personajes y efectos).

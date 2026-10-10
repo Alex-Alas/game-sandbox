@@ -1,49 +1,62 @@
-// FILO · kit de assets 2D: escaparate de personajes, animaciones, efectos y escenario.
+// FILO · kit de assets 2D: escaparate de personajes, animaciones, efectos, escenario e interfaz.
 import { runLab } from './lab.ts';
-import { Renderer } from './gl/renderer.ts';
-import { buildScene } from './world/scene.ts';
-import { Actor } from './actor.ts';
-import { hero } from './chars/hero.ts';
+import { App, type Mode } from './app.ts';
+import { UI } from './ui/ui.ts';
+import { Sfx } from './audio.ts';
 
 const q = new URLSearchParams(location.search);
 
 function boot() {
-  const cv = document.getElementById('game') as HTMLCanvasElement;
-  const R = new Renderer(cv);
-  R.resize();
-  const scene = buildScene(1);
-  R.env.light = [scene.lantern[0], scene.lantern[1], 70, 0.55];
-  const H = new Actor(hero, q.get('clip') ?? 'idle');
-  H.x = +(q.get('hx') ?? -20);
-  const app = { R, scene, hero: H, t: 0, paused: false, slow: 1 };
+  const app = new App(document.getElementById('game') as HTMLCanvasElement, document.getElementById('over') as HTMLCanvasElement);
+  const ui = new UI(app);
+  const sfx = new Sfx();
+  try { ui.sound = localStorage.getItem('filo.sound') !== '0'; } catch { /* */ }
+  sfx.on = ui.sound;
+  app.onSfx = (k, o) => sfx.play(k, o);
+  ui.onSound = (on) => { sfx.unlock(); sfx.setOn(on); try { localStorage.setItem('filo.sound', on ? '1' : '0'); } catch { /* */ } };
+  const unlock = () => sfx.unlock();
+  window.addEventListener('pointerdown', unlock);
+  window.addEventListener('keydown', unlock);
+  let mode = (q.get('modo') as Mode) || null;
+  if (!mode) { try { mode = localStorage.getItem('filo.mode') as Mode; } catch { /* */ } }
+  ui.go(mode && ['scene', 'anim', 'fx', 'world', 'ui'].includes(mode) ? mode : 'scene');
+  document.getElementById('loading')!.classList.add('off');
 
-  const update = (dt: number) => {
-    app.t += dt;
-    R.time = app.t;
-    H.update(dt * app.slow);
+  // resolución adaptativa: si el cuadro tarda, baja la escala interna (y la sube si sobra)
+  const R = app.R;
+  const coarse = matchMedia('(pointer: coarse)').matches;
+  R.dprCap = coarse ? 2 : 2;
+  R.scale = coarse ? 0.7 : 1;
+  let avg = 16, cool = 0;
+  const adapt = (ms: number) => {
+    avg += (ms - avg) * 0.05;
+    cool -= ms;
+    if (cool > 0) return;
+    if (avg > 24 && R.scale > 0.45) { R.scale = Math.max(0.45, R.scale - 0.08); cool = 1500; }
+    else if (avg < 14 && R.scale < (coarse ? 0.85 : 1)) { R.scale = Math.min(coarse ? 0.85 : 1, R.scale + 0.05); cool = 2500; }
   };
-  const render = () => {
-    R.resize();
-    H.scale = R.pxPerUnit() * 1.0;
-    H.draw();
-    R.frame(scene.layers, (r) => { r.drawActor(H); });
-  };
+
   let last = performance.now();
   const loop = (now: number) => {
-    const dt = Math.min(0.05, (now - last) / 1000);
+    const ms = now - last;
+    const dt = Math.min(0.05, ms / 1000);
     last = now;
-    if (!app.paused) update(dt);
-    render();
+    app.update(dt);
+    app.render();
+    ui.frame();
+    if (!document.hidden) adapt(ms);
     requestAnimationFrame(loop);
   };
   if (!q.has('shot')) requestAnimationFrame(loop);
   (window as any).__filo = {
-    app,
-    pause(on = true) { app.paused = on; },
-    step(sec: number) { const n = Math.round(sec * 120); for (let i = 0; i < n; i++) update(1 / 120); const t = performance.now(); render(); R.gl.finish(); if (q.has('prof')) console.log('frame ' + (performance.now() - t).toFixed(0) + 'ms'); },
+    app, ui,
+    step(sec: number) { const n = Math.round(sec * 120); for (let i = 0; i < n; i++) app.update(1 / 120); app.render(); ui.frame(); },
+    tick(sec: number) { const n = Math.round(sec * 120); for (let i = 0; i < n; i++) app.update(1 / 120); },
+    render() { app.render(); ui.frame(); },
+    go(m: Mode) { ui.go(m); },
     ready: true,
   };
 }
 
 if (q.has('lab')) runLab();
-else { const t = performance.now(); boot(); if (q.has('prof')) { console.log('boot ' + (performance.now() - t).toFixed(0) + 'ms'); (window as any).__filo.step(0.1); (window as any).__filo.step(0.1); } }
+else boot();

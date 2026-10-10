@@ -27,7 +27,7 @@ const EASE: Record<string, (t: number) => number> = {
 };
 const easeFn = (e: Ease | undefined) => typeof e === 'function' ? e : EASE[e ?? 'io'];
 
-function lerpPose(a: Pose, b: Pose, t: number): Pose {
+export function lerpPose(a: Pose, b: Pose, t: number): Pose {
   const o: Pose = {};
   for (const k in a) {
     const x = a[k], y = b[k] ?? x;

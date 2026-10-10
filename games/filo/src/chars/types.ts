@@ -17,11 +17,13 @@ export interface CharDef<Ph = unknown> {
   base: Pose;
   clips: Record<string, Clip>;
   order: string[];                        // clips en el orden de la galería
-  ink: Omit<InkStyle, 'light' | 'flat'>;
+  ink: Omit<InkStyle, 'light' | 'flat' | 'seed'>;
   phys(p: Pose): Ph;
   step(ph: Ph, p: Pose, dt: number, shift: V, fv: V, t: number): void;
   mirror(ph: Ph): void;
   parts(p: Pose, ph: Ph, o: DrawOpts): Part[];
   // dónde está el filo/arma (para los smears del mundo) en coordenadas locales
   weapon?(p: Pose): { a: V, b: V } | null;
+  // esqueleto para la vista de rig: polilíneas en coordenadas locales
+  bones?(p: Pose): V[][];
 }
