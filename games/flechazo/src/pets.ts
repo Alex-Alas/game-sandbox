@@ -21,15 +21,15 @@ export type Built = {
 export const LOVE_T = 2.5; // lo que dura la reacción a una caricia
 
 export const mat = (color: string, o: THREE.MeshStandardMaterialParameters = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.55, ...o });
-export const WHITE = mat('#ffffff', { roughness: 0.3 }), INK = mat('#1d1b3a', { roughness: 0.25 }), BLUSH = mat('#ff8fb8', { roughness: 0.6 });
-export function mesh(geo: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0, parent?: THREE.Object3D) {
+const WHITE = mat('#ffffff', { roughness: 0.3 }), INK = mat('#1d1b3a', { roughness: 0.25 }), BLUSH = mat('#ff8fb8', { roughness: 0.6 });
+function mesh(geo: THREE.BufferGeometry, m: THREE.Material, x = 0, y = 0, z = 0, parent?: THREE.Object3D) {
   const o = new THREE.Mesh(geo, m);
   o.position.set(x, y, z);
   o.castShadow = true;
   parent?.add(o);
   return o;
 }
-export const ball = (r: number, m: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D, sx = 1, sy = 1, sz = 1) => {
+const ball = (r: number, m: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D, sx = 1, sy = 1, sz = 1) => {
   const o = mesh(new THREE.SphereGeometry(r, 20, 14), m, x, y, z, parent);
   o.scale.set(sx, sy, sz);
   return o;
@@ -376,7 +376,7 @@ export const BUILD: Record<PetId, () => Built> = {
   },
 };
 
-export function heartShape(r: number) {
+function heartShape(r: number) {
   const s = new THREE.Shape();
   s.moveTo(0, -r);
   s.bezierCurveTo(-r * 0.2, -r * 0.6, -r * 1.2, -r * 0.3, -r * 1.1, r * 0.35);
