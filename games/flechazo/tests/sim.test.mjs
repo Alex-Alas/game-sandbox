@@ -1,11 +1,13 @@
 // Pruebas de FLECHAZO (node --test, `npm test`): el rompecabezas (recta de la punta, bloqueos, solución), el tutorial, que
-// todo nivel generado sea válido, tenga solución y sea determinista, la física del jugador contra las flechas, la geometría
-// (normales hacia afuera) y el progreso guardado.
+// todo nivel generado sea válido, tenga solución y sea determinista, las trampas del generador (anillos que encierran,
+// gemelas, islas con portales y huecos), que la dificultad suba, la física del jugador contra las flechas y el vacío, la
+// geometría (normales hacia afuera) y el progreso guardado.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rayOf, occupancy, blockerOf, freeArrows, solveOrder, layers, validate, dirOf } from '../src/sim/puzzle.ts';
-import { generate, maskOf } from '../src/sim/gen.ts';
+import { rayOf, occupancy, blockerOf, freeArrows, solveOrder, layers, validate, dirOf, isleOf } from '../src/sim/puzzle.ts';
+import { generate, maskOf, layoutOf } from '../src/sim/gen.ts';
 import { TUTORIAL, TUT, levelOf, specOf, reward, DIFFS } from '../src/sim/levels.ts';
+import { groundOf, isleAt, islePath, roundCorner, PAD_R } from '../src/sim/ground.ts';
 import { newBody, stepBody, arrowBoxes, boxDist } from '../src/sim/body.ts';
 import { arrowMesh, clip, plen, pointAt, rounded } from '../src/sim/geom.ts';
 import { fresh, parse, buyUp, buyPet, unlocked, phys, upCost, UP_MAX } from '../src/sim/meta.ts';
@@ -55,7 +57,94 @@ test('las dificultades crecen en tamaño, cantidad y profundidad', () => {
   assert.ok(avg('facil', arrows) < avg('dificil', arrows) && avg('dificil', arrows) < avg('extremo', arrows));
   assert.ok(avg('facil', layers) < avg('extremo', layers), `profundidad ${avg('facil', layers)} vs ${avg('extremo', layers)}`);
   assert.ok(avg('extremo', layers) >= 5);
-  for (const d of DIFFS) assert.ok(avg(d, (b) => b.arrows.reduce((s, a) => s + a.cells.length, 0) / cells(b)) > 0.55, `${d}: muy vacío`);
+  const area = (b) => b.mask ? b.mask.reduce((s, v) => s + v, 0) : cells(b);
+  for (const d of DIFFS) assert.ok(avg(d, (b) => b.arrows.reduce((s, a) => s + a.cells.length, 0) / area(b)) > 0.65, `${d}: muy vacío`);
+});
+
+test('EXTREMO es más profundo y deja menos flechas libres al empezar que FÁCIL', () => {
+  const avg = (d, f) => { let s = 0; for (let n = 2; n <= 13; n++) s += f(levelOf(d, n)); return s / 12; };
+  const free = (b) => freeArrows(b).length / b.arrows.length;
+  assert.ok(avg('extremo', layers) >= 8, `capas ${avg('extremo', layers)}`);
+  assert.ok(avg('extremo', free) < 0.4, `libres ${avg('extremo', free)}`);
+  assert.ok(avg('facil', free) > avg('extremo', free));
+});
+
+test('las trampas aparecen: anillos desde FÁCIL 3, islas y huecos en las tres, gemelas del mismo color en EXTREMO', () => {
+  const lv = (d) => Array.from({ length: 13 }, (_, k) => levelOf(d, k + 2));
+  assert.ok(levelOf('facil', 3).rings?.length, 'FÁCIL 3 tiene un anillo');
+  assert.ok(!levelOf('facil', 2).rings, 'FÁCIL 2 no');
+  for (const d of DIFFS) {
+    assert.ok(lv(d).some(b => b.isles?.length > 1), `${d}: islas`);
+    assert.ok(lv(d).some(b => b.holes?.length), `${d}: hueco`);
+  }
+  assert.ok(lv('dificil').some(b => b.isles?.length === 4), 'DIFÍCIL: cuatro islas');
+  assert.ok(lv('extremo').filter(b => b.rings?.length >= 2).length >= 8, 'EXTREMO: varios anillos');
+  const ex = lv('extremo');
+  assert.ok(ex.some(b => b.twins?.length), 'EXTREMO: gemelas');
+  for (const b of ex) for (const [a, t] of b.twins ?? []) assert.equal(b.arrows[a].c, b.arrows[t].c, 'gemelas del mismo color');
+  for (const b of ex.slice(10)) assert.ok(new Set(b.arrows.map(a => a.c)).size <= 4, 'EXTREMO alto: 4 colores');
+});
+
+test('un anillo encierra: lo de adentro no sale mientras esté el anillo, aunque no haya nada más', () => {
+  let rings = 0, inner = 0;
+  for (const [d, n] of [['facil', 3], ['facil', 5], ['dificil', 3], ['dificil', 7], ['extremo', 5], ['extremo', 9]]) {
+    const b = levelOf(d, n);
+    for (const id of b.rings ?? []) {
+      const R = b.arrows[id], xs = R.cells.map(i => i % b.w), ys = R.cells.map(i => (i / b.w) | 0);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+      assert.ok(R.cells.length >= 2 * (x1 - x0 + y1 - y0), 'el anillo da toda la vuelta');
+      rings++;
+      for (const a of b.arrows) {
+        if (a.id === id || !a.cells.every(i => i % b.w > x0 && i % b.w < x1 && ((i / b.w) | 0) > y0 && ((i / b.w) | 0) < y1)) continue;
+        const gone = b.arrows.map(o => o.id !== id && o.id !== a.id);
+        assert.ok(!freeArrows(b, gone).includes(a.id), `${d} ${n}: la ${a.id} sale del anillo ${id}`);
+        inner++;
+      }
+    }
+  }
+  assert.ok(rings >= 6 && inner >= 6, `${rings} anillos, ${inner} adentro`);
+});
+
+test('una gemela es el mismo camino corrido una celda', () => {
+  let n = 0;
+  for (let k = 2; k <= 13; k++) for (const [a, t] of levelOf('extremo', k).twins ?? []) {
+    const b = levelOf('extremo', k), A = b.arrows[a].cells, T = b.arrows[t].cells, w = b.w;
+    const fit = (B) => { const dx = B[0] % w - A[0] % w, dy = ((B[0] / w) | 0) - ((A[0] / w) | 0); return Math.abs(dx) <= 1 && Math.abs(dy) <= 1 && B.every((i, j) => i % w - A[j] % w === dx && ((i / w) | 0) - ((A[j] / w) | 0) === dy); };
+    assert.ok(fit(T) || fit(T.slice().reverse()), `extremo ${k}: ${t} no calca a ${a}`);
+    n++;
+  }
+  assert.ok(n >= 5, `${n} gemelas`);
+});
+
+test('islas: portales enlazados en el borde de su isla, el vacío las separa y no se cruza caminando', () => {
+  for (const isl of ['two', 'four', 'hole']) for (const [w, h] of [[12, 9], [9, 12], [16, 16]]) {
+    const L = layoutOf(isl, w, h);
+    const b = { w, h, arrows: [], mask: L.mask, isles: L.isles, holes: L.holes, pads: L.pads };
+    assert.deepEqual(validate(b), [], `${isl} ${w}×${h}`);
+    assert.equal(L.pads.length, isl === 'two' ? 2 : isl === 'four' ? 8 : 0);
+    const { ox, oz } = geoOf(b), g = groundOf(b, ox, oz);
+    assert.equal(g.floors.length, L.isles.length);
+    for (const p of g.pads) {
+      assert.equal(isleAt(g, p.x, p.z), p.isle, 'el portal está en el piso de su isla');
+      assert.ok(!g.voids.some(k => boxDist(p.x, p.z, k) < PAD_R), 'el portal no toca el vacío');
+    }
+    for (let i = 0; i < L.isles.length; i++) for (let j = 0; j < L.isles.length; j++) assert.ok(islePath(g, i, j), 'se llega por portales');
+    // caminar hacia la otra isla (o hacia el hueco) frena en el vacío
+    const body = newBody(g.pads[0]?.x ?? 0, g.pads[0]?.z ?? oz - C), dir = isl === 'hole' ? [0, 1] : g.pads[0].x < g.pads[1].x ? [1, 0] : g.pads[0].z < g.pads[1].z ? [0, 1] : [-1, 0];
+    const target = isl === 'hole' ? null : g.pads[1];
+    for (let k = 0; k < 600; k++) stepBody(body, { mx: dir[0], mz: dir[1], jump: true, jumpHit: k % 40 === 0 }, g.voids, g.lim, { ...PH, air: 2, jumpH: 2.3, glide: true }, DT);
+    if (target) assert.equal(isleAt(g, body.x, body.z), 0, `${isl}: cruzó al vacío (${body.x}, ${body.z})`);
+    else assert.ok(!g.voids.some(k => body.x > k.x0 && body.x < k.x1 && body.z > k.z0 && body.z < k.z1), 'hueco: no entra');
+  }
+  assert.deepEqual(islePath(groundOf({ w: 16, h: 16, arrows: [], mask: null, ...(({ isles, holes, pads }) => ({ isles, holes, pads }))(layoutOf('four', 16, 16)) }, 0, 0), 0, 3).length, 2);
+});
+
+test('las esquinas del piso son redondas y la isla de cada flecha es la de su punta', () => {
+  const b = levelOf('dificil', 10), { ox, oz } = geoOf(b), g = groundOf(b, ox, oz);
+  assert.equal(b.isles.length, 4);
+  const f = g.floors[0], [x, z] = roundCorner(g, f.x0 + R, f.z0 + R, R);
+  assert.ok(x > f.x0 + R + 0.1 && z > f.z0 + R + 0.1, 'la esquina empuja hacia adentro');
+  for (const a of b.arrows) for (const i of a.cells) assert.equal(isleOf(b, i), isleOf(b, a.cells[0]), 'una flecha no cruza islas');
 });
 
 test('las figuras dejan celdas adentro y afuera', () => {
@@ -187,6 +276,8 @@ test('progreso: lo guardado roto vuelve a empezar; comprar cuesta y sube', () =>
   assert.equal(buyPet(s, 'gomita'), false);
   const back = parse(JSON.stringify(s));
   assert.deepEqual(back, s);
+  assert.equal(parse(JSON.stringify({ ...fresh(), tips: 5, stats: { won: 1, arrows: 2, errors: 3, tp: 4 } })).tips, 5);
+  assert.equal(parse(JSON.stringify({ ...fresh(), stats: { won: 1 } })).stats.tp, 0);
   assert.equal(unlocked(fresh(), 'dificil'), false);
   const t = fresh(); t.prog.facil = 4;
   assert.equal(unlocked(t, 'dificil'), true);

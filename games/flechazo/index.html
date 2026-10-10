@@ -84,6 +84,9 @@
   @keyframes tin { from { opacity: 0; transform: translateY(-8px) scale(.96); } }
   #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(255, 50, 90, .55)); transition: opacity .5s; }
   #flash.on { opacity: 1; transition: none; }
+  #warp { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .6s;
+    background: radial-gradient(ellipse at center, rgba(255, 255, 255, .35) 20%, var(--wc, #19c9e6) 120%); }
+  #warp.on { opacity: .85; transition: none; }
 
   #splash { position: fixed; left: 50%; top: 30%; transform: translate(-50%, -50%); pointer-events: none; text-align: center; width: min(640px, 92vw);
     animation: splash 3.2s ease-in forwards; }
@@ -243,6 +246,7 @@
   </div>
 </div>
 <div id="flash"></div>
+<div id="warp"></div>
 
 <div id="bigmap" class="screen" hidden>
   <canvas></canvas>

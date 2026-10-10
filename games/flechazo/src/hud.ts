@@ -82,3 +82,13 @@ export function flash() {
   clearTimeout(flashT);
   flashT = window.setTimeout(() => f.classList.remove('on'), 60);
 }
+
+// Al pasar por un portal: un destello del color del portal desde los bordes
+let warpT = 0;
+export function warp(css: string) {
+  const f = $('warp');
+  f.style.setProperty('--wc', css);
+  f.classList.add('on');
+  clearTimeout(warpT);
+  warpT = window.setTimeout(() => f.classList.remove('on'), 90);
+}

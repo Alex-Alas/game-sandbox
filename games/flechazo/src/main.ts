@@ -1,9 +1,10 @@
 // FLECHAZO: el rompecabezas de flechas, en 3D y en primera persona. Estás parado sobre el tablero: las flechas son paredes
 // bajas de colores; caminás (o saltás por encima) hasta la que querés liberar, la apuntás y sale hacia donde mira su punta.
-// Si algo se le cruza, choca, vuelve y perdés una de las 3 vidas. Flujo: al entrar arranca directo en el nivel que sigue
-// (la primera vez, el tutorial) → nivel resuelto (monedas) → el siguiente. Física a 120 Hz con paso fijo, dibujo por rAF.
+// Si algo se le cruza, choca, vuelve y perdés una de las 3 vidas. Con islas, se pasa de una a otra pisando un portal.
+// Flujo: al entrar arranca directo en el nivel que sigue (la primera vez, el tutorial) → nivel resuelto (monedas) → el
+// siguiente. Física a 120 Hz con paso fijo, dibujo por rAF.
 import * as THREE from 'three';
-import { World, Marker } from './world.ts';
+import { World, Marker, Portal, PAD_COLORS } from './world.ts';
 import { ArrowView, type ArrowEv } from './arrows.ts';
 import { initInput, read, clearInput, IN } from './input.ts';
 import * as H from './hud.ts';
@@ -14,12 +15,13 @@ import { Tutorial, HEX, type TutCtx } from './tutorial.ts';
 import { Pilot } from './pilot.ts';
 import * as A from './audio.ts';
 import { initFullscreen, autoFs } from './fullscreen.ts';
-import { C, EYE, MARGIN, R, REACH, WALL_H } from './sim/const.ts';
+import { C, EYE, R, REACH, WALL_H } from './sim/const.ts';
 import { levelOf, DIFF_NAME, DIFFS, reward, type Diff } from './sim/levels.ts';
-import { occupancy, blockerOf, freeArrows, cx, cy, head, type Board } from './sim/puzzle.ts';
+import { occupancy, blockerOf, freeArrows, cx, cy, head, isleOf, type Board } from './sim/puzzle.ts';
+import { groundOf, isleAt, roundCorner, PAD_R, type Ground } from './sim/ground.ts';
 import { newBody, stepBody, arrowBoxes, boxDist, type Box, type Lim, type Body } from './sim/body.ts';
 import { navOf, type Nav } from './sim/nav.ts';
-import { parse, phys, buyUp, buyPet, unlocked, upCost, FOG, MAP_R, TRAJ_AT, HINT_COST, UNLOCK, type Save, type PetId, type UpKind } from './sim/meta.ts';
+import { parse, phys, buyUp, buyPet, unlocked, upCost, FOG, MAP_R, TRAJ_AT, HINT_COST, UNLOCK, TIP, type Save, type PetId, type UpKind } from './sim/meta.ts';
 import type { V2 } from './sim/geom.ts';
 
 const KEY = 'flechazo.save', params = new URLSearchParams(location.search);
@@ -31,14 +33,15 @@ const cv = document.getElementById('game') as HTMLCanvasElement;
 const W = new World(cv, save.set.quality);
 const $ = (id: string) => document.getElementById(id)!;
 
+type News = { bit: number, tag: string, text: string, tip: string, t: number };
 type Level = {
-  d: Diff, n: number, b: Board, ox: number, oz: number, lim: Lim, spawn: V2, beacon: V2,
+  d: Diff, n: number, b: Board, ox: number, oz: number, lim: Lim, gr: Ground, isle: number[], portals: Portal[], spawn: V2, beacon: V2,
   views: ArrowView[], gone: boolean[], boxCache: Box[][], solid: boolean[], ghost: Set<number>, boxes: Box[], nav: Nav | null,
   lives: number, errors: number, t: number, left: number, over: '' | 'won' | 'lost', overT: number,
-  dest: number, hint: number, tut: Tutorial | null, mapOpened: boolean, idle: number, shopTip: number,
+  dest: number, hint: number, tut: Tutorial | null, mapOpened: boolean, idle: number, shopTip: number, news: News[], warps: number,
 };
 type Mode = 'play' | 'menu';
-const app = { mode: 'play' as Mode, lockFails: 0, lockTry: false, overArrow: false, jumpPend: false, mapOpen: false, acc: 0, last: performance.now(), auto: false, shake: 0, dip: 0, bob: 0, stepD: 0, eye: EYE, hintNag: 0, noTargetNag: 0 };
+const app = { mode: 'play' as Mode, lockFails: 0, lockTry: false, overArrow: false, jumpPend: false, mapOpen: false, acc: 0, last: performance.now(), auto: false, shake: 0, dip: 0, bob: 0, stepD: 0, eye: EYE, hintNag: 0, noTargetNag: 0, padLock: -1 };
 let L!: Level, body: Body = newBody(0, 0), yaw = 0, pitch = 0, target = -1, pet: PetCtl | null = null, win: M.WinInfo | null = null;
 const markers: Marker[] = [];
 const pilot = new Pilot();
@@ -47,19 +50,26 @@ const ray = new THREE.Raycaster();
 // ---- Niveles -------------------------------------------------------------------------------------------------------
 function startLevel(d: Diff, n: number) {
   if (L) for (const v of L.views) { W.scene.remove(v.mesh); v.dispose(); }
+  if (L) for (const p of L.portals) { W.scene.remove(p.g); p.dispose(); }
   const b = levelOf(d, n);
-  const ox = -((b.w - 1) / 2) * C, oz = -((b.h - 1) / 2) * C, m = (MARGIN + 0.5) * C;
-  const lim = { x0: ox - m, z0: oz - m, x1: ox + (b.w - 1) * C + m, z1: oz + (b.h - 1) * C + m };
+  const ox = -((b.w - 1) / 2) * C, oz = -((b.h - 1) / 2) * C, gr = groundOf(b, ox, oz), lim = gr.lim;
   const views = b.arrows.map(a => new ArrowView(b, ox, oz, a));
   for (const v of views) W.scene.add(v.mesh);
-  W.buildBoard(b, ox, oz, lim);
+  W.buildBoard(b, ox, oz, gr);
+  const portals = gr.pads.map((p, i) => new Portal(p.x, p.z, padHex(i)));
+  for (const p of portals) W.scene.add(p.g);
+  // se empieza abajo, en el margen de la isla de más abajo (la de más a la izquierda)
+  const home = (b.isles ?? [[0, 0, b.w - 1, b.h - 1]]).reduce((a, c) => c[3] > a[3] || (c[3] === a[3] && c[0] < a[0]) ? c : a);
   const tutorial = d === 'facil' && n === 1;
   L = {
-    d, n, b, ox, oz, lim, spawn: [ox + ((b.w - 1) / 2) * C, oz + (b.h - 1) * C + C * 1.15], beacon: [ox + 0.15 * C, oz + 6.25 * C],
+    d, n, b, ox, oz, lim, gr, isle: b.arrows.map(a => isleOf(b, head(a))), portals,
+    spawn: [ox + ((home[0] + home[2]) / 2) * C, oz + home[3] * C + C * 1.15], beacon: [ox + 0.15 * C, oz + 6.25 * C],
     views, gone: b.arrows.map(() => false), boxCache: b.arrows.map(a => arrowBoxes(b, a.id, ox, oz)), solid: b.arrows.map(() => true),
     ghost: new Set(), boxes: [], nav: null, lives: 3, errors: 0, t: 0, left: b.arrows.length, over: '', overT: 0,
     dest: -1, hint: -1, tut: tutorial ? new Tutorial() : null, mapOpened: false, idle: 0, shopTip: !tutorial && save.tut === 1 ? 0 : -1,
+    news: tutorial ? [] : newsOf(d, b), warps: 0,
   };
+  app.padLock = -1;
   rebuildBoxes();
   body = newBody(L.spawn[0], L.spawn[1]);
   yaw = tutorial ? 0.95 : 0, pitch = -0.18, target = -1, app.eye = EYE, app.shake = 0, app.overArrow = false; // en el tutorial, mirando hacia la luz
@@ -73,11 +83,27 @@ function startLevel(d: Diff, n: number) {
   H.level(`${DIFF_NAME[d]} · ${n}`);
   H.hearts(3), H.left(L.left, b.arrows.length), H.time(0), H.coins(save.coins), H.hint(HINT_COST, !tutorial);
   H.coach(null);
-  if (!tutorial) H.toast(`${DIFF_NAME[d]} · nivel ${n} · ${b.arrows.length} flechas`, '', 2600);
+  const isl = b.isles && b.isles.length > 1 ? ` · ${b.isles.length} islas` : b.holes?.length ? ' · hueco al medio' : '';
+  if (!tutorial) H.toast(`${DIFF_NAME[d]} · nivel ${n} · ${b.arrows.length} flechas${isl}`, '', 2600);
+}
+const padHex = (i: number) => PAD_COLORS[(i >> 1) % PAD_COLORS.length];
+
+// Lo nuevo del nivel, explicado una sola vez (la primera vez que aparece) en el cartel de abajo
+function newsOf(d: Diff, b: Board): News[] {
+  const out: News[] = [], seen = (bit: number) => (save.tips & bit) !== 0;
+  if (b.pads?.length && !seen(TIP.isles)) out.push({ bit: TIP.isles, t: 0, tag: 'NUEVO · ISLAS', text: 'Pisá un portal para pasar a la otra isla',
+    tip: 'Las flechas cruzan el vacío: una que apunta al borde de su isla puede <b>chocar con una de la isla de enfrente</b>.' });
+  else if (b.holes?.length && !seen(TIP.hole)) out.push({ bit: TIP.hole, t: 0, tag: 'NUEVO · HUECO', text: 'El hueco del medio no es el borde',
+    tip: 'Una flecha que apunta al hueco lo cruza volando y <b>choca con lo que haya del otro lado</b>. Mirá antes de liberarla.' });
+  if (b.rings?.length && !seen(TIP.ring)) out.push({ bit: TIP.ring, t: 0, tag: 'NUEVO · ANILLOS', text: 'Una flecha larga encierra a otras',
+    tip: 'Las de adentro de un anillo chocan contra él: <b>primero sale el anillo</b>. Seguilo hasta encontrar su punta.' });
+  if (d === 'extremo' && b.twins?.length && !seen(TIP.twins)) out.push({ bit: TIP.twins, t: 0, tag: 'EXTREMO', text: 'Gemelas del mismo color',
+    tip: 'Hay flechas entrelazadas del mismo color. <b>Apuntá a una y se ilumina entera</b>: así ves dónde está su punta.' });
+  return out;
 }
 
 function rebuildBoxes() {
-  L.boxes = [];
+  L.boxes = [...L.gr.voids];
   L.views.forEach((v, id) => { if (L.solid[id] && v.mode === 'rest') L.boxes.push(...L.boxCache[id]); });
   L.nav = null;
 }
@@ -264,7 +290,7 @@ document.querySelector('.kmap')!.textContent = IN.touch ? 'TOCALO' : 'M';
 // ---- Cuadro --------------------------------------------------------------------------------------------------------
 const STEP = 1 / 120;
 function mapState(): MapState {
-  return { b: L.b, ox: L.ox, oz: L.oz, lim: L.lim, views: L.views, px: body.x, pz: body.z, yaw, radius: MAP_R[save.up.vis], marks: marks().map(m => ({ x: m.x, z: m.z, hex: m.hex })), target, dest: L.dest };
+  return { b: L.b, ox: L.ox, oz: L.oz, lim: L.lim, gr: L.gr, padHex: L.gr.pads.map((_, i) => padHex(i)), views: L.views, px: body.x, pz: body.z, yaw, radius: MAP_R[save.up.vis], marks: marks().map(m => ({ x: m.x, z: m.z, hex: m.hex })), target, dest: L.dest };
 }
 function marks(): (Mark & { y: number })[] {
   const out: (Mark & { y: number })[] = [];
@@ -308,7 +334,7 @@ function pickTarget(): number {
   return best;
 }
 
-const groundAt = (x: number, z: number) => { let y = 0; for (const k of L.boxes) if (x > k.x0 - 0.05 && x < k.x1 + 0.05 && z > k.z0 - 0.05 && z < k.z1 + 0.05) y = Math.max(y, k.top); return y; };
+const groundAt = (x: number, z: number) => { let y = 0; for (const k of L.boxes) if (k.id >= 0 && x > k.x0 - 0.05 && x < k.x1 + 0.05 && z > k.z0 - 0.05 && z < k.z1 + 0.05) y = Math.max(y, k.top); return y; };
 
 function tick(dt: number) {
   const playing = app.mode === 'play';
@@ -321,7 +347,7 @@ function tick(dt: number) {
     pitch -= inp.dy * sens * (save.set.invert ? -1 : 1);
     fwd = inp.fwd, side = inp.side, jump = inp.jump, jumpHit = inp.jumpHit;
     if (app.auto && !L.over) {
-      const o = pilot.step(dt, { b: L.b, views: L.views, gone: L.gone, boxes: L.boxes, boxCache: L.boxCache, nav: navNow, body, yaw, target });
+      const o = pilot.step(dt, { b: L.b, views: L.views, gone: L.gone, boxes: L.boxes, boxCache: L.boxCache, nav: navNow, body, yaw, target, gr: L.gr, isle: L.isle, padLock: app.padLock });
       if (o) {
         const da = Math.atan2(Math.sin(o.yaw - yaw), Math.cos(o.yaw - yaw));
         yaw += Math.sign(da) * Math.min(Math.abs(da), dt * 4.5);
@@ -351,7 +377,8 @@ function tick(dt: number) {
     if (ev.land) { A.S.land(ev.land); app.dip = Math.min(0.16, ev.land * 0.012); }
     if (wasGround && body.ground) app.stepD += Math.hypot(body.x - x0, body.z - z0);
   }
-  roundCorners();
+  [body.x, body.z] = roundCorner(L.gr, body.x, body.z, R);
+  warp();
   if (!body.ground && L.boxes.some(k => overlap({ ...k, top: Infinity }) && body.y >= k.top - 0.05)) app.overArrow = true;
   if (app.stepD > 1.7) { app.stepD = 0; A.S.step(body.on >= 0 ? 1 : 0); }
   // flechas que volvieron mientras el jugador estaba encima: sólidas cuando se corre
@@ -382,6 +409,15 @@ function tick(dt: number) {
     W.setTrajectory(target >= 0 && save.up.vis >= TRAJ_AT ? L.views[target].trajectory() : null, target >= 0 ? L.views[target].hex : '#fff');
   }
 
+  // portales: giran y sueltan chispas que suben
+  L.portals.forEach((p, i) => {
+    p.update(dt);
+    if (Math.random() < dt * 9) {
+      const a = Math.random() * Math.PI * 2, r = Math.random() * PAD_R;
+      W.fx.emit(L.gr.pads[i].x + Math.cos(a) * r, 0.1, L.gr.pads[i].z + Math.sin(a) * r, p.color, 1, { speed: 0.2, up: 1.4, size: 0.12, life: 1.3, grav: -0.6 });
+    }
+  });
+
   // mascota, marcadores, tutorial
   pet?.update(dt, { x: body.x, y: body.y, z: body.z, yaw, speed: sp }, groundAt);
   const ms = marks();
@@ -394,6 +430,12 @@ function tick(dt: number) {
     const c = tutCtx();
     if (L.tut.update(c)) A.S.step2();
     H.coach(L.tut.over ? null : L.tut.view(c));
+  } else if (L.news.length && playing && !L.over) {
+    // lo nuevo: el de las islas se va al usar un portal; los demás, a los 14 s
+    const nw = L.news[0];
+    nw.t += dt;
+    if ((nw.bit === TIP.isles ? L.warps > 0 && nw.t > 3 : nw.t > 14)) { save.tips |= nw.bit; persist(); L.news.shift(); H.coach(null); }
+    else H.coach({ tag: nw.tag, text: nw.text, tip: nw.tip });
   } else if (L.shopTip >= 0 && playing) {
     L.shopTip += dt;
     const can = (['vel', 'salto', 'vis'] as UpKind[]).some(k => (upCost(save, k) ?? Infinity) <= save.coins);
@@ -422,14 +464,24 @@ function tick(dt: number) {
   W.follow(body.x, body.z, dt);
 }
 
-// el piso tiene las esquinas redondeadas
-function roundCorners() {
-  const r = C * 0.75 - R, { lim } = L;
-  const cxp = body.x < lim.x0 + C * 0.75 ? lim.x0 + C * 0.75 : body.x > lim.x1 - C * 0.75 ? lim.x1 - C * 0.75 : NaN;
-  const czp = body.z < lim.z0 + C * 0.75 ? lim.z0 + C * 0.75 : body.z > lim.z1 - C * 0.75 ? lim.z1 - C * 0.75 : NaN;
-  if (isNaN(cxp) || isNaN(czp)) return;
-  const dx = body.x - cxp, dz = body.z - czp, d = Math.hypot(dx, dz);
-  if (d > r) body.x = cxp + (dx / d) * r, body.z = czp + (dz / d) * r;
+// Portales: pisar uno (sin estar arriba de una flecha) lleva al otro de su par, con la misma velocidad y mirada. El de
+// llegada queda trabado hasta salir de él (si no, se volvería enseguida).
+function warp() {
+  const P = L.gr.pads;
+  if (!P.length) return;
+  const at = P.findIndex(p => Math.hypot(body.x - p.x, body.z - p.z) < PAD_R);
+  if (at < 0) { app.padLock = -1; return; }
+  if (at === app.padLock || body.y > 0.4 || L.over) return;
+  const from = P[at], to = P[from.to], col = L.portals[at].color;
+  W.fx.emit(body.x, 1, body.z, col, 30, { speed: 3, up: 3, size: 0.16, life: 0.8, grav: 2 });
+  body.x = to.x, body.z = to.z;
+  app.padLock = from.to, app.dip = 0.12;
+  W.fx.emit(to.x, 1, to.z, col, 40, { speed: 4, up: 3.5, size: 0.18, life: 0.9, grav: 2 });
+  pet?.place(to.x - 1, to.z - 1);
+  H.warp(L.portals[at].color.getStyle());
+  A.S.warp();
+  L.warps++, save.stats.tp++;
+  persist();
 }
 
 function finishWin() {
@@ -468,6 +520,7 @@ addEventListener('resize', () => W.resize(save.set.fov));
 Object.assign(window, {
   __flechazo: {
     state: () => ({ mode: app.mode, locked: IN.locked, map: app.mapOpen, d: L.d, n: L.n, lives: L.lives, left: L.left, errors: L.errors, over: L.over, target, coins: save.coins,
+      isle: isleAt(L.gr, body.x, body.z), isles: L.gr.floors.length, warps: L.warps,
       p: { x: body.x, y: body.y, z: body.z, yaw, pitch, on: body.on }, tut: L.tut?.i ?? -1, up: { ...save.up }, pet: save.pet }),
     begin, play: (d: Diff, n: number) => { startLevel(d, n); resume(); },
     release, act, auto: (on: boolean) => { app.auto = on; if (on) unlockPointer(); },

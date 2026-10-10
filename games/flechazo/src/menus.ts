@@ -60,7 +60,7 @@ export function show(p: Page, c: MenuCtx, from: Page | null = null) {
         return `<div class="pet ${on ? 'on' : ''} ${own ? '' : 'locked'}">${img}<b>${pt.name}</b><p>${pt.desc}</p>${btn}</div>`;
       }).join('') + `</div>${c.inLevel && !from ? `<div class="col"><button class="btn" data-a="resume">${ICON.play}SEGUIR</button></div>` : ''}</div>`;
   } else if (p === 'levels') {
-    const blurb: Record<Diff, string> = { facil: 'Tableros chicos, flechas cortas', dificil: 'Más grandes y más trabadas', extremo: 'Enormes, largas y con cadenas' };
+    const blurb: Record<Diff, string> = { facil: 'Tableros chicos y algún anillo', dificil: 'Anillos, escaleras, islas y huecos', extremo: 'Anillos dobles, gemelas del mismo color y pocos colores' };
     h = `<div class="card wide">${backBtn}<h2>NIVELES</h2><p class="note">Cada dificultad tiene su propia escalera de niveles.</p><div class="diffs" style="margin-top:14px">` +
       DIFFS.map(d => {
         const ok = unlocked(S, d), sp = levelOf(d, S.prog[d]);

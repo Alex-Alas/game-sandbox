@@ -1,11 +1,12 @@
 // La escena: un tablero blanco con puntos que flota en un cielo pastel (como estar adentro de la pantalla del juego de
 // flechas), niebla que marca hasta dónde se ve, sol con sombras que sigue al jugador, nubes y flechas gigantes lejanas,
-// partículas y los marcadores (columnas de luz que se ven a través de la niebla).
+// partículas, los marcadores (columnas de luz que se ven a través de la niebla) y los portales entre islas.
 import * as THREE from 'three';
 import { C, MARGIN } from './sim/const.ts';
 import { arrowMesh, type V2 } from './sim/geom.ts';
 import type { Board } from './sim/puzzle.ts';
 import type { Lim } from './sim/body.ts';
+import { PAD_R, type Ground } from './sim/ground.ts';
 
 export const FOG_COLOR = new THREE.Color('#f2dcf6');
 const SKY_TOP = new THREE.Color('#6f9dff'), SKY_MID = new THREE.Color('#bba9ff');
@@ -115,6 +116,50 @@ export class Marker {
   }
 }
 
+// ---- Portal: un remolino en el piso, un aro y una columna de luz corta sin niebla (se encuentra de lejos) -------------
+export const PAD_COLORS = ['#19c9e6', '#ff5fcf', '#ffb31a', '#3ddc7a'];
+export class Portal {
+  g = new THREE.Group(); color: THREE.Color; t = Math.random() * 6; swirl: THREE.ShaderMaterial; ring: THREE.Mesh; beam: THREE.Mesh;
+  constructor(x: number, z: number, hex: string) {
+    this.color = new THREE.Color(hex);
+    this.swirl = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false,
+      uniforms: { color: { value: this.color }, t: { value: 0 } },
+      vertexShader: 'varying vec2 vU; void main() { vU = uv * 2.0 - 1.0; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform vec3 color; uniform float t; varying vec2 vU;
+        void main() { float r = length(vU), a = atan(vU.y, vU.x);
+          float sw = 0.5 + 0.5 * sin(a * 3.0 - r * 10.0 + t * 5.0);
+          vec3 c = mix(color * 0.45, mix(color, vec3(1.0), 0.55), sw * (0.3 + 0.7 * r));
+          gl_FragColor = vec4(c, smoothstep(1.0, 0.9, r) * (0.6 + 0.35 * sw)); }`,
+    });
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(PAD_R, 48), this.swirl);
+    disc.rotation.x = -Math.PI / 2, disc.position.y = 0.03;
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(PAD_R, PAD_R + 0.16, 48), new THREE.MeshBasicMaterial({ color: this.color, side: THREE.DoubleSide }));
+    this.ring.rotation.x = -Math.PI / 2, this.ring.position.y = 0.04;
+    const bg = new THREE.CylinderGeometry(PAD_R * 0.8, PAD_R, 4, 24, 1, true);
+    bg.translate(0, 2, 0);
+    const a = new Float32Array(bg.attributes.position.count);
+    for (let i = 0; i < a.length; i++) a[i] = 1 - bg.attributes.position.getY(i) / 4;
+    bg.setAttribute('fade', new THREE.BufferAttribute(a, 1));
+    this.beam = new THREE.Mesh(bg, new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+      uniforms: { color: { value: this.color }, k: { value: 0.5 } },
+      vertexShader: 'attribute float fade; varying float vF; void main() { vF = fade; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: 'uniform vec3 color; uniform float k; varying float vF; void main() { gl_FragColor = vec4(color, vF * vF * k); }',
+    }));
+    this.g.add(disc, this.ring, this.beam);
+    this.g.position.set(x, 0, z);
+  }
+  update(dt: number) {
+    this.t += dt;
+    this.swirl.uniforms.t.value = this.t;
+    const s = 1 + Math.sin(this.t * 3) * 0.05;
+    this.ring.scale.set(s, s, 1);
+    ((this.beam.material as THREE.ShaderMaterial).uniforms.k.value as number) = 0.55 + Math.sin(this.t * 2.2) * 0.12;
+  }
+  dispose() { this.g.traverse(o => { const m = o as THREE.Mesh; m.geometry?.dispose(); (m.material as THREE.Material | undefined)?.dispose(); }); }
+}
+
 export type Quality = 'alta' | 'baja';
 export class World {
   renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera: THREE.PerspectiveCamera;
@@ -218,21 +263,23 @@ export class World {
     }
   }
 
-  // El tablero: losa redondeada con el piso dibujado (puntos donde hay celdas) y un borde bajo
-  buildBoard(b: Board, ox: number, oz: number, lim: Lim) {
+  // El tablero: una losa redondeada por isla con el piso dibujado (puntos donde hay celdas), un borde bajo y los huecos del
+  // medio de verdad (se ve el cielo por ellos)
+  buildBoard(b: Board, ox: number, oz: number, gr: Ground) {
     for (const o of [...this.board.children]) {
       this.board.remove(o);
       o.traverse(q => { const m = q as THREE.Mesh, mt = m.material as THREE.MeshStandardMaterial | undefined; m.geometry?.dispose(); mt?.map?.dispose(); mt?.dispose?.(); });
     }
-    const W = lim.x1 - lim.x0, H = lim.z1 - lim.z0, rr = C * 0.75;
+    const { lim } = gr, W = lim.x1 - lim.x0, H = lim.z1 - lim.z0;
     const ppm = Math.min(28, 2048 / Math.max(W, H)), cw = Math.round(W * ppm), ch = Math.round(H * ppm);
     const cv = document.createElement('canvas');
     cv.width = cw, cv.height = ch;
     const g = cv.getContext('2d')!;
     const px = (x: number) => (x - lim.x0) * ppm, pz = (z: number) => (z - lim.z0) * ppm;
+    const rr = (f: Lim, r: number, d = 0) => { g.beginPath(); g.roundRect(px(f.x0) + d, pz(f.z0) + d, (f.x1 - f.x0) * ppm - 2 * d, (f.z1 - f.z0) * ppm - 2 * d, Math.max(0, r * ppm - d)); };
     g.fillStyle = '#fcfbff';
-    g.beginPath(); g.roundRect(0, 0, cw, ch, rr * ppm); g.fill();
-    // la zona de juego, un poco más lila; con figura, solo sus celdas
+    for (const f of gr.floors) { rr(f, f.r); g.fill(); }
+    // la zona de juego, un poco más lila; con figura o islas, solo sus celdas
     g.fillStyle = '#f3f0ff';
     if (b.mask) {
       for (let y = 0; y < b.h; y++) for (let x = 0; x < b.w; x++) if (b.mask[y * b.w + x]) g.fillRect(px(ox + (x - 0.5) * C) - 0.5, pz(oz + (y - 0.5) * C) - 0.5, C * ppm + 1, C * ppm + 1);
@@ -245,7 +292,11 @@ export class World {
       g.beginPath(); g.arc(px(ox + x * C), pz(oz + y * C), Math.max(1.6, 0.075 * ppm), 0, Math.PI * 2); g.fill();
     }
     g.strokeStyle = '#c6d2fb'; g.lineWidth = 0.32 * ppm;
-    g.beginPath(); g.roundRect(0.18 * ppm, 0.18 * ppm, cw - 0.36 * ppm, ch - 0.36 * ppm, rr * ppm - 0.18 * ppm); g.stroke();
+    for (const f of gr.floors) { rr(f, f.r, 0.18 * ppm); g.stroke(); }
+    for (const h of gr.holes) { rr(h, 0.3, -0.18 * ppm); g.stroke(); }
+    g.globalCompositeOperation = 'destination-out';
+    for (const h of gr.holes) { rr(h, 0.3); g.fill(); }
+    g.globalCompositeOperation = 'source-over';
     const tex = new THREE.CanvasTexture(cv);
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
@@ -253,24 +304,37 @@ export class World {
     floor.rotation.x = -Math.PI / 2;
     floor.position.set((lim.x0 + lim.x1) / 2, 0, (lim.z0 + lim.z1) / 2);
     floor.receiveShadow = true;
-    // losa (el canto que se ve desde el borde) y el borde bajo
+    this.board.add(floor);
+    // losas (el canto que se ve desde el borde) y bordes bajos, alrededor de cada isla y de cada hueco
     const shape = (x0: number, z0: number, x1: number, z1: number, r: number) => {
       const s = new THREE.Shape();
       s.moveTo(x0 + r, z0); s.lineTo(x1 - r, z0); s.quadraticCurveTo(x1, z0, x1, z0 + r); s.lineTo(x1, z1 - r); s.quadraticCurveTo(x1, z1, x1 - r, z1);
       s.lineTo(x0 + r, z1); s.quadraticCurveTo(x0, z1, x0, z1 - r); s.lineTo(x0, z0 + r); s.quadraticCurveTo(x0, z0, x0 + r, z0);
       return s;
     };
-    const slabG = new THREE.ExtrudeGeometry(shape(lim.x0, lim.z0, lim.x1, lim.z1, rr), { depth: 1.6, bevelEnabled: true, bevelSize: 0.3, bevelThickness: 0.3, bevelSegments: 3, curveSegments: 10 });
-    slabG.rotateX(Math.PI / 2);
-    const slab = new THREE.Mesh(slabG, new THREE.MeshStandardMaterial({ color: '#d8d0ff', roughness: 0.7 }));
-    slab.position.y = -0.33; // el bisel sobresale 0,3 de la tapa
-    const rim = shape(lim.x0 - 0.05, lim.z0 - 0.05, lim.x1 + 0.05, lim.z1 + 0.05, rr);
-    rim.holes.push(shape(lim.x0 + 0.22, lim.z0 + 0.22, lim.x1 - 0.22, lim.z1 - 0.22, rr - 0.25));
-    const rimG = new THREE.ExtrudeGeometry(rim, { depth: 0.22, bevelEnabled: true, bevelSize: 0.06, bevelThickness: 0.06, bevelSegments: 2, curveSegments: 10 });
-    rimG.rotateX(-Math.PI / 2);
-    const rimM = new THREE.Mesh(rimG, new THREE.MeshStandardMaterial({ color: '#b9c7ff', roughness: 0.5 }));
-    rimM.castShadow = rimM.receiveShadow = true;
-    this.board.add(floor, slab, rimM);
+    const grow = (f: Lim, d: number, r: number) => shape(f.x0 - d, f.z0 - d, f.x1 + d, f.z1 + d, Math.max(0.01, r + d));
+    const slabM = new THREE.MeshStandardMaterial({ color: '#d8d0ff', roughness: 0.7 }), rimM = new THREE.MeshStandardMaterial({ color: '#b9c7ff', roughness: 0.5 });
+    const rim = (s: THREE.Shape) => {
+      const rg = new THREE.ExtrudeGeometry(s, { depth: 0.22, bevelEnabled: true, bevelSize: 0.06, bevelThickness: 0.06, bevelSegments: 2, curveSegments: 10 });
+      rg.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(rg, rimM);
+      m.castShadow = m.receiveShadow = true;
+      this.board.add(m);
+    };
+    for (const f of gr.floors) {
+      const top = grow(f, 0, f.r), inside = gr.holes.filter(h => h.x0 >= f.x0 && h.x1 <= f.x1 && h.z0 >= f.z0 && h.z1 <= f.z1);
+      // la losa tiene los huecos un poco más anchos (el bisel sobresale 0,3 de la tapa)
+      for (const h of inside) top.holes.push(grow(h, 0.3, 0.3));
+      const slabG = new THREE.ExtrudeGeometry(top, { depth: 1.6, bevelEnabled: true, bevelSize: 0.3, bevelThickness: 0.3, bevelSegments: 3, curveSegments: 10 });
+      slabG.rotateX(Math.PI / 2);
+      const slab = new THREE.Mesh(slabG, slabM);
+      slab.position.y = -0.33;
+      this.board.add(slab);
+      const out = grow(f, 0.05, f.r);
+      out.holes.push(grow(f, -0.22, f.r));
+      rim(out);
+      for (const h of inside) { const o = grow(h, 0.22, 0.3); o.holes.push(grow(h, -0.05, 0.3)); rim(o); }
+    }
     void MARGIN;
   }
 

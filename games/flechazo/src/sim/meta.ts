@@ -25,6 +25,7 @@ export const FOG = [17, 23, 30, 39, 50, 72];  // m hasta donde se ve
 export const MAP_R = [10, 12, 15, 19, 24, 32]; // m de radio del minimapa
 export const TRAJ_AT = 4;                    // desde este nivel de visibilidad se ve la trayectoria
 export const HINT_COST = 15;
+export const TIP = { isles: 1, hole: 2, ring: 4, twins: 8 }; // lo nuevo que ya se explicó (bits de `tips`)
 
 export type PetId = 'gomita' | 'michi' | 'pio' | 'croac' | 'bu' | 'ajolote' | 'zumbi' | 'robi' | 'dragui';
 export const PETS: { id: PetId, name: string, cost: number, desc: string }[] = [
@@ -45,14 +46,15 @@ export type Save = {
   prog: Record<Diff, number>, // próximo nivel de cada dificultad
   diff: Diff,                 // la última que se jugó
   tut: number,                // 0 = falta el tutorial, 1 = hecho, 2 = ya se explicó la tienda
-  stats: { won: number, arrows: number, errors: number },
+  tips: number,               // bits de TIP: islas, hueco, anillos y gemelas ya explicados
+  stats: { won: number, arrows: number, errors: number, tp: number },
   set: Settings,
 };
 
 export const fresh = (): Save => ({
   v: 1, coins: 0, up: { vel: 0, salto: 0, vis: 0 }, pets: [], pet: null,
-  prog: { facil: 1, dificil: 1, extremo: 1 }, diff: 'facil', tut: 0,
-  stats: { won: 0, arrows: 0, errors: 0 },
+  prog: { facil: 1, dificil: 1, extremo: 1 }, diff: 'facil', tut: 0, tips: 0,
+  stats: { won: 0, arrows: 0, errors: 0, tp: 0 },
   set: { sens: 1, invert: false, sound: true, music: true, quality: 'alta', fov: 70 },
 });
 
@@ -71,7 +73,8 @@ export function parse(raw: string | null): Save {
     for (const d of DIFFS) s.prog[d] = Math.floor(num(o.prog?.[d], 1, 1));
     s.diff = DIFFS.includes(o.diff) ? o.diff : 'facil';
     s.tut = Math.floor(num(o.tut, 0, 0, 2));
-    s.stats = { won: num(o.stats?.won, 0), arrows: num(o.stats?.arrows, 0), errors: num(o.stats?.errors, 0) };
+    s.tips = Math.floor(num(o.tips, 0, 0, 255));
+    s.stats = { won: num(o.stats?.won, 0), arrows: num(o.stats?.arrows, 0), errors: num(o.stats?.errors, 0), tp: num(o.stats?.tp, 0) };
     s.set = { sens: num(o.set?.sens, 1, 0.2, 3), invert: !!o.set?.invert, sound: o.set?.sound !== false, music: o.set?.music !== false,
       quality: o.set?.quality === 'baja' ? 'baja' : 'alta', fov: num(o.set?.fov, 70, 55, 90) };
   } catch { /* datos rotos: se empieza de cero */ }
