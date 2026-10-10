@@ -155,28 +155,50 @@ export class Actor<Ph = unknown> {
   }
   private clipHash() { return this.clip.id.length * 1000 + this.clip.id.charCodeAt(0) * 100000; }
 
-  // Dibuja el sprite a `scale` px por unidad
+  // Dibuja el sprite a `scale` px por unidad. El lienzo se ajusta a lo que ocupa el dibujo en este cuadro
+  // (no a la caja fija del personaje): en el teléfono es la diferencia entre subir 16 MB o 2 MB por dibujo.
+  fixedBox = false;            // hojas de sprites: caja fija, así todos los cuadros quedan registrados igual
+  bx0 = 0; by0 = 0; ds = 1;    // origen (unidades, espacio ya espejado) y escala del último dibujo
   draw(force = false) {
     if (!force && !this.needsDraw()) return false;
     this.drawn = this.mode === 'smooth' ? Math.round(this.t * 1000) : this.frame + this.clipHash();
     this.seed = (this.seed * 1103515245 + 12345) & 0x7fffffff;
-    const d = this.def, [x0, y0, x1, y1] = d.box;
-    const W = Math.ceil((x1 - x0) * this.scale), H = Math.ceil((y1 - y0) * this.scale);
-    if (this.cv.width !== W || this.cv.height !== H) {
-      this.cv.width = this.g.width = W; this.cv.height = this.g.height = H;
-    }
-    const c = this.ctx, g = this.gctx;
-    c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, W, H);
-    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H);
+    const d = this.def;
     const p = this.pose;
     const sq = num(p, 'sq', 1), py = num(p, 'y');
-    // espejo + estirar/aplastar alrededor de los pies
-    const s = this.scale, fx = this.facing;
-    const rot = num(p, 'rot'), hip = p.hip as [number, number];
-    const m = new DOMMatrix().translate(-x0 * s, -y0 * s).scale(s * fx, s).translate(0, py).scale(1 / Math.sqrt(sq), sq).translate(0, -py)
-      .translate(hip[0], hip[1] + py).rotate(rot * 180 / Math.PI).translate(-hip[0], -hip[1] - py);
-    c.setTransform(m); g.setTransform(m);
+    const rot = num(p, 'rot'), hip = p.hip as [number, number], fx = this.facing;
     const parts = d.parts(this.bake ? p : { ...p, sm: 0 }, this.ph, { seed: this.seed, boil: this.flat ? 0 : this.boil, t: this.phT, glow: Math.max(this.glow, num(p, 'gl')), flash: this.flash });
+    // transformación local (estirar/aplastar y giro), sin escala ni espejo
+    const L = new DOMMatrix().translate(0, py).scale(1 / Math.sqrt(sq), sq).translate(0, -py)
+      .translate(hip[0], hip[1] + py).rotate(rot * 180 / Math.PI).translate(-hip[0], -hip[1] - py);
+    let x0: number, y0: number, x1: number, y1: number;
+    if (this.fixedBox) {
+      [x0, y0, x1, y1] = d.box;
+    } else {
+      x0 = Infinity; y0 = Infinity; x1 = -Infinity; y1 = -Infinity;
+      const a = L.a, b = L.b, c = L.c, dd = L.d, e = L.e, f = L.f;
+      for (const part of parts) for (const q of part.pts) {
+        const X = (a * q[0] + c * q[1] + e) * fx, Y = b * q[0] + dd * q[1] + f;
+        if (X < x0) x0 = X; if (X > x1) x1 = X; if (Y < y0) y0 = Y; if (Y > y1) y1 = Y;
+      }
+      const m = 2 + d.ink.ol * 2 + d.ink.olShadow;
+      x0 -= m; y0 -= m; x1 += m; y1 += m;
+      if (!isFinite(x0)) { x0 = -1; y0 = -1; x1 = 1; y1 = 1; }
+    }
+    const s = Math.min(this.scale, 2048 / (x1 - x0), 2048 / (y1 - y0));
+    const W = Math.ceil((x1 - x0) * s), H = Math.ceil((y1 - y0) * s);
+    // se reserva de a 64 px para no realocar en cada cuadro
+    const need = (cur: number, v: number) => v > cur || v < cur * 0.55;
+    if (need(this.cv.width, W) || need(this.cv.height, H)) {
+      const w2 = Math.ceil(W / 64) * 64, h2 = Math.ceil(H / 64) * 64;
+      this.cv.width = this.g.width = w2; this.cv.height = this.g.height = h2;
+    }
+    this.bx0 = x0; this.by0 = y0; this.ds = s;
+    const c = this.ctx, g = this.gctx;
+    c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, this.cv.width, this.cv.height);
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, this.g.width, this.g.height);
+    const M = new DOMMatrix().translate(-x0 * s, -y0 * s).scale(s * fx, s).multiply(L);
+    c.setTransform(M); g.setTransform(M);
     paint(c, parts, { ...d.ink, light: [this.light[0] * fx, this.light[1]], flat: this.flat, seed: this.flat ? 0 : this.seed }, g);
     this.version++;
     return true;
@@ -184,8 +206,8 @@ export class Actor<Ph = unknown> {
 
   // Rectángulo del sprite en el mundo (y hacia arriba)
   rect(): [number, number, number, number] {
-    const [x0, y0, x1, y1] = this.def.box;
-    const rx = this.rootX(), ry = this.rootY();
+    const rx = this.rootX(), ry = this.rootY(), s = this.ds;
+    const x0 = this.bx0, y0 = this.by0, x1 = x0 + this.cv.width / s, y1 = y0 + this.cv.height / s;
     return [rx + x0, ry - y1, rx + x1, ry - y0];
   }
 }

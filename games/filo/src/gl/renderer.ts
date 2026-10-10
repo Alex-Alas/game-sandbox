@@ -47,7 +47,7 @@ export class Renderer {
   P: Record<string, Prog> = {};
   cam: Cam = { x: 0, y: 92, H: 300, explode: 0, shakeX: 0, shakeY: 0, roll: 0 };
   post: Post = {
-    bloom: 0.8, thresh: 1.0, exposure: 1.0, ca: 0.002, flash: 0, invert: 0, vig: 0.55, grain: 0.035, paper: 0.09, sat: 1.04,
+    bloom: 0.62, thresh: 1.05, exposure: 1.0, ca: 0.002, flash: 0, invert: 0, vig: 0.55, grain: 0.035, paper: 0.09, sat: 1.04,
     lift: [0.02, 0.035, 0.05], gamma: [1.0, 1.0, 1.02], gain: [1.04, 1.0, 0.95], waves: [],
   };
   sky: SkyCfg = { top: [0.012, 0.02, 0.035], mid: [0.05, 0.09, 0.12], hor: [0.2, 0.3, 0.31], sun: [0.74, 0.88, 0.035], sunCol: [1.0, 0.86, 0.66] };
@@ -89,13 +89,14 @@ export class Renderer {
     p('sunmask', S.FULL_VS, S.SUNMASK_FS);
     p('shaft', S.QUAD_VS, S.SHAFT_FS);
     p('fogband', S.QUAD_VS, S.FOGBAND_FS);
+    p('frame', S.QUAD_VS, S.FRAME_FS);
     p('occ', S.QUAD_VS, S.OCC_FS);
     p('rays', S.FULL_VS, S.RAYS_FS);
     this.occ = new Target(gl, 2, 2, false);
     this.rays = new Target(gl, 2, 2, false);
     this.noise = noiseTex(gl);
     this.scene = new Target(gl, 2, 2, this.float);
-    for (let i = 0; i < 6; i++) this.bloom.push(new Target(gl, 2, 2, this.float));
+    for (let i = 0; i < 5; i++) this.bloom.push(new Target(gl, 2, 2, this.float));
   }
 
   resize() {
@@ -190,6 +191,17 @@ export class Renderer {
 
   // mitad de pantalla (en px del lienzo): para comparar «vector crudo» y «final»
   scissorX: [number, number] | null = null;
+  // en la vista despiezada, cada plano pintado lleva su marco
+  drawFrame(L: Layer) {
+    const e = this.cam.explode;
+    if (e < 0.02 || L.add || L.kind || L.zb) return;
+    const gl = this.gl;
+    const { z, r } = this.layerGeom(L);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    this.P.frame.use().m4('uVP', this.VP).f('uRect', r[0], r[1], r[2], r[3]).f('uZ', z).f('uA', e).f('uCol', 0.75, 0.95, 1.0);
+    this.drawQuad();
+  }
+
   drawActor(a: Actor<any>, fog = 0) {
     const gl = this.gl;
     if (a.hidden) return;
@@ -233,7 +245,7 @@ export class Renderer {
     const vis = layers.filter((l) => !l.hidden);
     const back = vis.filter((l) => l.p <= 1).sort((a, b) => a.p - b.p || (a.zb ?? 0) - (b.zb ?? 0));
     const fore = vis.filter((l) => l.p > 1).sort((a, b) => a.p - b.p || (a.zb ?? 0) - (b.zb ?? 0));
-    for (const L of back) this.drawLayer(L);
+    for (const L of back) { this.drawLayer(L); this.drawFrame(L); }
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     play(this);
     this.godrays(back);
@@ -241,7 +253,7 @@ export class Renderer {
     this.bindQuad();
     this.bindQuad();
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    for (const L of fore) this.drawLayer(L);
+    for (const L of fore) { this.drawLayer(L); this.drawFrame(L); }
     if (front) front(this);
     this.bindQuad();
     this.postprocess();

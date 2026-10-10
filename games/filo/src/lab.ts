@@ -3,10 +3,13 @@
 //   ?lab=1&c=run&s=4&bg=gray
 import { Actor } from './actor.ts';
 import type { CharDef } from './chars/types.ts';
+import { hero } from './chars/hero.ts';
+import { brute } from './chars/brute.ts';
 
 export function contactSheet(def: CharDef<any>, clipId: string, scale: number, opts: { cols?: number, warm?: number, flat?: boolean, boil?: number, cell?: number } = {}) {
   const a = new Actor(def, clipId);
   a.scale = scale;
+  a.fixedBox = true;
   a.flat = !!opts.flat;
   a.boil = opts.boil ?? a.boil;
   const clip = def.clips[clipId];
@@ -37,7 +40,7 @@ export function runLab() {
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;inset:0;overflow:auto;background:' + (q.get('bg') === 'dark' ? '#1b2330' : '#9a9aa2');
   document.body.appendChild(host);
-  void Promise.all([import('./chars/hero.ts'), import('./chars/brute.ts')]).then(([{ hero }, { brute }]) => {
+  {
     const def = q.get('ch') === 'brute' ? brute : hero;
     const ids = (q.get('c') ?? 'idle').split(',');
     const s = +(q.get('s') ?? 4);
@@ -75,5 +78,5 @@ export function runLab() {
       host.appendChild(row);
     }
     (window as any).__labReady = true;
-  });
+  }
 }

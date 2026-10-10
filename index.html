@@ -107,11 +107,11 @@
 
   @media (min-width: 700px) {
     .games { grid-template-columns: repeat(2, 1fr); }
-    .g-catapum, .g-bananazo, .g-flechazo, .g-downcastle { grid-column: span 2; }
+    .g-catapum, .g-bananazo, .g-flechazo, .g-filo, .g-downcastle { grid-column: span 2; }
   }
   @media (min-width: 1080px) {
     .games { grid-template-columns: repeat(3, 1fr); }
-    .g-catapum, .g-bananazo, .g-flechazo { grid-column: span 3; }
+    .g-catapum, .g-bananazo, .g-flechazo, .g-filo { grid-column: span 3; }
     .g-downcastle { grid-column: span 2; }
   }
   @media (max-width: 699px) {
@@ -120,7 +120,7 @@
     .phone .media { aspect-ratio: 1; }
     .wide .body { padding: 18px 20px 20px; justify-content: flex-start; }
   }
-  @media (min-width: 700px) { .g-catapum .media, .g-bananazo .media, .g-flechazo .media { aspect-ratio: 16 / 9; } .wide .hook { font-size: 19px; } .g-bananazo { flex-direction: row-reverse; } }
+  @media (min-width: 700px) { .g-catapum .media, .g-bananazo .media, .g-flechazo .media, .g-filo .media { aspect-ratio: 16 / 9; } .wide .hook { font-size: 19px; } .g-bananazo, .g-filo { flex-direction: row-reverse; } }
 
   /* ── Voz de cada juego (colores y logo de su propia pantalla de título) ── */
   .g-catapum { --bg: #1a1033; --dim: #c4bce3; --acc: #ffd23f; --acc-ink: #2a1300; }
@@ -132,6 +132,11 @@
   .g-flechazo { --bg: linear-gradient(125deg, #4f8cff, #8b5cff 55%, #ff5fb4); --fg: #fff; --dim: #f1ecff; --acc: #fff; --acc-ink: #5a3fd6; }
   .g-flechazo .logo { font: 900 clamp(40px, 5.2vw, 68px)/.95 ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", system-ui, sans-serif; letter-spacing: .02em;
     color: #fff; text-shadow: 0 4px 0 #5a3fd6, 0 10px 22px rgba(60, 30, 140, .45); padding-bottom: 6px; }
+  .g-filo { --bg: #0b1118; --fg: #efe7d8; --dim: #b9ad9c; --acc: #c22a3a; --acc-ink: #fff3e6; }
+  .g-filo .logo { position: relative; display: inline-block; font: 600 clamp(42px, 5.4vw, 70px)/1 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    letter-spacing: .2em; color: #efe7d8; text-shadow: 0 3px 0 #000, 0 0 26px rgba(194, 42, 58, .45); padding-bottom: 6px; }
+  .g-filo .logo::after { content: ""; position: absolute; left: -6%; right: -4%; top: 52%; height: 2px; transform: rotate(-6deg);
+    background: linear-gradient(90deg, transparent, #ff7a6a 20%, #fff5eb 50%, #ff7a6a 80%, transparent); box-shadow: 0 0 10px rgba(255, 90, 80, .8); }
   .g-vortice { --bg: #070a12; --dim: #9db3c6; --acc: #ff2f5b; --acc-ink: #1a0008; }
   .g-vortice .logo { font: 900 34px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: .08em;
     background: linear-gradient(180deg, #fff, #47f3ff 60%, #2a7dff); -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -220,6 +225,22 @@
           <li><svg aria-hidden="true"><use href="#i-phone"/></svg>También en el teléfono</li>
         </ul>
         <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg>Jugar</span>
+      </div>
+    </li>
+
+    <li class="game wide g-filo">
+      <div class="media">
+        <video muted loop playsinline preload="none" poster="/hub/filo.webp" aria-hidden="true"><source src="/hub/filo.webm" type="video/webm" /><source src="/hub/filo.mp4" type="video/mp4" /></video>
+      </div>
+      <div class="body">
+        <h2 class="name"><a href="./games/filo/"><span class="logo">FILO</span></a></h2>
+        <p class="hook">Un kit de assets 2D dibujado a mano y animado cuadro a cuadro: una heroína, un bruto, efectos con shaders, un escenario por capas y su interfaz. Miralo pelear, recorrelo cuadro a cuadro y bajá las hojas de sprites.</p>
+        <ul class="facts">
+          <li><svg aria-hidden="true"><use href="#i-star"/></svg>Escaparate interactivo</li>
+          <li><svg aria-hidden="true"><use href="#i-desk"/></svg>WebGL2 con posproceso</li>
+          <li><svg aria-hidden="true"><use href="#i-phone"/></svg>También en el teléfono</li>
+        </ul>
+        <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg>Ver</span>
       </div>
     </li>
 

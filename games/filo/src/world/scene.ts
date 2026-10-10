@@ -40,7 +40,7 @@ export function buildScene(q = 1): SceneDef {
 // ------------------------------------------------------------------ agujas lejanas (p 0.16)
 function paintFar(q: number) {
   const P = new Paint(-560, -90, 560, 340, 1.1 * q, 11);
-  const G = new Paint(-560, -90, 560, 340, 1.1 * q, 12);
+  const G = new Paint(-560, -90, 560, 340, 0.6 * q, 12);
   const lit: RGB = [170, 196, 184];
   // dos planos dentro de la capa: el más lejano más claro (bruma), el otro más oscuro
   const plane = (base: RGB, shapes: V[][], detail: (path: Path2D) => void, seed: number) => {
@@ -254,7 +254,7 @@ function paintArches(q: number) {
 }
 
 function paintChains(q: number) {
-  const P = new Paint(-680, -110, 680, 400, 1.6 * q, 41);
+  const P = new Paint(-680, 60, 680, 240, 1.4 * q, 41);
   const col = 'rgb(16,24,30)', lit = 'rgba(160,200,190,0.8)';
   const hang = (x: number, y0: number, len: number) => {
     const n = Math.floor(len / 6);
@@ -278,7 +278,7 @@ function paintChains(q: number) {
 // ------------------------------------------------------------------ filos gigantes y la máscara caída (p 0.72)
 function paintMid(q: number) {
   const P = new Paint(-640, -120, 640, 380, 2.0 * q, 51);
-  const G = new Paint(-640, -120, 640, 380, 2.0 * q, 52);
+  const G = new Paint(-640, -120, 640, 380, 0.9 * q, 52);
   const stone: RGB = [30, 40, 48], lit: RGB = [190, 214, 196], moss: RGB = [46, 72, 58];
   // lomas de escombros
   const mound = [[-640, -120], ...ridge(-640, 640, -24, 26, 0.008, 9, 4), [640, -120]] as V[];
@@ -374,7 +374,7 @@ function paintMid(q: number) {
 // ------------------------------------------------------------------ el suelo (p 1)
 function paintGround(q: number) {
   const P = new Paint(-760, -340, 760, 120, 2.6 * q, 61);
-  const G = new Paint(-760, -340, 760, 120, 2.6 * q, 62);
+  const G = new Paint(-760, -60, 760, 120, 1.3 * q, 62);
   const earth: RGB = [11, 14, 19], stone: RGB = [30, 37, 45], lit: RGB = [190, 214, 196], moss: RGB = [52, 86, 66];
   // cuerpo de tierra/roca
   const top = (x: number) => Math.abs(x) < 300 ? 0 : (fbm(x * 0.01, 0.2, 3, 5) + 0.1) * 10 * Math.min(1, (Math.abs(x) - 300) / 120);

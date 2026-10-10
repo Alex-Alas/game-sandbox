@@ -135,7 +135,7 @@ void main(){
   col += col * uLightCol * uLight.w * 1.5 * exp(-dl / uLight.z);
   col = mix(col, uTint.rgb, uTint.a);
   col = mix(col, uFog.rgb, uFog.a);
-  col = mix(col, vec3(1.0, 0.94, 0.86), uFlash * 0.85);
+  col = mix(col, vec3(1.0, 0.94, 0.86), uFlash * 0.6);
   // disolución con borde quemado (muerte / teletransporte)
   if (uDissolve > 0.0) {
     // un frente con borde de brasa que recorre el cuerpo
@@ -332,4 +332,21 @@ void main(){
   float edge = smoothstep(0.0, 0.15, vUV.x) * (1.0 - smoothstep(0.85, 1.0, vUV.x));
   float a = clamp(smoothstep(0.35, 0.75, n * 0.7 + n2 * 0.5) * band * edge * uK, 0.0, 1.0);
   o = vec4(uCol * a, a);
+}`;
+
+// Marco de una capa en la vista despiezada
+export const FRAME_FS = HEAD + `
+in vec2 vUV;
+uniform float uA;
+uniform vec3 uCol;
+out vec4 o;
+void main(){
+  vec2 g = fwidth(vUV);
+  vec2 e = min(vUV, 1.0 - vUV);
+  vec2 b = 1.0 - smoothstep(g * 0.6, g * 2.2, e);
+  float line = max(b.x, b.y);
+  // esquinas más marcadas
+  float corner = (1.0 - smoothstep(0.0, 0.06, e.x)) * (1.0 - smoothstep(0.0, 0.1, e.y));
+  float a = (line * 0.9 + 0.035 + corner * 0.08) * uA;
+  o = vec4(uCol * a, a * 0.6);
 }`;

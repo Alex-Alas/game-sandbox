@@ -359,6 +359,14 @@ export class Stage {
       ghostDraw(r, g.cv, g.rect, k * 0.5, g.tint);
     }
     for (const c of this.cracksList) crackDraw(r, c.x, c.t);
+    // sombras de contacto: se achican y aclaran cuando el personaje está en el aire
+    for (const f of this.fighters) {
+      const a = f.a;
+      if (a.hidden || a.dissolve > 0.6) continue;
+      const lift = Math.max(0, num(a.pose, 'yw'));
+      const k = Math.max(0, 1 - lift / 60) * (1 - a.dissolve);
+      shadowDraw(r, a.rootX() + a.facing * (f.r > 20 ? -4 : 0), f.r * 1.5 * (0.7 + 0.3 * k), 0.55 * k);
+    }
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     if (drawActors) drawActors(r);
     else for (const f of this.fighters) r.drawActor(f.a);
@@ -469,5 +477,26 @@ function crackDraw(r: Renderer, x: number, t: number) {
   gl.bindVertexArray(r.quadVAO());
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   crackProg.use().m4('uVP', r.VP).f('uRect', x - 70, -14, x + 70, 6).f('uZ', 0.2).f('uLife', t).f('uSeed', (x * 0.013) % 1).i('uNoise', 7);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+const SHADOW_FS = HEAD + `
+in vec2 vUV;
+uniform float uA;
+out vec4 o;
+void main(){
+  vec2 q = vUV * 2.0 - 1.0;
+  float d = length(q);
+  float a = (1.0 - smoothstep(0.2, 1.0, d)) * uA;
+  o = vec4(0.0, 0.0, 0.0, a);
+}`;
+let shadowProg: Prog | null = null;
+function shadowDraw(r: Renderer, x: number, w: number, a: number) {
+  if (a <= 0.01) return;
+  const gl = r.gl;
+  if (!shadowProg) shadowProg = new Prog(gl, QUAD_VS, SHADOW_FS, 'shadow');
+  gl.bindVertexArray(r.quadVAO());
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  shadowProg.use().m4('uVP', r.VP).f('uRect', x - w, -2.2, x + w, 2.6).f('uZ', -0.2).f('uA', a);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }

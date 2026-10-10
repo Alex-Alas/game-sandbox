@@ -93,11 +93,17 @@ export class UI {
     const p = this.panel, app = this.app;
     app.panelInset = { right: 0, bottom: 0 };
     document.body.classList.toggle('sheet', false);
-    if (!p || p.hidden) return;
+    if (!p || p.hidden || p.classList.contains('collapsed')) { this.panelOpen(false); return; }
+    this.panelOpen(true);
     const r = p.getBoundingClientRect();
     const W = window.innerWidth, H = window.innerHeight;
     if (r.width < W * 0.7) app.panelInset.right = (W - r.left) / W;
     else { app.panelInset.bottom = (H - r.top) / H; document.body.classList.toggle('sheet', true); }
+  }
+
+  private panelOpen(on: boolean) {
+    document.body.classList.toggle('sheet', on && !!this.panel && this.panel.getBoundingClientRect().width >= window.innerWidth * 0.7);
+    document.body.classList.toggle('popen', on);
   }
 
   caption(title: string, sub: string) {
@@ -228,7 +234,14 @@ export class UI {
     }
     host.appendChild(p);
     this.panel = p;
+    // en el teléfono el panel se pliega (en la pelea y la interfaz arranca plegado)
+    const small = matchMedia('(max-width: 720px), (max-height: 520px)').matches;
+    const tg = $('panel-toggle') as HTMLButtonElement;
+    tg.hidden = !small;
+    if (small && (m === 'scene' || m === 'ui') && !this.keepOpen) p.classList.add('collapsed');
+    tg.onclick = () => { p.classList.toggle('collapsed'); this.keepOpen = !p.classList.contains('collapsed'); this.layout(); };
   }
+  keepOpen = false;
 
   private atmos(p: HTMLElement) {
     const app = this.app, R = app.R;
@@ -247,7 +260,7 @@ export class UI {
     const app = this.app;
     if (app.mode === 'anim') {
       const a = app.actor(), m = document.getElementById('anim-meta');
-      if (m) m.textContent = `cuadro ${a.frame + 1} / ${a.clip.frames} · ${a.clip.fps} fps · ${(a.clip.frames / a.clip.fps).toFixed(2).replace('.', ',')} s`;
+      if (m) m.textContent = `cuadro ${(a.frame % a.clip.frames) + 1} / ${a.clip.frames} · ${a.clip.fps} fps · ${(a.clip.frames / a.clip.fps).toFixed(2).replace('.', ',')} s`;
     }
     if (app.mode === 'world' && app.R.cam.explode > 0.4) this.placeTags();
     else if (this.tags.size) this.clearTags();
@@ -256,9 +269,11 @@ export class UI {
     const app = this.app, R = app.R, host = $('tags');
     const seen = new Set<string>();
     for (const l of app.scene.layers) {
-      if (l.hidden || l.add || l.kind) continue;
+      if (l.hidden || l.add || l.kind || l.zb) continue;
       const { z, r } = R.layerGeom(l);
-      const [sx, sy, w] = R.toScreen((r[0] + r[2]) / 2, r[3] * 0.4 + r[1] * 0.6, z);
+      // la etiqueta va en el borde izquierdo visible de cada plano, a distinta altura según la profundidad
+      const cx = Math.max(r[0], R.cam.x - R.cam.H * 1.2);
+      const [sx, sy, w] = R.toScreen(cx + (r[2] - r[0]) * 0.04, r[1] + (r[3] - r[1]) * (0.55 + l.p * 0.12), z);
       if (w <= 0) continue;
       let t = this.tags.get(l.id);
       if (!t) { t = document.createElement('div'); t.className = 'tag'; t.textContent = l.label; host.appendChild(t); this.tags.set(l.id, t); }

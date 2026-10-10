@@ -3,6 +3,7 @@ import { runLab } from './lab.ts';
 import { App, type Mode } from './app.ts';
 import { UI } from './ui/ui.ts';
 import { Sfx } from './audio.ts';
+import { drawLogo } from './ui/logo.ts';
 
 const q = new URLSearchParams(location.search);
 
@@ -20,7 +21,11 @@ function boot() {
   let mode = (q.get('modo') as Mode) || null;
   if (!mode) { try { mode = localStorage.getItem('filo.mode') as Mode; } catch { /* */ } }
   ui.go(mode && ['scene', 'anim', 'fx', 'world', 'ui'].includes(mode) ? mode : 'scene');
-  document.getElementById('loading')!.classList.add('off');
+  // tarjeta de título: el logo grande unos segundos (un toque la saca)
+  const ld = document.getElementById('loading')!;
+  drawLogo(document.getElementById('logo-big') as HTMLCanvasElement, 1.9);
+  const hide = () => ld.classList.add('off');
+  if (q.has('shot')) hide(); else { setTimeout(hide, 2600); ld.addEventListener('pointerdown', hide); }
 
   // resolución adaptativa: si el cuadro tarda, baja la escala interna (y la sube si sobra)
   const R = app.R;

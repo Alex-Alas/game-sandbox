@@ -51,7 +51,7 @@ export class App {
     const R = this.R = new Renderer(cv);
     R.resize();
     this.over = over.getContext('2d')!;
-    this.scene = buildScene(1);
+    this.scene = buildScene(matchMedia('(pointer: coarse)').matches ? 0.75 : 1);
     R.env.light = [this.scene.lantern[0], this.scene.lantern[1], 70, 0.55];
     const S = this.S = new Stage(R);
     S.lantern = this.scene.lantern;
@@ -59,7 +59,7 @@ export class App {
     this.H = new Actor(hero, 'idle');
     this.B = new Actor(brute, 'idle');
     this.BF = S.add(this.B, 'verdugo', { core: [1.3, 1.45, 1.5], edge: [0.35, 0.75, 1.0], w: 0.9, life: 0.32 }, 30);
-    this.HF = S.add(this.H, 'errante', { core: [1.45, 1.38, 1.3], edge: [1.25, 0.16, 0.2], w: 0.5, life: 0.26 }, 10);
+    this.HF = S.add(this.H, 'errante', { core: [1.25, 1.18, 1.12], edge: [1.1, 0.14, 0.18], w: 0.5, life: 0.26 }, 10);
     this.BF.armor = ['slam', 'sweep', 'roar', 'death'];
     this.B.height = 130; this.H.height = 72;
     this.duel = new Duel(S, this.HF, this.BF);
@@ -190,8 +190,8 @@ export class App {
     const bones = B.def.bones?.(B.pose);
     if (bones) {
       const spine = bones[0], [lx, ly] = spine[spine.length - 1];
-      const s = B.scale, [bx0, by0] = B.def.box;
-      const cx = (-bx0 + B.facing * lx) * s, cy = (ly - by0) * s, r = 30 * s;
+      const s = B.ds;
+      const cx = (B.facing * lx - B.bx0) * s, cy = (ly - B.by0) * s, r = 30 * s;
       x.drawImage(B.cv, cx - r, cy - r * 1.05, r * 2, r * 2, 0, 0, 136, 136);
     }
     if (this.ui) this.ui.portrait = c;
@@ -228,16 +228,15 @@ export class App {
     const asp = R.W / R.H;
     if (this.mode === 'scene' || this.mode === 'ui') {
       const mid = B.hidden ? H.rootX() : (H.rootX() + B.rootX()) / 2;
-      tx = Math.max(-140, Math.min(140, mid * 0.85)); tH = asp < 1 ? 380 : 240; ty = 78 + (tH - 240) * 0.3;
+      tx = Math.max(-140, Math.min(140, mid * 0.85)); tH = Math.max(240, 300 / asp); ty = 78 + (tH - 240) * 0.24;
     } else if (this.mode === 'anim') {
       const a = this.actor(), big = this.anim.who === 'brute';
-      tH = big ? 300 : 150;
-      if (asp < 1) tH *= 1.35;
+      tH = Math.max(big ? 300 : 150, (big ? 230 : 120) / asp);
       tx = a.anchor + (big ? -10 : 8); ty = big ? 82 : 38;
     } else if (this.mode === 'fx') {
-      tH = asp < 1 ? 360 : 230; tx = -10; ty = 70 + (tH - 230) * 0.3;
+      tH = Math.max(230, 280 / asp); tx = -10; ty = 70 + (tH - 230) * 0.3;
     } else if (this.mode === 'world') {
-      tH = asp < 1 ? 460 : 300; ty = 92 + (tH - 300) * 0.3;
+      tH = Math.max(300, 340 / asp); ty = 92 + (tH - 300) * 0.3;
       if (!this.world.drag) { this.world.panX += this.world.vx * dt; this.world.vx *= Math.exp(-dt * 4); }
       this.world.panX = Math.max(-360, Math.min(360, this.world.panX));
       tx = this.world.panX;

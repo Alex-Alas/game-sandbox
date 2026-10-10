@@ -7,7 +7,6 @@
 <meta name="description" content="FILO: kit de assets 2D dibujado a mano con animación, efectos y shaders. Una heroína, un bruto, un escenario por capas y una interfaz." />
 <title>FILO · kit de assets 2D</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M2 14 L13 2 L14 3 L4 14 Z' fill='%23e6edf5'/%3E%3Cpath d='M3 15 L1 13' stroke='%23b8263a' stroke-width='2'/%3E%3C/svg%3E">
-<link rel="manifest" href="/filo/manifest.webmanifest" />
 <style>
   :root {
     --bone: #efe7d8; --bone2: #b9ad9c; --ink: #0b0910; --crim: #c22a3a; --crim2: #7a1426; --ember: #ffad5a; --teal: #6fc6d2;
@@ -95,6 +94,8 @@
   .kbtn span { position: relative; font: 600 15px var(--serif); letter-spacing: .22em; text-transform: uppercase; color: var(--bone); text-shadow: 0 1px 0 #000; }
   .kbtn:hover span { color: #fff; }
 
+  #panel-toggle { position: fixed; right: calc(12px + var(--sar)); bottom: calc(64px + var(--sab)); z-index: 6; }
+  .panel.collapsed { display: none; }
   /* ---- teléfono ---- */
   @media (max-width: 720px), (max-height: 520px) {
     .panel.side { left: calc(10px + var(--sal)); right: calc(10px + var(--sar)); top: auto; bottom: calc(64px + var(--sab)); width: auto; max-height: 42vh; border-radius: 16px; padding: 12px; }
@@ -105,14 +106,21 @@
     .panel h2 { font-size: 18px; }
     .panel .lead { display: none; }
     body.sheet #caption { display: none; }
+    #panel-toggle { display: grid; }
+    body.sheet #panel-toggle { bottom: calc(64px + var(--sab) + 42vh + 8px); }
   }
+  @media (min-width: 721px) and (min-height: 521px) { #panel-toggle { display: none !important; } }
   @media (max-height: 520px) and (min-width: 600px) {
     .panel.side { left: auto; right: calc(10px + var(--sar)); top: calc(58px + var(--sat)); bottom: calc(64px + var(--sab)); width: 270px; max-height: none; }
+    body.popen #panel-toggle { right: calc(290px + var(--sar)); }
   }
   /* carga */
-  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #07090d; z-index: 20; transition: opacity .6s; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 45%, rgba(7,9,13,.55), #07090d 75%); z-index: 20; transition: opacity 1s; cursor: pointer; }
   #loading.off { opacity: 0; pointer-events: none; }
-  #loading .t { font: italic 500 18px var(--serif); letter-spacing: .2em; color: var(--bone2); }
+  #loading .card { display: flex; flex-direction: column; align-items: center; gap: 10px; animation: rise 1.4s cubic-bezier(.2,.8,.2,1) both; }
+  #loading canvas { width: min(560px, 80vw); height: auto; filter: drop-shadow(0 6px 24px rgba(0,0,0,.8)); }
+  #loading .t { font: italic 500 clamp(13px, 2vw, 17px) var(--serif); letter-spacing: .18em; color: var(--bone2); text-align: center; padding: 0 20px; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.98); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
   #toast { position: fixed; left: 50%; top: calc(70px + var(--sat)); transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; font-size: 13px; z-index: 30; max-width: 90vw; text-align: center; transition: opacity .3s; }
   #toast.off { opacity: 0; pointer-events: none; }
 </style>
@@ -132,9 +140,10 @@
 <div id="caption" class="off"></div>
 <nav id="tabs" role="tablist"></nav>
 <div id="panels"></div>
+<button id="panel-toggle" class="ib" title="opciones" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg></button>
 <div id="tags"></div>
 <div id="toast" class="off"></div>
-<div id="loading"><div class="t">pintando el escenario…</div></div>
+<div id="loading"><div class="card"><canvas id="logo-big" aria-label="FILO"></canvas><div class="t">kit de assets 2D · dibujado a mano, animado cuadro a cuadro</div></div></div>
 <script type="module" src="./src/main.ts"></script>
 </body>
 </html>
