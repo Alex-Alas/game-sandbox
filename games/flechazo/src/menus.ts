@@ -5,6 +5,8 @@ import { ICON } from './hud.ts';
 import { DIFFS, DIFF_NAME, levelOf, type Diff } from './sim/levels.ts';
 import { UPGRADES, UP_MAX, PETS, UNLOCK, FREE_AT, GFX, upCost, unlocked, freeTravel, lookOf, type Save, type UpKind, type PetId, type Gfx } from './sim/meta.ts';
 import { STYLES, TIERS, styleKey, type Look, type Slot } from './sim/styles.ts';
+import { FEELS, FEEL_NAME, type Feel } from './sim/petphys.ts';
+import { feelOf } from './sim/meta.ts';
 
 export type Page = 'pause' | 'shop' | 'pets' | 'styles' | 'levels' | 'settings' | 'win' | 'lose';
 export type WinInfo = { coins: number, perfect: boolean, time: number, errors: number, tutorial: boolean, unlockedNow: Diff | null, chest: boolean };
@@ -14,8 +16,9 @@ export type MenuCtx = {
   buyUp(k: UpKind): boolean, buyPet(id: PetId): boolean, equip(id: PetId | null): void,
   settings(): void, thumbs(): Partial<Record<PetId, string>>, sfx(k: 'ui' | 'buy' | 'no'): void,
   thumb(pet: PetId, look: Look, size: number): string, wear(pet: PetId, style: string | null, slot: Slot): void,
-  openChest(back: Page): void, lostChest: boolean,
+  openChest(back: Page): void, lostChest: boolean, feel(pet: PetId, f: Feel): void,
 };
+const FEEL_DESC: Record<Feel, string> = { solido: 'Firme: da tumbos, rueda y casi no se deforma', blando: 'Gelatina: se aplasta, tiembla y casi no rebota', saltarin: 'Elástico: rebota y rebota' };
 
 const el = () => document.getElementById('modal')!;
 let back: Page | null = null, cur: Page | null = null, stylePet: PetId = 'gomita';
@@ -42,8 +45,8 @@ export function show(p: Page, c: MenuCtx, from: Page | null = null) {
         <div class="row"><button class="btn ghost grow" data-a="levels">${ICON.grid}NIVELES</button><button class="btn ghost grow" data-a="settings">${ICON.gear}AJUSTES</button></div>
         <button class="btn ghost" data-a="restart">${ICON.redo}REINICIAR NIVEL</button>
       </div><div class="keys">${c.touch
-        ? '<b>Pulgar izquierdo</b><span>caminar</span><b>Pulgar derecho</b><span>mirar</span><b>SALTAR · LIBERAR</b><span>los botones</span><b>Minimapa</b><span>tocalo para ver todo</span>'
-        : '<b>W A S D</b><span>caminar</span><b>Ratón</b><span>mirar</span><b>Espacio</b><span>saltar</span><b>Clic o E</b><span>liberar la flecha apuntada</span><b>M · T · H</b><span>mapa · mejoras · pista</span>'}</div></div>`;
+        ? '<b>Pulgar izquierdo</b><span>caminar</span><b>Pulgar derecho</b><span>mirar</span><b>SALTAR · LIBERAR</b><span>los botones</span><b>Mantener sobre la mascota</b><span>agarrarla; en brazos, mantener para cargar y soltar para lanzar</span><b>Minimapa</b><span>tocalo para ver todo</span>'
+        : '<b>W A S D</b><span>caminar</span><b>Ratón</b><span>mirar</span><b>Espacio</b><span>saltar</span><b>Clic o E</b><span>liberar la flecha apuntada o acariciar a tu mascota</span><b>Mantener clic · Q</b><span>agarrar a tu mascota; en brazos, mantené clic y soltá para lanzarla (Q la deja)</span><b>M · T · H</b><span>mapa · mejoras · pista</span>'}</div></div>`;
   } else if (p === 'shop') {
     h = `<div class="card">${backBtn}<h2>MEJORAS</h2><div class="coins-big">${ICON.coin}${S.coins}</div>
       <p class="note">Son para siempre y cada una deja el juego un poco más fácil.</p><div class="ups" style="margin-top:12px">` +
@@ -60,14 +63,16 @@ export function show(p: Page, c: MenuCtx, from: Page | null = null) {
     const chests = S.chests > 0 ? `<div class="chests"><button class="btn" data-a="chest">${ICON.chest}ABRIR COFRE${S.chests > 1 ? ` (${S.chests})` : ''}</button></div>`
       : `<p class="note">${S.pets.length ? 'Los <b>cofres</b> salen de los eventos de los niveles (una flecha dorada, una chispita para atrapar, un sendero de anillos): pasá el nivel y abrilo para ganar estilos.' : 'Con una mascota, en los niveles aparecen eventos que dan <b>cofres de estilos</b>.'}</p>`;
     h = `<div class="card wide">${backBtn}<h2>MASCOTAS</h2><div class="coins-big">${ICON.coin}${S.coins}</div>
-      <p class="note">Te acompañan por el tablero, festejan cada flecha que sale y se dejan acariciar. Elegí una.</p>${chests}<div class="pets" style="margin-top:12px">` +
+      <p class="note">Te acompañan por el tablero, festejan cada flecha que sale y se dejan acariciar, agarrar y lanzar. Elegí una (en ESTILOS elegís también su cuerpo).</p>${chests}<div class="pets" style="margin-top:12px">` +
       PETS.map(pt => {
         const own = S.pets.includes(pt.id), on = S.pet === pt.id;
         const img = th[pt.id] ? `<img src="${th[pt.id]}" alt="">` : '<div class="ph"></div>';
         const btn = on ? `<button class="btn sm ghost" data-unpet="1">GUARDAR</button>` : own ? `<button class="btn sm" data-pet="${pt.id}">LLEVAR</button>`
           : `<button class="btn sm" data-buy="${pt.id}" ${S.coins < pt.cost ? 'disabled' : ''}>${coinTag(pt.cost)}</button>`;
         const sty = own ? `<button class="btn sm ghost sty-b" data-styles="${pt.id}">ESTILOS ${have(pt.id)}/${STYLES.length}</button>` : '';
-        return `<div class="pet ${on ? 'on' : ''} ${own ? '' : 'locked'}">${img}<b>${pt.name}</b><p>${pt.desc}</p>${btn}${sty}</div>`;
+        // la que llevás: su cuerpo, a mano
+        const feel = on ? `<div class="seg mini" title="cuerpo">${FEELS.map(f => `<button class="${feelOf(S, pt.id) === f ? 'on' : ''}" data-feelpet="${pt.id}" data-f="${f}">${FEEL_NAME[f]}</button>`).join('')}</div>` : '';
+        return `<div class="pet ${on ? 'on' : ''} ${own ? '' : 'locked'}">${img}<b>${pt.name}</b><p>${pt.desc}</p>${feel}${btn}${sty}</div>`;
       }).join('') + `</div>${c.inLevel && !from ? `<div class="col"><button class="btn" data-a="resume">${ICON.play}SEGUIR</button></div>` : ''}</div>`;
   } else if (p === 'styles') {
     const id = stylePet, pt = PETS.find(q => q.id === id)!, look = lookOf(S, id), n = S.styles.filter(k => k.startsWith(id + ':')).length;
@@ -82,6 +87,7 @@ export function show(p: Page, c: MenuCtx, from: Page | null = null) {
     h = `<div class="card wide">${backBtn}<h2>ESTILOS · ${pt.name.toUpperCase()}</h2>
       <div class="look"><img src="${c.thumb(id, look, 200)}" alt=""><div><b>${n} de ${STYLES.length} estilos</b><p>Cada cofre trae una piel o un accesorio para una de tus mascotas. Tocá uno para ponérselo.</p>
       ${S.chests > 0 ? `<div class="chests" style="justify-content:flex-start"><button class="btn sm" data-a="chest">${ICON.chest}ABRIR COFRE${S.chests > 1 ? ` (${S.chests})` : ''}</button></div>` : ''}</div></div>
+      <h3>CUERPO</h3><p class="note">Cómo se siente al agarrarla, lanzarla y rebotar.</p><div class="feels">${FEELS.map(f => `<button class="feel ${feelOf(S, id) === f ? 'on' : ''}" data-feel="${f}"><b>${FEEL_NAME[f]}</b><span>${FEEL_DESC[f]}</span></button>`).join('')}</div>
       <h3>PIELES</h3>${grid('skin')}<h3>ACCESORIOS</h3>${grid('acc')}</div>`;
   } else if (p === 'levels') {
     const blurb: Record<Diff, string> = { facil: 'Tableros chicos y algún anillo', dificil: 'Anillos, escaleras, islas y huecos', extremo: 'Anillos dobles, gemelas del mismo color y pocos colores',
@@ -137,6 +143,8 @@ export function show(p: Page, c: MenuCtx, from: Page | null = null) {
     if (a === 'shop' || a === 'pets' || a === 'levels' || a === 'settings') { c.sfx('ui'); show(a, c, p); return; }
     if (a === 'chest') { c.sfx('ui'); c.openChest(p); return; }
     if (t.dataset.styles) { c.sfx('ui'); stylePet = t.dataset.styles as PetId; show('styles', c, p); return; }
+    if (t.dataset.feel) { c.sfx('ui'); c.feel(stylePet, t.dataset.feel as Feel); again(); return; }
+    if (t.dataset.feelpet) { c.sfx('ui'); c.feel(t.dataset.feelpet as PetId, t.dataset.f as Feel); again(); return; }
     if (t.dataset.wear !== undefined) { c.sfx('ui'); c.wear(stylePet, t.dataset.wear || null, t.dataset.slot as Slot); again(); return; }
     if (t.dataset.up) { c.sfx(c.buyUp(t.dataset.up as UpKind) ? 'buy' : 'no'); again(); return; }
     if (t.dataset.buy) { c.sfx(c.buyPet(t.dataset.buy as PetId) ? 'buy' : 'no'); again(); return; }

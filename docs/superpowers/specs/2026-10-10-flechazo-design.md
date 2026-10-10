@@ -127,3 +127,28 @@ Lo marcado *decidí yo*, para confirmar:
 
 Pendiente: calibrar la probabilidad de los eventos, el tiempo de la chispita y del sendero, los pesos de las rarezas y si
 EXTREMO (ahora mucho más profundo) necesita tableros más chicos.
+
+## Mascotas más interactivas: agarrar, lanzar, cuerpos, caricias y pleito (pedido del usuario, 2026-10-10)
+
+> «Deben poder arrojarse y manejarse de alguna manera con físicas realistas. Debe haber una opción para que tengan un cuerpo
+> un poco más sólido, más suave o más "rebotante". Debe haber distintas maneras o animaciones para acariciarlas. Debe haber
+> alguna interacción para cuando el jugador toma a la mascota y la arroja al vacío (puede ser que genere un pleito o que
+> dispare un breve evento de combate).»
+
+Lo marcado *decidí yo*, para confirmar:
+
+| Tema | Quedó así |
+| --- | --- |
+| Agarrar | *Mantener apretado* LIBERAR / clic / E sobre la mascota *0,3 s* (o **Q** / clic derecho, al instante). Un toque corto sigue siendo la caricia (ahora sale al soltar). No se puede en el pleito ni ofendida. |
+| En brazos | *Abajo a la derecha de la vista* (no tapa la mira), colgando de un resorte y sostenida con las dos manos: se bambolea al caminar o girar. *Mecerla* (girar suave) le gusta: corazones y un arrullo; *sacudirla* (girar fuerte y seguido) la **marea** (estrellitas, ojos a media asta). |
+| Lanzar | Con ella en brazos, *mantener para cargar (0,9 s)* y soltar: sale hacia la mira (un poco hacia arriba) a *3 a 13,5 m/s* según la carga, **más la velocidad que ya traía** (corriendo, va más lejos) y girando hacia adelante. Mientras se carga, un anillo en la mira y *la trayectoria con puntos naranjas* hasta donde va a tocar (un aro); **rojos si termina en el vacío**. Q la deja en el piso. |
+| Física | Pelota con giro (cuaternión) a 120 Hz, *sin motor de física*: rebote, fricción de Coulomb hacia rodar sin deslizar y resistencia a la rodadura; choca con las flechas, el piso de cada isla (esquinas redondas, huecos, el canto de la losa), *el bordecito de la losa* (una que rueda despacio se queda; lanzada pasa por encima) y **con vos** (si cae sobre tu cabeza, rebota; si la empujás, rueda). Gravedad propia *18 m/s²* (la del jugador es 26). Se aplasta al pegar y se estira al volar (un resorte). Al quedarse quieta se levanta; *si el golpe fue fuerte queda mareada* (las blandas no). |
+| Cuerpos | **SÓLIDO** (rebota poco, da tumbos, casi no se deforma), **BLANDO** (no rebota, se aplasta mucho, tiembla y se pega) y **SALTARÍN** (rebota y rebota). Uno *por mascota*, en *MASCOTAS → ESTILOS → CUERPO*. *Por defecto*: Gomita, Bu y Ajolote blandos; Pío, Croac y Zumbi saltarines; Michi, Robi y Dragui sólidos. También cambia cómo cuelga en la mano y el sonido de cada rebote (tok / splat / boing). |
+| Caricias | **Según dónde apuntes** (el cartel lo dice): *arriba* LA CABEZA (la reacción única de cada una, como antes), *al medio* EL MENTÓN (la mano debajo rasca; estira el cuello y ronronea), *abajo* LA PANZA (se tira de espaldas pataleando y la mano hace círculos) y *a los costados* COSQUILLAS (se retuerce de risa, lejos de la mano). Cada una con su sonido y la voz de la mascota. *Las cuatro en 20 s = «¡Mimos completos!»* (lluvia de corazones). El cartel va *al costado de la mira* para no taparla. |
+| Al vacío | Cae gritando; *a los 0,9 s vuelve de un salto mortal* por el borde más cercano hacia vos, **furiosa** (cejas, 💢, roja y echando vapor) y empieza el **PLEITO**. |
+| El pleito | Te persigue y **embiste**: antes de cada embestida se agacha y tiembla *0,85 s* mientras *una franja roja con chevrones* marca por dónde va a pasar; sale derecha a 12 m/s y se pasa 2,6 m de largo. *Si te pega, te empuja* (un instante sin control y la pantalla roja). **Esquivarla** (corriéndote de costado; a las que caminan, también saltándolas) la deja *mareada 2,4 s* contra el piso: una **caricia la calma** un poco. **Atajarla** (apretar apuntándole cuando llega) también. Las que caminan no se meten al vacío (y si estás en otra isla, aparecen de un salto al lado tuyo); las que vuelan te embisten a la altura del pecho. Marcador arriba: ENOJO (3) y AGUANTE (3). |
+| Final | *3 caricias* (o atajadas) → **hacen las paces**: salta a tus brazos con corazones y fanfarria. *Te pega 3 veces* → **gana ella**: festeja y queda **ofendida 18 s** (te da la espalda, te espía de reojo y no se deja tocar ni agarrar). *Pasados 34 s* → se cansa (ofendida 8 s). *Sin premio en monedas* (si no, convendría tirarla al vacío a propósito); cuenta en las estadísticas. Las vidas del nivel no se tocan, *salvo que su empujón te tire al vacío*. |
+| Cómo se enseña | Primero el cartel de las caricias (ahora menciona las cuatro zonas) y, ya visto, uno nuevo: «Mantené apretado sobre tu mascota para agarrarla» (y que no la tires al vacío…). En el pleito, el cartel de abajo explica qué hacer. |
+
+Pendiente: calibrar con gente la fuerza del lanzamiento, cuánto marea sacudirla, el ritmo del pleito (aviso, velocidad,
+cuánto dura mareada) y si el empujón debería poder tirarte al vacío.

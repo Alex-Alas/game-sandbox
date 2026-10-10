@@ -1,5 +1,6 @@
-// HUD en el DOM: nivel, vidas, flechas que quedan, reloj, monedas, la mira y el cartel de LIBERAR, los avisos y el cartel
-// de los pasos (tutorial y consejos). Solo toca el DOM cuando algo cambia.
+// HUD en el DOM: nivel, vidas, flechas que quedan, reloj, monedas, la mira y su cartel (LIBERAR, las caricias, LANZAR con la
+// carga), el marcador del pleito, los avisos y el cartel de los pasos (tutorial y consejos). Solo toca el DOM cuando algo
+// cambia.
 const $ = (id: string) => document.getElementById(id)!;
 export const ICON = {
   heart: '<svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.2 0 3.6 1.2 5.3 3.1 1.7-1.9 3.1-3.1 5.3-3.1 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z"/></svg>',
@@ -21,6 +22,8 @@ export const ICON = {
   chest: '<svg class="i chest" viewBox="0 0 24 24"><path d="M3 10a6 6 0 0 1 6-5h6a6 6 0 0 1 6 5z" fill="#9b6bff" stroke="#5b3bc4" stroke-width="1.4"/><rect x="3" y="10" width="18" height="10" rx="2" fill="#7b5cff" stroke="#4b2fa8" stroke-width="1.4"/><path d="M3 13h18" stroke="#ffcf3a" stroke-width="2"/><rect x="10" y="11" width="4" height="5" rx="1" fill="#ffcf3a" stroke="#b07a00" stroke-width="1"/></svg>',
   star: '<svg class="i" viewBox="0 0 24 24"><path d="M12 3l2.6 5.6 6.1.7-4.5 4.2 1.2 6L12 16.6 6.6 19.5l1.2-6L3.3 9.3l6.1-.7z" fill="currentColor"/></svg>',
   brush: '<svg class="i" viewBox="0 0 24 24"><path d="M14 4l6 6-8 8H6v-6zM4 20h4"/></svg>',
+  anger: '<svg viewBox="0 0 24 24"><path d="M4 9.5C7.5 9.5 9.5 7.5 9.5 4M14.5 4c0 3.5 2 5.5 5.5 5.5M20 14.5c-3.5 0-5.5 2-5.5 5.5M9.5 20c0-3.5-2-5.5-5.5-5.5"/></svg>',
+  hand: '<svg class="i" viewBox="0 0 24 24"><path d="M8 13V6.5a1.5 1.5 0 0 1 3 0V12m0-1V4.5a1.5 1.5 0 0 1 3 0V11m0-.5V6a1.5 1.5 0 0 1 3 0v8c0 4-2.5 7-6.5 7-2.6 0-4.3-1.3-5.7-3.6L3.6 14.6a1.5 1.5 0 0 1 2.4-1.7L8 15"/></svg>',
 };
 
 const last: Record<string, string | number> = {};
@@ -48,14 +51,51 @@ export function hint(cost: number, show: boolean) {
   set('b-hint', cost, () => `${ICON.bulb}PISTA <span class="price">${ICON.coin}${cost}</span>`);
 }
 
-// El cartel de la mira: LIBERAR (con el color de la flecha apuntada) o ACARICIAR (apuntando a la mascota)
-export function prompt(hex: string | null, pet = false) {
-  const p = $('prompt'), c = $('cross'), a = $('t-act');
-  p.classList.toggle('on', !!hex), c.classList.toggle('on', !!hex), a.classList.toggle('on', !!hex);
-  for (const e of [p, c, a]) e.classList.toggle('petting', pet);
-  const label = pet ? 'ACARICIAR' : 'LIBERAR';
-  for (const e of [p.querySelector('.pl'), a.querySelector('span')]) if (e && e.textContent !== label) e.textContent = label;
-  if (hex) for (const e of [p, c, a]) e.style.setProperty('--tc', hex);
+// El cartel de la mira: LIBERAR (con el color de la flecha apuntada), la caricia que toca según dónde le apuntes a la
+// mascota (y que mantener la agarra), LANZAR con ella en brazos, y en el pleito ATAJAR, CALMAR o ¡ENOJADA!
+export type Prompt = { hex: string, kind: 'arrow' | 'pet' | 'held' | 'fight' | 'mad', label: string, short?: string, key?: string, sub?: string } | null;
+let promptKey = '';
+export function prompt(v: Prompt) {
+  const key = v ? `${v.hex}|${v.kind}|${v.label}|${v.sub}|${v.key}` : '';
+  if (key === promptKey) return;
+  promptKey = key;
+  const p = $('prompt'), c = $('cross'), a = $('t-act'), sub = $('psub');
+  for (const e of [p, c, a]) {
+    e.classList.toggle('on', !!v);
+    for (const k of ['petting', 'held', 'fight', 'mad']) e.classList.toggle(k, !!v && (k === 'petting' ? v.kind === 'pet' : v.kind === k));
+  }
+  const label = v?.label ?? 'LIBERAR', short = v?.short ?? label;
+  if (p.querySelector('.pl')!.textContent !== label) p.querySelector('.pl')!.textContent = label;
+  p.querySelector('.k')!.textContent = v?.key ?? 'clic · E';
+  const sp = a.querySelector('span')!;
+  if (sp.textContent !== short) sp.textContent = short;
+  sub.textContent = v?.sub ?? '';
+  sub.classList.toggle('on', !!v?.sub);
+  if (v) for (const e of [p, c, a]) e.style.setProperty('--tc', v.hex);
+}
+// El anillo de la mira mientras se carga el lanzamiento (0 a 1; null lo saca)
+let chargeV = -1;
+export function charge(p: number | null) {
+  const v = p === null ? -1 : Math.round(p * 40) / 40;
+  if (v === chargeV) return;
+  chargeV = v;
+  const el = $('charge');
+  el.classList.toggle('on', v >= 0);
+  el.classList.toggle('full', v >= 1);
+  if (v >= 0) (el.querySelector('circle') as SVGCircleElement).style.strokeDashoffset = `${(1 - v) * 100}`;
+}
+// El pleito: con quién, cuánto enojo le queda (caricias para calmarla) y cuántos golpes más aguantás
+export function brawl(v: { name: string, anger: number, maxAnger: number, hp: number, maxHp: number } | null) {
+  const el = $('brawl'), key = v ? `${v.name}|${v.anger}|${v.hp}` : '';
+  if (last.brawl === key) return;
+  const prev = last.brawl as string | undefined;
+  last.brawl = key;
+  document.body.classList.toggle('brawling', !!v);
+  el.hidden = !v;
+  if (!v) return;
+  const pips = (n: number, max: number, cls: string, icon: string) => Array.from({ length: max }, (_, i) => `<i class="${cls} ${i < n ? 'on' : 'off'}">${icon}</i>`).join('');
+  el.innerHTML = `<b>PLEITO</b><span class="who">con ${v.name}</span><span class="grp"><small>ENOJO</small>${pips(v.anger, v.maxAnger, 'ang', ICON.anger)}</span><span class="grp"><small>AGUANTE</small>${pips(v.hp, v.maxHp, 'hp', ICON.heart)}</span>`;
+  if (prev && prev !== key) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
 }
 
 export function toast(msg: string, kind: '' | 'good' | 'bad' | 'gold' = '', ms = 2200) {

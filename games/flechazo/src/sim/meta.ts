@@ -4,6 +4,7 @@
 // son compañía (una a la vez).
 import { DIFFS, type Diff } from './levels.ts';
 import { STYLES, rollPrize, styleKey, styleOf, type Look, type Prize, type Slot } from './styles.ts';
+import { FEELS, type Feel } from './petphys.ts';
 
 export type UpKind = 'vel' | 'salto' | 'vis';
 export const UP_MAX = 5;
@@ -26,7 +27,7 @@ export const FOG = [17, 23, 30, 39, 50, 72];  // m hasta donde se ve
 export const MAP_R = [10, 12, 15, 19, 24, 32]; // m de radio del minimapa
 export const TRAJ_AT = 4;                    // desde este nivel de visibilidad se ve la trayectoria
 export const HINT_COST = 15;
-export const TIP = { isles: 1, hole: 2, ring: 4, twins: 8, fly: 16, pet: 32, chest: 64 }; // lo nuevo que ya se explicó (bits de `tips`)
+export const TIP = { isles: 1, hole: 2, ring: 4, twins: 8, fly: 16, pet: 32, chest: 64, grab: 128 }; // lo nuevo que ya se explicó (bits de `tips`)
 
 export type PetId = 'gomita' | 'michi' | 'pio' | 'croac' | 'bu' | 'ajolote' | 'zumbi' | 'robi' | 'dragui';
 export const PETS: { id: PetId, name: string, cost: number, desc: string }[] = [
@@ -40,6 +41,8 @@ export const PETS: { id: PetId, name: string, cost: number, desc: string }[] = [
   { id: 'robi', name: 'Robi', cost: 650, desc: 'Un robotito con antena que se prende cuando liberás.' },
   { id: 'dragui', name: 'Dragui', cost: 850, desc: 'Un dragoncito violeta. El más caro, el más orgulloso.' },
 ];
+// El cuerpo de cada una al agarrarla y lanzarla (se cambia en MASCOTAS → ESTILOS)
+export const FEEL_DEF: Record<PetId, Feel> = { gomita: 'blando', michi: 'solido', pio: 'saltarin', croac: 'saltarin', bu: 'blando', ajolote: 'blando', zumbi: 'saltarin', robi: 'solido', dragui: 'solido' };
 
 // gfx: calidad de los gráficos; 'auto' = MEDIA en los táctiles y ALTA en la compu
 export type Gfx = 'auto' | 'alta' | 'media' | 'baja';
@@ -49,19 +52,20 @@ export type Save = {
   v: 1, coins: number, up: Record<UpKind, number>, pets: PetId[], pet: PetId | null,
   styles: string[],                  // estilos ganados («mascota:estilo»)
   look: Partial<Record<PetId, Look>>, // lo que lleva puesto cada mascota
+  feel: Partial<Record<PetId, Feel>>, // su cuerpo (si no, el de FEEL_DEF)
   chests: number,                    // cofres ganados sin abrir
   prog: Record<Diff, number>, // próximo nivel de cada dificultad
   diff: Diff,                 // la última que se jugó
   tut: number,                // 0 = falta el tutorial, 1 = hecho, 2 = ya se explicó la tienda
   tips: number,               // bits de TIP: islas, hueco, anillos, gemelas, vuelo libre, caricias y cofres ya explicados
-  stats: { won: number, arrows: number, errors: number, tp: number, pats: number, chests: number },
+  stats: { won: number, arrows: number, errors: number, tp: number, pats: number, chests: number, throws: number, fights: number, peace: number },
   set: Settings,
 };
 
 export const fresh = (): Save => ({
-  v: 1, coins: 0, up: { vel: 0, salto: 0, vis: 0 }, pets: [], pet: null, styles: [], look: {}, chests: 0,
+  v: 1, coins: 0, up: { vel: 0, salto: 0, vis: 0 }, pets: [], pet: null, styles: [], look: {}, feel: {}, chests: 0,
   prog: { facil: 1, dificil: 1, extremo: 1, islas: 1 }, diff: 'facil', tut: 0, tips: 0,
-  stats: { won: 0, arrows: 0, errors: 0, tp: 0, pats: 0, chests: 0 },
+  stats: { won: 0, arrows: 0, errors: 0, tp: 0, pats: 0, chests: 0, throws: 0, fights: 0, peace: 0 },
   set: { sens: 1, invert: false, sound: true, music: true, gfx: 'auto', fov: 70 },
 });
 
@@ -81,6 +85,7 @@ export function parse(raw: string | null): Save {
     for (const p of s.pets) {
       const l = o.look?.[p], ok = (id: unknown, slot: Slot) => typeof id === 'string' && styleOf(id)?.slot === slot && s.styles.includes(styleKey(p, id)) ? id : null;
       if (l) s.look[p] = { skin: ok(l.skin, 'skin'), acc: ok(l.acc, 'acc') };
+      if (FEELS.includes(o.feel?.[p])) s.feel[p] = o.feel[p];
     }
     s.chests = Math.floor(num(o.chests, 0, 0, 99));
     for (const d of DIFFS) s.prog[d] = Math.floor(num(o.prog?.[d], 1, 1));
@@ -88,7 +93,7 @@ export function parse(raw: string | null): Save {
     s.tut = Math.floor(num(o.tut, 0, 0, 2));
     s.tips = Math.floor(num(o.tips, 0, 0, 1023));
     s.stats = { won: num(o.stats?.won, 0), arrows: num(o.stats?.arrows, 0), errors: num(o.stats?.errors, 0), tp: num(o.stats?.tp, 0),
-      pats: num(o.stats?.pats, 0), chests: num(o.stats?.chests, 0) };
+      pats: num(o.stats?.pats, 0), chests: num(o.stats?.chests, 0), throws: num(o.stats?.throws, 0), fights: num(o.stats?.fights, 0), peace: num(o.stats?.peace, 0) };
     s.set = { sens: num(o.set?.sens, 1, 0.2, 3), invert: !!o.set?.invert, sound: o.set?.sound !== false, music: o.set?.music !== false,
       // antes era `quality` ('alta' por defecto o 'baja'): lo que no era 'baja' pasa a 'auto'
       gfx: GFX.includes(o.set?.gfx) ? o.set.gfx : o.set?.quality === 'baja' ? 'baja' : 'auto', fov: num(o.set?.fov, 70, 55, 90) };
@@ -118,6 +123,7 @@ export function openChest(s: Save, rnd: () => number): Prize | null {
   return p;
 }
 export const lookOf = (s: Save, pet: PetId): Look => s.look[pet] ?? { skin: null, acc: null };
+export const feelOf = (s: Save, pet: PetId): Feel => s.feel[pet] ?? FEEL_DEF[pet];
 // Ponerle (o sacarle, con null) un estilo ganado a una mascota
 export function wear(s: Save, pet: PetId, style: string | null, slot: Slot): boolean {
   if (style !== null && (styleOf(style)?.slot !== slot || !s.styles.includes(styleKey(pet, style)))) return false;

@@ -70,8 +70,39 @@
   #prompt.petting .dot { border-radius: 0; background: none; box-shadow: none; width: 16px; height: 15px;
     background: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23ff4f9a' d='M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.2 0 3.6 1.2 5.3 3.1 1.7-1.9 3.1-3.1 5.3-3.1 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z'/%3E%3C/svg%3E"); }
   #prompt.petting { color: #e0287a; }
-  #t-act .heart { display: none; } #t-act.petting .heart { display: block; fill: #fff; stroke: none; } #t-act.petting .arr { display: none; }
+  #prompt.held { color: #c45a00; } #prompt.fight { color: #b06d00; } #prompt.mad { color: #d0234a; }
+  #prompt.held .dot { border-radius: 50%; background: var(--tc); box-shadow: 0 0 0 3px rgba(255, 138, 31, .3); }
+  #prompt.mad .dot, #prompt.fight .dot { border-radius: 4px; transform: rotate(45deg); width: 12px; height: 12px; }
+  #psub { position: absolute; left: 50%; top: calc(50% + 66px); transform: translateX(-50%); font-size: 12px; font-weight: 800; color: #fff; white-space: nowrap;
+    padding: 2px 9px; border-radius: 999px; background: rgba(36, 35, 74, .5); pointer-events: none; opacity: 0; transition: opacity .12s; }
+  #psub.on { opacity: 1; }
+  /* apuntando a la mascota, el cartel va al costado de la mira: abajo taparía su panza y la mano */
+  #prompt.petting, #prompt.held, #prompt.fight, #prompt.mad { left: calc(50% + 64px); top: calc(50% - 17px); transform: none; }
+  #prompt.petting ~ #psub, #prompt.held ~ #psub, #prompt.fight ~ #psub, #prompt.mad ~ #psub { left: calc(50% + 70px); top: calc(50% + 22px); transform: none; }
+  #charge { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; pointer-events: none; opacity: 0; transform: rotate(-90deg); }
+  #charge.on { opacity: 1; }
+  #charge circle { fill: none; stroke: #ff8a1f; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; filter: drop-shadow(0 0 2px rgba(36, 35, 74, .5)); }
+  #charge.full circle { stroke: #ff3d6a; animation: pulse .25s infinite; }
+  #t-act svg { display: none; } #t-act .arr { display: block; }
+  #t-act.petting .heart, #t-act.held .thr, #t-act.fight .hnd, #t-act.mad .hnd { display: block; } #t-act.petting .arr, #t-act.held .arr, #t-act.fight .arr, #t-act.mad .arr { display: none; }
+  #t-act .heart { fill: #fff; stroke: none; } #t-act.mad.on { opacity: .6; }
   body.touch #prompt .k { display: none; }
+  #brawl { position: absolute; left: 50%; top: calc(58px + var(--st)); transform: translateX(-50%); display: flex; align-items: center; gap: 10px; white-space: nowrap;
+    padding: 7px 14px; border-radius: 999px; background: var(--card); box-shadow: 0 8px 22px -8px rgba(208, 35, 74, .6); border: 2px solid rgba(255, 42, 61, .45);
+    font-weight: 900; font-size: 14px; color: #d0234a; pointer-events: none; }
+  #brawl.bump { animation: bbump .35s; }
+  @keyframes bbump { 40% { transform: translateX(-50%) scale(1.12); } }
+  #brawl .who { color: var(--ink2); font-weight: 800; }
+  #brawl .grp { display: inline-flex; align-items: center; gap: 3px; }
+  #brawl small { font-size: 10px; letter-spacing: .8px; color: var(--dim); margin-right: 3px; }
+  #brawl i { display: inline-grid; width: 18px; height: 18px; }
+  #brawl i svg { width: 18px; height: 18px; }
+  #brawl .ang svg { fill: none; stroke: #ff2a3d; stroke-width: 3.2; stroke-linecap: round; }
+  #brawl .hp svg { fill: #ff4f7d; }
+  #brawl i.off { opacity: .22; filter: grayscale(1); }
+  body.brawling #toasts { top: calc(108px + var(--st)); }
+  body.touch #brawl { top: auto; bottom: calc(10px + var(--sb)); font-size: 12px; gap: 7px; padding: 6px 11px; }
+  body.touch #brawl .who { display: none; }
 
   #coach { position: absolute; left: 50%; bottom: calc(18px + var(--sb)); transform: translateX(-50%); width: min(520px, calc(100% - 24px)); pointer-events: none;
     background: var(--card); border-radius: 20px; padding: 12px 16px 13px 16px; box-shadow: 0 10px 30px -10px rgba(60, 40, 140, .55);
@@ -98,7 +129,7 @@
   #splash .sub { color: #fff; text-shadow: 0 2px 8px rgba(60, 40, 140, .6); font-size: 18px; font-weight: 800; }
   #splash .logo { filter: drop-shadow(0 4px 0 #fff) drop-shadow(0 8px 18px rgba(60, 40, 140, .45)); }
   @keyframes splash { 0% { opacity: 0; transform: translate(-50%, -40%) scale(.92); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 70% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -60%) scale(1.02); visibility: hidden; } }
-  #lockhint { position: fixed; left: 50%; top: calc(50% + 76px); transform: translateX(-50%); padding: 8px 14px; border-radius: 999px; background: var(--card); font-weight: 850; font-size: 14px;
+  #lockhint { position: fixed; left: 50%; top: calc(50% + 96px); transform: translateX(-50%); padding: 8px 14px; border-radius: 999px; background: var(--card); font-weight: 850; font-size: 14px;
     color: var(--violet); pointer-events: none; box-shadow: 0 6px 16px -6px rgba(60, 40, 140, .5); animation: pulse 1.6s infinite; }
 
   /* ── Táctil ── */
@@ -293,6 +324,13 @@
   .look { display: grid; grid-template-columns: 140px 1fr; gap: 14px; align-items: center; margin-top: 12px; }
   .look img, .look .ph { width: 140px; height: 140px; border-radius: 18px; background: radial-gradient(circle at 50% 35%, #fff, #e3dcff); }
   .look p { margin: 4px 0 0; font-size: 13px; color: var(--ink2); font-weight: 650; }
+  .feels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+  .feel { border: 0; border-radius: 14px; padding: 10px 8px; background: #f7f6ff; cursor: pointer; font: inherit; color: var(--ink); text-align: center;
+    box-shadow: inset 0 0 0 2px rgba(108, 92, 255, .15); }
+  .feel b { display: block; font-size: 13px; font-weight: 900; letter-spacing: .5px; }
+  .feel span { display: block; font-size: 11px; color: var(--ink2); font-weight: 650; line-height: 1.2; margin-top: 3px; }
+  .feel.on { background: #efeaff; box-shadow: inset 0 0 0 3px var(--violet); }
+  .feel.on b { color: var(--violet); }
   .sgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
   .sty { position: relative; border: 0; border-radius: 14px; padding: 6px 4px 6px; background: #f7f6ff; cursor: pointer; font: inherit; color: var(--ink);
     box-shadow: inset 0 -5px 0 var(--r); text-align: center; }
@@ -305,6 +343,7 @@
   .sty.none .q { width: 64px; height: 64px; margin: 0 auto; border-radius: 50%; display: grid; place-items: center; font-size: 22px; color: var(--dim); background: #ecebf7; }
   .chests { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
   .btn .chest, .chip .chest { width: 1.3em; height: 1.3em; }
+  .seg.mini { margin: 0 0 8px; justify-content: center; padding: 2px; gap: 1px; } .seg.mini button { padding: 4px 5px; font-size: 9.5px; letter-spacing: .2px; }
   .pet .btn + .btn { margin-top: 6px; } .pet .sty-b { font-size: 11.5px; white-space: nowrap; padding: 6px 8px; min-height: 32px; }
 
   /* ── Evento del nivel ── */
@@ -344,13 +383,16 @@
   <canvas id="minimap" title="mapa (M)"></canvas>
   <div id="maptag">MAPA · <span class="kmap">M</span></div>
   <div id="cross"></div>
+  <svg id="charge" viewBox="0 0 46 46"><circle cx="23" cy="23" r="15.9" pathLength="100"/></svg>
   <div id="prompt"><span class="dot"></span><span class="pl">LIBERAR</span> <span class="k">clic · E</span></div>
+  <div id="psub"></div>
+  <div id="brawl" hidden></div>
   <div id="toasts"></div>
   <div id="coach" hidden><span class="tag"></span><div class="txt"></div><div class="tip"></div></div>
   <div id="touch">
     <div id="stickhint"></div>
     <div id="stick"><div id="knob"></div></div>
-    <button class="tbtn" id="t-act"><svg class="i arr" viewBox="0 0 24 24"><path d="M5 12h12M12 6l6 6-6 6"/></svg><svg class="i heart" viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.2 0 3.6 1.2 5.3 3.1 1.7-1.9 3.1-3.1 5.3-3.1 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z"/></svg><span>LIBERAR</span></button>
+    <button class="tbtn" id="t-act"><svg class="i arr" viewBox="0 0 24 24"><path d="M5 12h12M12 6l6 6-6 6"/></svg><svg class="i heart" viewBox="0 0 24 24"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.2 0 3.6 1.2 5.3 3.1 1.7-1.9 3.1-3.1 5.3-3.1 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z"/></svg><svg class="i thr" viewBox="0 0 24 24"><path d="M4 18c3-8 9-12 16-12M14 3l6 3-3 6"/></svg><svg class="i hnd" viewBox="0 0 24 24"><path d="M8 13V6.5a1.5 1.5 0 0 1 3 0V12m0-1V4.5a1.5 1.5 0 0 1 3 0V11m0-.5V6a1.5 1.5 0 0 1 3 0v8c0 4-2.5 7-6.5 7-2.6 0-4.3-1.3-5.7-3.6L3.6 14.6a1.5 1.5 0 0 1 2.4-1.7L8 15"/></svg><span>LIBERAR</span></button>
     <button class="tbtn" id="t-jump"><svg class="i" viewBox="0 0 24 24"><path d="M12 19V7M6 12l6-6 6 6"/></svg><span>SALTAR</span></button>
   </div>
 </div>

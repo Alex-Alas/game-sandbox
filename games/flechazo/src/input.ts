@@ -1,8 +1,10 @@
-// Entrada. Teclado: WASD o flechas caminan, ESPACIO salta, E/F/clic liberan, M mapa, T mejoras, H pista. Ratón con el
-// puntero capturado (o arrastrando, si el navegador no deja capturarlo). Táctil (body.touch): la mitad izquierda es un
-// joystick que aparece donde apoyás el dedo, la derecha arrastra la mirada y los botones SALTAR y LIBERAR.
+// Entrada. Teclado: WASD o flechas caminan, ESPACIO salta, E/F/clic liberan (o acarician; mantenidos sobre la mascota la
+// agarran y, con ella en brazos, cargan el lanzamiento que sale al soltar), Q/clic derecho agarran o dejan a la mascota,
+// M mapa, T mejoras, H pista. Ratón con el puntero capturado (o arrastrando, si el navegador no deja capturarlo). Táctil
+// (body.touch): la mitad izquierda es un joystick que aparece donde apoyás el dedo, la derecha arrastra la mirada y los
+// botones SALTAR y LIBERAR (que se aprieta y se suelta como el clic).
 export const IN = { fwd: 0, side: 0, jump: false, jumpHit: false, act: false, dx: 0, dy: 0, touch: false, locked: false };
-export type Cb = { act(): void, map(): void, shop(): void, hint(): void, pause(): void, gesture(): void, active(): boolean, click(): boolean }; // click: el clic se usó para capturar el puntero
+export type Cb = { act(): void, actUp(): void, grab(): void, map(): void, shop(): void, hint(): void, pause(): void, gesture(): void, active(): boolean, click(): boolean }; // click: el clic se usó para capturar el puntero
 
 const keys = new Set<string>();
 let stick: { id: number, x0: number, y0: number, x: number, y: number } | null = null;
@@ -28,12 +30,16 @@ export function initInput(cv: HTMLCanvasElement, cb: Cb) {
     keys.add(e.code);
     if (e.code === 'Space') IN.jumpHit = true;
     if (e.code === 'KeyE' || e.code === 'KeyF' || e.code === 'Enter') cb.act();
+    if (e.code === 'KeyQ') cb.grab();
     if (e.code === 'KeyM') cb.map();
     if (e.code === 'KeyT') cb.shop();
     if (e.code === 'KeyH') cb.hint();
     if (e.code === 'KeyP') cb.pause();
   });
-  addEventListener('keyup', (e) => keys.delete(e.code));
+  addEventListener('keyup', (e) => {
+    keys.delete(e.code);
+    if (e.code === 'KeyE' || e.code === 'KeyF' || e.code === 'Enter') cb.actUp();
+  });
   addEventListener('blur', () => clearInput());
 
   // ratón
@@ -42,7 +48,8 @@ export function initInput(cv: HTMLCanvasElement, cb: Cb) {
   cv.addEventListener('mousedown', (e) => {
     if (IN.touch || !cb.active()) return;
     cb.gesture();
-    if (IN.locked) { if (e.button === 0) cb.act(); return; }
+    if (IN.locked) { if (e.button === 0) cb.act(); else if (e.button === 2) cb.grab(); return; }
+    if (e.button === 2) { cb.grab(); return; }
     drag = { x: e.clientX, y: e.clientY, moved: 0 };
   });
   addEventListener('mousemove', (e) => {
@@ -55,7 +62,12 @@ export function initInput(cv: HTMLCanvasElement, cb: Cb) {
     }
     if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX, drag.y = e.clientY, drag.moved += Math.abs(dx) + Math.abs(dy); IN.dx += dx, IN.dy += dy; }
   });
-  addEventListener('mouseup', () => { if (drag && drag.moved < 6 && cb.active() && !cb.click()) cb.act(); drag = null; });
+  addEventListener('mouseup', (e) => {
+    if (IN.touch) return;
+    if (IN.locked) { if (e.button === 0) cb.actUp(); return; }
+    if (drag && drag.moved < 6 && cb.active() && !cb.click()) { cb.act(); cb.actUp(); }
+    drag = null;
+  });
 
   // táctil sobre el lienzo
   const stickEl = document.getElementById('stick')!, knob = document.getElementById('knob')!;
@@ -96,7 +108,7 @@ export function initInput(cv: HTMLCanvasElement, cb: Cb) {
     el.addEventListener('pointerup', rel); el.addEventListener('pointercancel', rel);
   };
   hold('t-jump', () => { IN.jump = true, IN.jumpHit = true; }, () => { IN.jump = false; });
-  hold('t-act', () => cb.act());
+  hold('t-act', () => cb.act(), () => cb.actUp());
 }
 
 function stickVec(): [number, number] {
