@@ -56,14 +56,15 @@ function startLevel(d: Diff, n: number) {
   const views = b.arrows.map(a => new ArrowView(b, ox, oz, a));
   for (const v of views) W.scene.add(v.mesh);
   W.buildBoard(b, ox, oz, gr);
-  const portals = gr.pads.map((p, i) => new Portal(p.x, p.z, padHex(i)));
+  const portals = gr.pads.map((p, i) => new Portal(p.x, p.z, padHex(i), `ISLA ${gr.pads[p.to].isle + 1}`));
   for (const p of portals) W.scene.add(p.g);
-  // se empieza abajo, en el margen de la isla de más abajo (la de más a la izquierda)
+  // se empieza abajo, en el margen de la isla de más abajo (la de más a la izquierda); con islas el margen es más angosto
   const home = (b.isles ?? [[0, 0, b.w - 1, b.h - 1]]).reduce((a, c) => c[3] > a[3] || (c[3] === a[3] && c[0] < a[0]) ? c : a);
+  const many = gr.floors.length > 1;
   const tutorial = d === 'facil' && n === 1;
   L = {
     d, n, b, ox, oz, lim, gr, isle: b.arrows.map(a => isleOf(b, head(a))), portals,
-    spawn: [ox + ((home[0] + home[2]) / 2) * C, oz + home[3] * C + C * 1.15], beacon: [ox + 0.15 * C, oz + 6.25 * C],
+    spawn: [ox + ((home[0] + home[2]) / 2) * C, oz + home[3] * C + C * (many ? 0.85 : 1.15)], beacon: [ox + 0.15 * C, oz + 6.25 * C],
     views, gone: b.arrows.map(() => false), boxCache: b.arrows.map(a => arrowBoxes(b, a.id, ox, oz)), solid: b.arrows.map(() => true),
     ghost: new Set(), boxes: [], nav: null, lives: 3, errors: 0, t: 0, left: b.arrows.length, over: '', overT: 0,
     dest: -1, hint: -1, tut: tutorial ? new Tutorial() : null, mapOpened: false, idle: 0, shopTip: !tutorial && save.tut === 1 ? 0 : -1,
@@ -91,8 +92,8 @@ const padHex = (i: number) => PAD_COLORS[(i >> 1) % PAD_COLORS.length];
 // Lo nuevo del nivel, explicado una sola vez (la primera vez que aparece) en el cartel de abajo
 function newsOf(d: Diff, b: Board): News[] {
   const out: News[] = [], seen = (bit: number) => (save.tips & bit) !== 0;
-  if (b.pads?.length && !seen(TIP.isles)) out.push({ bit: TIP.isles, t: 0, tag: 'NUEVO · ISLAS', text: 'Pisá un portal para pasar a la otra isla',
-    tip: 'Las flechas cruzan el vacío: una que apunta al borde de su isla puede <b>chocar con una de la isla de enfrente</b>.' });
+  if (b.pads?.length && !seen(TIP.isles)) out.push({ bit: TIP.isles, t: 0, tag: 'NUEVO · ISLAS', text: 'Pisá un portal para pasar a otra isla: su cartel dice a cuál',
+    tip: `Una flecha sale solo si su camino está libre <b>en su isla y en todas las que cruza</b> hasta el borde. ${IN.touch ? 'Tocá el minimapa' : 'Apretá <b>M</b>'} para ver todas las islas.` });
   else if (b.holes?.length && !seen(TIP.hole)) out.push({ bit: TIP.hole, t: 0, tag: 'NUEVO · HUECO', text: 'El hueco del medio no es el borde',
     tip: 'Una flecha que apunta al hueco lo cruza volando y <b>choca con lo que haya del otro lado</b>. Mirá antes de liberarla.' });
   if (b.rings?.length && !seen(TIP.ring)) out.push({ bit: TIP.ring, t: 0, tag: 'NUEVO · ANILLOS', text: 'Una flecha larga encierra a otras',
@@ -230,6 +231,9 @@ let bigTr = { k: 1, x0: 0, y0: 0 };
 function openMap() {
   if (app.mode !== 'play' || app.mapOpen) return;
   app.mapOpen = true, L.mapOpened = true;
+  const ni = L.gr.floors.length;
+  $('bm-title').textContent = ni > 1 ? `MAPA · ESTÁS EN LA ISLA ${isleAt(L.gr, body.x, body.z) + 1} DE ${ni}` : 'MAPA';
+  $('bm-legend').textContent = ni > 1 ? 'Cada portal dice a qué isla lleva · tocá una flecha para marcarla como destino' : 'Tocá una flecha para marcarla como destino';
   clearInput(); unlockPointer();
   bigmap.hidden = false;
   document.body.classList.add('mapopen');
@@ -456,6 +460,7 @@ function tick(dt: number) {
 
   // HUD y mapas
   if (playing) H.time(L.t);
+  H.isle(isleAt(L.gr, body.x, body.z) + 1, L.gr.floors.length);
   lockHint.hidden = !(playing && !app.mapOpen && !IN.locked && lockable());
   const st = mapState();
   drawMini($('minimap') as HTMLCanvasElement, st, t);
@@ -482,6 +487,7 @@ function warp() {
   A.S.warp();
   L.warps++, save.stats.tp++;
   persist();
+  H.toast(`Isla ${to.isle + 1}`, '', 900);
 }
 
 function finishWin() {

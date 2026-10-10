@@ -64,17 +64,26 @@ function floor(g: CanvasRenderingContext2D, st: MapState, dots: boolean, holeFil
   g.globalCompositeOperation = 'source-over';
 }
 
-// Portales: un disco del color de su par; en el mapa grande, una línea punteada hasta el otro
-function pads(g: CanvasRenderingContext2D, st: MapState, px: number, links: boolean) {
+// Portales: un disco del color de su par; en el mapa grande, con el número de la isla a la que lleva y una línea punteada
+// hasta el otro, y el número de cada isla en su esquina
+function pads(g: CanvasRenderingContext2D, st: MapState, px: number, big: boolean) {
   const P = st.gr.pads;
-  if (links) {
+  if (big) {
     g.setLineDash([0.5, 0.5]); g.lineWidth = 0.22; g.lineCap = 'round';
     P.forEach((p, i) => { if (i < p.to) { g.strokeStyle = st.padHex[i]; g.beginPath(); g.moveTo(p.x, p.z); g.lineTo(P[p.to].x, P[p.to].z); g.stroke(); } });
     g.setLineDash([]);
   }
+  const r = big ? Math.max(PAD_R * 1.15, 9 * px) : PAD_R * 1.15;
+  g.textAlign = 'center', g.textBaseline = 'middle';
   P.forEach((p, i) => {
     g.fillStyle = st.padHex[i]; g.strokeStyle = '#ffffff'; g.lineWidth = Math.max(0.18, 2 * px);
-    g.beginPath(); g.arc(p.x, p.z, PAD_R * 1.15, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.beginPath(); g.arc(p.x, p.z, r, 0, Math.PI * 2); g.fill(); g.stroke();
+    if (big) { g.fillStyle = '#ffffff'; g.font = `900 ${r * 1.15}px ui-rounded, system-ui, sans-serif`; g.fillText(String(P[p.to].isle + 1), p.x, p.z + r * 0.06); }
+  });
+  if (big && st.gr.floors.length > 1) st.gr.floors.forEach((f, i) => {
+    const R = Math.max(1, 12 * px), x = f.x0 + R * 0.6, z = f.z0 + R * 0.6;
+    g.fillStyle = '#24234a'; g.beginPath(); g.arc(x, z, R, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ffffff'; g.font = `900 ${R * 1.2}px ui-rounded, system-ui, sans-serif`; g.fillText(String(i + 1), x, z + R * 0.06);
   });
 }
 

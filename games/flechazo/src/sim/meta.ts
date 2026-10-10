@@ -53,7 +53,7 @@ export type Save = {
 
 export const fresh = (): Save => ({
   v: 1, coins: 0, up: { vel: 0, salto: 0, vis: 0 }, pets: [], pet: null,
-  prog: { facil: 1, dificil: 1, extremo: 1 }, diff: 'facil', tut: 0, tips: 0,
+  prog: { facil: 1, dificil: 1, extremo: 1, islas: 1 }, diff: 'facil', tut: 0, tips: 0,
   stats: { won: 0, arrows: 0, errors: 0, tp: 0 },
   set: { sens: 1, invert: false, sound: true, music: true, quality: 'alta', fov: 70 },
 });
@@ -94,11 +94,11 @@ export function buyPet(s: Save, id: PetId): boolean {
   s.coins -= p.cost, s.pets.push(id), s.pet = id;
   return true;
 }
-// DIFÍCIL se abre con 3 niveles de FÁCIL y EXTREMO con 3 de DIFÍCIL
+// DIFÍCIL e ISLAS se abren con 3 niveles de FÁCIL y EXTREMO con 3 de DIFÍCIL
 export const UNLOCK = 3;
 export function unlocked(s: Save, d: Diff): boolean {
   if (d === 'facil') return true;
-  if (d === 'dificil') return s.prog.facil > UNLOCK;
+  if (d === 'dificil' || d === 'islas') return s.prog.facil > UNLOCK;
   return s.prog.dificil > UNLOCK;
 }
 export function phys(s: Save) {

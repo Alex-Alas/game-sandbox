@@ -69,6 +69,27 @@ explica (una sola vez).
 Promedio de los niveles 2–25 (rondas para resolverlo / flechas libres al empezar): FÁCIL 5,2 / 43 %, DIFÍCIL 7,1 / 37 %,
 EXTREMO 9,0 / 33 % (antes 4,1 / 53 %, 6,4 / 47 %, 7,5 / 46 %).
 
+## Modo ISLAS (pedido de un tester, 2026-10-10)
+
+> «Añade un nuevo modo de juego con mapas segmentados en islas. La flecha solo puede ser liberada si su camino está libre de
+> obstáculos en su isla y en todas las islas por las que tenga que pasar para salir del mapa. […] El jugador debe poder
+> transportarse entre islas mediante puntos de teletransportación identificados claramente y visibles. El mapa al
+> agrandarlo muestra todas las flechas sin liberar en cada isla así como se encuentran dispuestas en juego 3D, sin
+> asimetrías.»
+
+Antes del pedido el tester comentó que en EXTREMO la dificultad está más en el tamaño del mapa que en cómo se reparten las
+flechas, porque desde donde estás ves la flecha entera y solo hay que recordar su dirección. ISLAS ataca eso: la flecha
+que la traba puede estar en otra isla.
+
+| Tema | Quedó así |
+| --- | --- |
+| Dónde | Cuarta tarjeta en NIVELES, con su escalera infinita; se abre con 3 niveles de FÁCIL (como DIFÍCIL). |
+| Mapas | Grillas de islas cuadradas iguales, de lado impar (el portal queda justo en el medio): 2×1 de 5 → 1×2 → 2×1 de 7 → 2×2 → 3×1 → 1×3 → … → 3×3; después rotan 2×2, 3×2, 2×3 y 3×3 y crecen. Tres columnas de vacío entre islas. |
+| La regla | La de siempre: la recta de la punta llega hasta el borde del tablero y cruza el vacío y las islas que haya en el camino. *El generador pone más flechas en el borde de una isla mirando a otra* (parecen libres) y prefiere tapar rectas de otras islas: ~45–60 % de las flechas trabadas lo están por una de otra isla. Flechas medianas (3–9), con algún anillo. |
+| Portales | Uno por cada isla vecina, en el medio del lado que la mira. Remolino, aro y columna de luz del color de su par, y encima un cartel «→ ISLA n» que se lee de lejos (sin niebla). Al pasar: destello del color, sonido y el aviso «Isla n». El HUD dice en qué isla estás. |
+| Mapa grande | Todas las flechas sin liberar de todas las islas, tal como están en 3D (misma escala en los dos ejes). Cada isla con su número en la esquina, cada portal con el número de la isla a la que lleva y una línea punteada hasta su par. El título dice «ESTÁS EN LA ISLA n DE m». |
+| Simetría | Todas las islas del mismo tamaño y con el mismo margen de piso en los cuatro lados (también en las islas de las otras dificultades). |
+
 ## Pendiente / para calibrar jugando
 
 - Alto de las flechas y del salto base (¿subirse debería costar una mejora?), ancho de los pasillos, alcance para liberar.

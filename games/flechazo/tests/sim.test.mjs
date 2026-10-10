@@ -5,8 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rayOf, occupancy, blockerOf, freeArrows, solveOrder, layers, validate, dirOf, isleOf } from '../src/sim/puzzle.ts';
-import { generate, maskOf, layoutOf } from '../src/sim/gen.ts';
-import { TUTORIAL, TUT, levelOf, specOf, reward, DIFFS } from '../src/sim/levels.ts';
+import { generate, maskOf, layoutOf, crossBlocked } from '../src/sim/gen.ts';
+import { TUTORIAL, TUT, levelOf, specOf, reward, islePlan, DIFFS } from '../src/sim/levels.ts';
 import { groundOf, isleAt, islePath, roundCorner, PAD_R } from '../src/sim/ground.ts';
 import { newBody, stepBody, arrowBoxes, boxDist } from '../src/sim/body.ts';
 import { arrowMesh, clip, plen, pointAt, rounded } from '../src/sim/geom.ts';
@@ -73,7 +73,7 @@ test('las trampas aparecen: anillos desde FÁCIL 3, islas y huecos en las tres, 
   const lv = (d) => Array.from({ length: 13 }, (_, k) => levelOf(d, k + 2));
   assert.ok(levelOf('facil', 3).rings?.length, 'FÁCIL 3 tiene un anillo');
   assert.ok(!levelOf('facil', 2).rings, 'FÁCIL 2 no');
-  for (const d of DIFFS) {
+  for (const d of ['facil', 'dificil', 'extremo']) {
     assert.ok(lv(d).some(b => b.isles?.length > 1), `${d}: islas`);
     assert.ok(lv(d).some(b => b.holes?.length), `${d}: hueco`);
   }
@@ -137,6 +137,57 @@ test('islas: portales enlazados en el borde de su isla, el vacío las separa y n
     else assert.ok(!g.voids.some(k => body.x > k.x0 && body.x < k.x1 && body.z > k.z0 && body.z < k.z1), 'hueco: no entra');
   }
   assert.deepEqual(islePath(groundOf({ w: 16, h: 16, arrows: [], mask: null, ...(({ isles, holes, pads }) => ({ isles, holes, pads }))(layoutOf('four', 16, 16)) }, 0, 0), 0, 3).length, 2);
+});
+
+// ---- Modo ISLAS -----------------------------------------------------------------------------------------------------
+test('ISLAS: una flecha libre en su isla no sale si la tapa una de otra isla que cruza', () => {
+  // dos islas de 3 × 3 con 3 columnas de vacío: A en la isla 1 mira al este; B, en la isla 2, está en su camino
+  const L = layoutOf('two', 9, 3), at = (x, y) => y * 9 + x;
+  const b = { w: 9, h: 3, mask: L.mask, isles: L.isles, holes: L.holes, pads: L.pads, arrows: [
+    { id: 0, c: 0, cells: [at(0, 0), at(1, 0), at(2, 0)] }, // A → este, nada de su isla adelante
+    { id: 1, c: 1, cells: [at(7, 2), at(7, 1), at(7, 0)] }, // B ↑ en la isla 2, en la fila de A
+  ] };
+  assert.deepEqual(validate(b), []);
+  assert.equal(isleOf(b, at(0, 0)), 0), assert.equal(isleOf(b, at(7, 0)), 1), assert.equal(isleOf(b, at(4, 0)), -1);
+  const hit = blockerOf(b, b.arrows[0], occupancy(b));
+  assert.equal(hit?.id, 1, 'B traba a A desde la otra isla');
+  assert.equal(hit?.k, 4, 'A cruza el vacío (3) y una celda de la isla 2 antes del choque');
+  assert.ok(!freeArrows(b).includes(0));
+  assert.ok(freeArrows(b, [false, true]).includes(0), 'sin B, A sale');
+  assert.equal(crossBlocked(b), 1);
+});
+
+test('ISLAS: islas iguales, pisos simétricos y un portal en el medio de cada lado que mira a una vecina', () => {
+  for (let n = 1; n <= 16; n++) {
+    const b = levelOf('islas', n), [c, r, s] = islePlan(n), { ox, oz } = geoOf(b), g = groundOf(b, ox, oz);
+    assert.equal(b.isles.length, c * r, `nivel ${n}`);
+    for (const [x0, y0, x1, y1] of b.isles) assert.ok(x1 - x0 + 1 === s && y1 - y0 + 1 === s, `nivel ${n}: isla de ${s}`);
+    const W = g.floors[0].x1 - g.floors[0].x0, H = g.floors[0].z1 - g.floors[0].z0;
+    b.isles.forEach(([x0, y0, x1, y1], i) => {
+      const f = g.floors[i];
+      assert.ok(Math.abs(f.x1 - f.x0 - W) < 1e-9 && Math.abs(f.z1 - f.z0 - H) < 1e-9, 'pisos iguales');
+      const mx = (ox + x0 * C - f.x0) - (f.x1 - (ox + x1 * C)), mz = (oz + y0 * C - f.z0) - (f.z1 - (oz + y1 * C));
+      assert.ok(Math.abs(mx) < 1e-9 && Math.abs(mz) < 1e-9, 'el mismo margen de los dos lados');
+    });
+    assert.equal(b.pads.length, 2 * ((c - 1) * r + (r - 1) * c), 'un par de portales por vecinas');
+    for (const p of b.pads) {
+      const [x0, y0, x1, y1] = b.isles[p.isle], x = p.cell % b.w, y = Math.floor(p.cell / b.w);
+      assert.ok((x === x0 || x === x1) && y === y0 + (s >> 1) || (y === y0 || y === y1) && x === x0 + (s >> 1), `nivel ${n}: portal fuera del medio`);
+    }
+    for (let i = 0; i < c * r; i++) assert.ok(islePath(g, 0, i), 'se llega a todas las islas');
+  }
+  const g9 = levelOf('islas', 12);
+  assert.equal(islePath(groundOf(g9, geoOf(g9).ox, geoOf(g9).oz), 0, 8).length, 4, '3 × 3: de una esquina a la otra, 4 portales');
+});
+
+test('ISLAS: muchas flechas parecen libres en su isla y chocan en otra', () => {
+  let blocked = 0, cross = 0;
+  for (let n = 1; n <= 14; n++) {
+    const b = levelOf('islas', n), occ = occupancy(b), x = crossBlocked(b);
+    assert.ok(x >= 2, `nivel ${n}: ${x} trabadas por otra isla`);
+    cross += x, blocked += b.arrows.filter(a => blockerOf(b, a, occ)).length;
+  }
+  assert.ok(cross / blocked > 0.4, `${cross} de ${blocked}`);
 });
 
 test('las esquinas del piso son redondas y la isla de cada flecha es la de su punta', () => {
@@ -279,6 +330,9 @@ test('progreso: lo guardado roto vuelve a empezar; comprar cuesta y sube', () =>
   assert.equal(parse(JSON.stringify({ ...fresh(), tips: 5, stats: { won: 1, arrows: 2, errors: 3, tp: 4 } })).tips, 5);
   assert.equal(parse(JSON.stringify({ ...fresh(), stats: { won: 1 } })).stats.tp, 0);
   assert.equal(unlocked(fresh(), 'dificil'), false);
+  assert.equal(unlocked(fresh(), 'islas'), false);
+  const u = fresh(); u.prog.facil = 4;
+  assert.equal(unlocked(u, 'islas'), true, 'ISLAS se abre con FÁCIL, como DIFÍCIL');
   const t = fresh(); t.prog.facil = 4;
   assert.equal(unlocked(t, 'dificil'), true);
 });

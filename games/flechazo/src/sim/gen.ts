@@ -11,13 +11,14 @@
 // - Escaleras (`stair`): flechas que doblan a un lado y al otro cada uno o dos pasos, difíciles de seguir con la vista; y
 //   gemelas (`twin`): el mismo camino corrido una celda, entrelazado con el original (con `same`, del mismo color).
 // - Menos colores (`colors`): vecinas del mismo color.
-// - Islas (`isl`): el tablero partido en dos o cuatro islas sobre el vacío (se pasa por portales) o con un hueco al medio.
-//   Las rectas cruzan el vacío: una flecha que apunta al borde de una isla puede chocar con la de enfrente (bordes falsos).
+// - Islas (`isl`): el tablero partido en una grilla de islas iguales sobre el vacío (se pasa por portales) o con un hueco al
+//   medio. Las rectas cruzan el vacío: una flecha sale solo si su recta está libre en su isla y en todas las que cruza hasta
+//   el borde (bordes falsos). Con `cross`, el generador prefiere trabar flechas de otras islas.
 import { rng, next, int, shuffle, hash, type Rng } from './rng.ts';
-import { DX, DY, layers, freeArrows, type Arrow, type Board, type Rect, type Pad } from './puzzle.ts';
+import { DX, DY, layers, freeArrows, occupancy, blockerOf, isleOf, type Arrow, type Board, type Rect, type Pad } from './puzzle.ts';
 
 export type Shape = 'rect' | 'diamond' | 'circle' | 'cross' | 'heart' | 'star';
-export type Layout = 'one' | 'two' | 'four' | 'hole';
+export type Layout = 'one' | 'two' | 'four' | 'grid' | 'hole';
 export type Spec = {
   w: number, h: number,
   len: [number, number], // largo de las flechas en celdas
@@ -27,7 +28,9 @@ export type Spec = {
   pick: number,          // flechas candidatas por lugar (queda la que traba más flechas libres)
   shape: Shape,
   k: number,             // candidatos (se queda el más difícil)
-  isl?: Layout,          // una isla, dos, cuatro o una con un hueco al medio (sin figura)
+  isl?: Layout,          // una isla, dos, cuatro, una grilla (`grid`) o una con un hueco al medio (sin figura)
+  grid?: [number, number], // con `grid`: columnas y filas de islas
+  cross?: number,        // peso extra por trabar una flecha de otra isla
   rooms?: number,        // anillos que encierran un cuarto
   room?: [number, number], // lado del cuarto (celdas adentro del anillo)
   nest?: number,         // probabilidad de un segundo anillo alrededor del primero
@@ -38,7 +41,7 @@ export type Spec = {
   aim?: number,          // probabilidad de apuntar la flecha hacia adentro (la recta más larga): menos libres al empezar
 };
 export const PALETTE = 10; // colores (el dibujo los define)
-export const GAP = 2;      // columnas (o filas) de vacío entre islas
+export const GAP = 3;      // columnas (o filas) de vacío entre islas
 
 // Figura del tablero: 1 = se pueden poner flechas
 export function maskOf(shape: Shape, w: number, h: number): number[] {
@@ -59,37 +62,31 @@ export function maskOf(shape: Shape, w: number, h: number): number[] {
   return m;
 }
 
-// Islas, huecos y portales. Los portales van en una celda del borde de cada isla que mira a la otra, en el medio, y esa
-// celda queda fuera de la figura (sin flechas, para pararse).
-export function layoutOf(isl: Layout, w: number, h: number): { mask: number[], isles: Rect[], holes: Rect[], pads: Pad[] } {
+// Islas, huecos y portales. Las islas son una grilla de rectángulos iguales (si sobran columnas o filas, quedan repartidas
+// en los bordes) y cada isla tiene un portal a cada vecina, en el medio del lado que la mira; esa celda queda fuera de la
+// figura (sin flechas, para pararse). Las islas van numeradas por filas, de arriba a la izquierda.
+export function layoutOf(isl: Layout, w: number, h: number, grid?: [number, number]): { mask: number[], isles: Rect[], holes: Rect[], pads: Pad[] } {
   const isles: Rect[] = [], holes: Rect[] = [], pads: Pad[] = [];
+  const [gc, gr] = isl === 'grid' && grid ? grid : isl === 'four' ? [2, 2] : isl === 'two' ? (w >= h ? [2, 1] : [1, 2]) : [1, 1];
+  const iw = Math.floor((w - (gc - 1) * GAP) / gc), ih = Math.floor((h - (gr - 1) * GAP) / gr);
+  const sx = Math.floor((w - gc * iw - (gc - 1) * GAP) / 2), sy = Math.floor((h - gr * ih - (gr - 1) * GAP) / 2);
+  for (let r = 0; r < gr; r++) for (let c = 0; c < gc; c++) {
+    const x0 = sx + c * (iw + GAP), y0 = sy + r * (ih + GAP);
+    isles.push([x0, y0, x0 + iw - 1, y0 + ih - 1]);
+  }
+  const at = (x: number, y: number) => y * w + x;
   const link = (a: number, ca: number, b: number, cb: number) => {
     const i = pads.length;
     pads.push({ cell: ca, to: i + 1, isle: a }, { cell: cb, to: i, isle: b });
   };
-  const at = (x: number, y: number) => y * w + x;
-  if (isl === 'two' && w >= h) {
-    const a = Math.floor((w - GAP) / 2), py = Math.floor(h / 2);
-    isles.push([0, 0, a - 1, h - 1], [a + GAP, 0, w - 1, h - 1]);
-    link(0, at(a - 1, py), 1, at(a + GAP, py));
-  } else if (isl === 'two') {
-    const b = Math.floor((h - GAP) / 2), px = Math.floor(w / 2);
-    isles.push([0, 0, w - 1, b - 1], [0, b + GAP, w - 1, h - 1]);
-    link(0, at(px, b - 1), 1, at(px, b + GAP));
-  } else if (isl === 'four') {
-    const a = Math.floor((w - GAP) / 2), b = Math.floor((h - GAP) / 2);
-    isles.push([0, 0, a - 1, b - 1], [a + GAP, 0, w - 1, b - 1], [0, b + GAP, a - 1, h - 1], [a + GAP, b + GAP, w - 1, h - 1]);
-    const yT = Math.floor(b / 2), yB = b + GAP + Math.floor((h - b - GAP) / 2), xL = Math.floor(a / 2), xR = a + GAP + Math.floor((w - a - GAP) / 2);
-    link(0, at(a - 1, yT), 1, at(a + GAP, yT));
-    link(2, at(a - 1, yB), 3, at(a + GAP, yB));
-    link(0, at(xL, b - 1), 2, at(xL, b + GAP));
-    link(1, at(xR, b - 1), 3, at(xR, b + GAP));
-  } else {
-    isles.push([0, 0, w - 1, h - 1]);
-    if (isl === 'hole') {
-      const hw = Math.max(2, Math.round(w * 0.3)), hh = Math.max(2, Math.round(h * 0.3)), x0 = Math.floor((w - hw) / 2), y0 = Math.floor((h - hh) / 2);
-      holes.push([x0, y0, x0 + hw - 1, y0 + hh - 1]);
-    }
+  for (let r = 0; r < gr; r++) for (let c = 0; c < gc; c++) {
+    const i = r * gc + c, [x0, y0, x1, y1] = isles[i], my = y0 + (ih >> 1), mx = x0 + (iw >> 1);
+    if (c + 1 < gc) link(i, at(x1, my), i + 1, at(isles[i + 1][0], my));
+    if (r + 1 < gr) link(i, at(mx, y1), i + gc, at(mx, isles[i + gc][1]));
+  }
+  if (isl === 'hole') {
+    const hw = Math.max(2, Math.round(w * 0.3)), hh = Math.max(2, Math.round(h * 0.3)), x0 = Math.floor((w - hw) / 2), y0 = Math.floor((h - hh) / 2);
+    holes.push([x0, y0, x0 + hw - 1, y0 + hh - 1]);
   }
   const inR = (x: number, y: number, [x0, y0, x1, y1]: Rect) => x >= x0 && x <= x1 && y >= y0 && y <= y1;
   const mask: number[] = [];
@@ -102,8 +99,10 @@ type Cand = { path: number[], ray: number[] };
 const OFFS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 
 function build(sp: Spec, r: Rng): Board {
-  const { w, h } = sp, N = w * h, lay = sp.isl && sp.isl !== 'one' ? layoutOf(sp.isl, w, h) : null;
+  const { w, h } = sp, N = w * h, lay = sp.isl && sp.isl !== 'one' ? layoutOf(sp.isl, w, h, sp.grid) : null;
   const mask = lay ? lay.mask : maskOf(sp.shape, w, h);
+  const isleIx = new Int8Array(N).fill(-1); // isla de cada celda (para `cross`)
+  lay?.isles.forEach(([x0, y0, x1, y1], k) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) isleIx[y * w + x] = k; });
   const occ = new Int16Array(N).fill(-1), cover = new Uint16Array(N), res = new Uint8Array(N); // res: reservada para un cuarto
   const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && mask[y * w + x] === 1;
   const empty = (x: number, y: number) => inside(x, y) && occ[y * w + x] < 0 && !res[y * w + x];
@@ -118,14 +117,16 @@ function build(sp: Spec, r: Rng): Board {
   let filled = 0;
 
   // una flecha candidata desde una punta al azar dentro de la región `ok`: su camino (de la punta a la cola) y su recta
-  const candidate = (ok: (x: number, y: number) => boolean, len: [number, number], late: boolean, stair: boolean, area?: Rect): Cand | null => {
-    const hx = area ? area[0] + int(r, area[2] - area[0] + 1) : int(r, w), hy = area ? area[1] + int(r, area[3] - area[1] + 1) : int(r, h), hi = hy * w + hx;
+  // `edge`: punta y dirección forzadas (en el borde de una isla, mirando a otra)
+  const candidate = (ok: (x: number, y: number) => boolean, len: [number, number], late: boolean, stair: boolean, area?: Rect, edge?: [number, number]): Cand | null => {
+    const hx = edge ? edge[0] % w : area ? area[0] + int(r, area[2] - area[0] + 1) : int(r, w);
+    const hy = edge ? (edge[0] / w) | 0 : area ? area[1] + int(r, area[3] - area[1] + 1) : int(r, h), hi = hy * w + hx;
     if (!ok(hx, hy)) return null;
-    const dirs = shuffle(r, [0, 1, 2, 3]).filter(d => ok(hx - DX[d], hy - DY[d]) && rayClear(hx, hy, d));
+    const dirs = (edge ? [edge[1]] : shuffle(r, [0, 1, 2, 3])).filter(d => ok(hx - DX[d], hy - DY[d]) && rayClear(hx, hy, d));
     if (!dirs.length) return null;
     // con `aim`, la dirección de recta más larga: apunta hacia adentro, así lo que se ponga después la puede tapar
     const rl = (d: number) => d === 0 ? w - 1 - hx : d === 1 ? h - 1 - hy : d === 2 ? hx : hy;
-    const d = next(r) < (sp.aim ?? 0) ? dirs.reduce((a, b) => rl(b) > rl(a) ? b : a) : dirs[0], ray = rayCells(hx, hy, d);
+    const d = !edge && next(r) < (sp.aim ?? 0) ? dirs.reduce((a, b) => rl(b) > rl(a) ? b : a) : dirs[0], ray = rayCells(hx, hy, d);
     let want = len[0] + int(r, len[1] - len[0] + 1);
     if (stair) want = Math.max(want, len[1] - int(r, Math.ceil((len[1] - len[0]) / 3) + 1)); // las escaleras, largas
     const path = [hi, (hy - DY[d]) * w + hx - DX[d]];
@@ -162,8 +163,9 @@ function build(sp: Spec, r: Rng): Board {
     }
     return path.length < (late ? 2 : len[0]) ? null : { path, ray };
   };
-  // cuántas flechas todavía libres trabaría
-  const gain = (path: number[]) => arrows.reduce((n, a) => n + (!blocked[a.id] && rays[a.id].some(i => path.includes(i)) ? 1 : 0), 0);
+  // cuántas flechas todavía libres trabaría (las de otra isla, con `cross`, pesan más)
+  const gain = (path: number[]) => arrows.reduce((n, a) => n + (!blocked[a.id] && rays[a.id].some(i => path.includes(i))
+    ? 1 + (isleIx[a.cells[0]] !== isleIx[path[0]] ? sp.cross ?? 0 : 0) : 0), 0);
   const best = (n: number, make: () => Cand | null) => {
     let out: Cand | null = null, top = -1;
     for (let k = 0; k < Math.max(1, n); k++) {
@@ -269,6 +271,17 @@ function build(sp: Spec, r: Rng): Board {
     }
   };
 
+  // bordes de isla que miran a otra isla (punta, dirección): una flecha ahí parece libre en su isla y choca en la de enfrente
+  const edges: [number, number][] = [];
+  if (sp.cross && lay && lay.isles.length > 1) for (let i = 0; i < N; i++) {
+    if (isleIx[i] < 0 || !mask[i]) continue;
+    for (let d = 0; d < 4; d++) {
+      const x = (i % w) + DX[d], y = ((i / w) | 0) + DY[d];
+      if (x < 0 || y < 0 || x >= w || y >= h || isleIx[y * w + x] >= 0) continue;
+      if (rayCells(i % w, (i / w) | 0, d).some(j => isleIx[j] >= 0 && isleIx[j] !== isleIx[i])) edges.push([i, d]);
+    }
+  }
+
   // ---- Llenado ----
   let ri = 0;
   for (let tries = 0; tries < N * 24 && filled < target; tries++) {
@@ -286,7 +299,9 @@ function build(sp: Spec, r: Rng): Board {
       }
       if (pair) { place(pair.t.path, pair.t.ray, place(pair.src, pair.ray)); continue; }
     }
-    const c = best(sp.pick, () => candidate(empty, sp.len, late, next(r) < (sp.stair ?? 0)));
+    const c = edges.length && next(r) < 0.6
+      ? best(2, () => candidate(empty, sp.len, late, false, undefined, edges[int(r, edges.length)]))
+      : best(sp.pick, () => candidate(empty, sp.len, late, next(r) < (sp.stair ?? 0)));
     if (c) place(c.path.reverse(), c.ray);
   }
   while (ri < rooms.length) buildRoom(rooms[ri++]);
@@ -307,11 +322,20 @@ function build(sp: Spec, r: Rng): Board {
   return b;
 }
 
-// Qué tan difícil es: rondas para resolverlo, castigando las flechas libres al empezar y los tableros medio vacíos
+// Qué tan difícil es: rondas para resolverlo, castigando las flechas libres al empezar y los tableros medio vacíos; con
+// islas, premiando las flechas que choca con una de otra isla
 export function hardness(b: Board): number {
   const n = b.arrows.length, cells = b.mask ? b.mask.reduce((s, v) => s + v, 0) : b.w * b.h;
+  if (!n) return 0;
   const fill = b.arrows.reduce((s, a) => s + a.cells.length, 0) / cells;
-  return n ? layers(b) - (freeArrows(b).length / n) * 4 + Math.min(fill, 0.8) * 10 + n * 0.01 : 0;
+  return layers(b) - (freeArrows(b).length / n) * 4 + Math.min(fill, 0.8) * 10 + n * 0.01 + (crossBlocked(b) / n) * 8;
+}
+
+// Cuántas flechas chocan primero con una de otra isla (su recta está libre en su isla)
+export function crossBlocked(b: Board): number {
+  if (!b.isles || b.isles.length < 2) return 0;
+  const occ = occupancy(b);
+  return b.arrows.filter(a => { const k = blockerOf(b, a, occ); return k && isleOf(b, a.cells[0]) !== isleOf(b, b.arrows[k.id].cells[0]); }).length;
 }
 
 export function generate(sp: Spec, seed: number): Board {

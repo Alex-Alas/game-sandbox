@@ -116,11 +116,29 @@ export class Marker {
   }
 }
 
-// ---- Portal: un remolino en el piso, un aro y una columna de luz corta sin niebla (se encuentra de lejos) -------------
+// ---- Portal: un remolino en el piso, un aro, una columna de luz corta y un cartel con la isla a la que lleva (sin niebla:
+// se encuentran y se leen de lejos) ------------------------------------------------------------------------------------
 export const PAD_COLORS = ['#19c9e6', '#ff5fcf', '#ffb31a', '#3ddc7a'];
+function sign(text: string, hex: string): THREE.Sprite {
+  const cv = document.createElement('canvas');
+  cv.width = 320, cv.height = 112;
+  const g = cv.getContext('2d')!;
+  g.fillStyle = 'rgba(255, 255, 255, .95)'; g.beginPath(); g.roundRect(6, 6, 308, 100, 50); g.fill();
+  g.lineWidth = 8; g.strokeStyle = hex; g.stroke();
+  g.fillStyle = hex; g.beginPath(); g.arc(58, 56, 36, 0, Math.PI * 2); g.fill();
+  g.strokeStyle = '#fff'; g.lineWidth = 9; g.lineCap = 'round'; g.lineJoin = 'round';
+  g.beginPath(); g.moveTo(40, 56); g.lineTo(76, 56); g.moveTo(61, 40); g.lineTo(77, 56); g.lineTo(61, 72); g.stroke();
+  g.fillStyle = '#24234a'; g.font = '900 50px ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif'; g.textBaseline = 'middle';
+  g.fillText(text, 110, 60, 196);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, fog: false, depthWrite: false, transparent: true }));
+  sp.scale.set(2.6, 0.91, 1);
+  return sp;
+}
 export class Portal {
-  g = new THREE.Group(); color: THREE.Color; t = Math.random() * 6; swirl: THREE.ShaderMaterial; ring: THREE.Mesh; beam: THREE.Mesh;
-  constructor(x: number, z: number, hex: string) {
+  g = new THREE.Group(); color: THREE.Color; t = Math.random() * 6; swirl: THREE.ShaderMaterial; ring: THREE.Mesh; beam: THREE.Mesh; sign: THREE.Sprite | null = null;
+  constructor(x: number, z: number, hex: string, label = '') {
     this.color = new THREE.Color(hex);
     this.swirl = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
@@ -148,6 +166,7 @@ export class Portal {
       fragmentShader: 'uniform vec3 color; uniform float k; varying float vF; void main() { gl_FragColor = vec4(color, vF * vF * k); }',
     }));
     this.g.add(disc, this.ring, this.beam);
+    if (label) this.g.add(this.sign = sign(label, hex));
     this.g.position.set(x, 0, z);
   }
   update(dt: number) {
@@ -156,8 +175,11 @@ export class Portal {
     const s = 1 + Math.sin(this.t * 3) * 0.05;
     this.ring.scale.set(s, s, 1);
     ((this.beam.material as THREE.ShaderMaterial).uniforms.k.value as number) = 0.55 + Math.sin(this.t * 2.2) * 0.12;
+    this.sign?.position.set(0, 3.1 + Math.sin(this.t * 2) * 0.08, 0);
   }
-  dispose() { this.g.traverse(o => { const m = o as THREE.Mesh; m.geometry?.dispose(); (m.material as THREE.Material | undefined)?.dispose(); }); }
+  dispose() {
+    this.g.traverse(o => { const m = o as THREE.Mesh, mt = m.material as THREE.SpriteMaterial | undefined; m.geometry?.dispose(); mt?.map?.dispose(); mt?.dispose(); });
+  }
 }
 
 export type Quality = 'alta' | 'baja';

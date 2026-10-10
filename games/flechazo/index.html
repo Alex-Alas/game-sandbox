@@ -45,6 +45,7 @@
   #hearts .on { fill: #ff4d6d; } #hearts .off { fill: #d9d6ea; }
   #hearts.hurt { animation: hurt .45s; }
   @keyframes hurt { 30% { transform: scale(1.25) rotate(-6deg); } 60% { transform: scale(.95) rotate(4deg); } }
+  #isle svg { color: #19c9e6; } #isle small { font-size: 12px; color: var(--dim); margin-left: 1px; }
   #left svg { color: var(--violet); } #coins svg { color: var(--gold); } #coins.bump { animation: bump .4s; }
   @keyframes bump { 40% { transform: scale(1.2); } }
   #b-shop { background: var(--grad); color: #fff; }
@@ -166,13 +167,15 @@
   .pet b { display: block; font-size: 16px; margin-top: 6px; } .pet p { font-size: 12px; color: var(--ink2); margin: 2px 0 8px; min-height: 30px; font-weight: 600; }
   .pet.locked img { filter: grayscale(.3) brightness(.95); }
 
-  .diffs { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .diffs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  @media (max-width: 560px) { .diffs { grid-template-columns: 1fr; } }
   .diff { border: 0; border-radius: 22px; padding: 18px 16px; text-align: left; cursor: pointer; color: #fff; box-shadow: 0 6px 0 rgba(36, 35, 74, .25); font: inherit; }
   .diff b { display: block; font-size: 26px; font-weight: 900; letter-spacing: 1px; }
   .diff span { display: block; font-size: 14px; font-weight: 700; opacity: .92; margin-top: 4px; }
   .diff .lv { display: inline-block; margin-top: 10px; background: rgba(255, 255, 255, .25); padding: 4px 10px; border-radius: 999px; font-weight: 900; }
   .diff.facil { background: linear-gradient(135deg, #3fd18f, #18a8c9); } .diff.dificil { background: linear-gradient(135deg, #8b5cff, #4f8cff); }
   .diff.extremo { background: linear-gradient(135deg, #ff5fb4, #ff7a3d); }
+  .diff.islas { background: linear-gradient(135deg, #19c9e6, #3d6bff 70%); }
   .diff[disabled] { filter: grayscale(.8); opacity: .6; cursor: default; }
   .set { display: grid; grid-template-columns: 1fr auto; gap: 10px 14px; align-items: center; font-weight: 700; }
   .set input[type=range] { width: min(220px, 45vw); accent-color: var(--violet); }
@@ -223,6 +226,7 @@
   <div class="bar" id="bar-l">
     <button class="chip round" id="b-pause" title="pausa (Esc)" aria-label="pausa"><svg class="i" viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg></button>
     <span class="chip" id="lvl"></span>
+    <span class="chip" id="isle" hidden></span>
     <span class="chip" id="hearts"></span>
     <span class="chip" id="left"></span>
     <span class="chip" id="time">0:00</span>

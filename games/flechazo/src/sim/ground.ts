@@ -1,12 +1,12 @@
 // El piso en el mundo (puro). Sin islas, un rectángulo con MARGIN celdas de piso alrededor del rompecabezas. Con islas, un
-// piso por isla (margen ancho del lado del borde del tablero y angosto del lado del vacío), los huecos del medio y los
-// portales. Para la colisión y la navegación, el vacío entre islas y los huecos son cajas infranqueables (`top` infinito):
+// piso por isla, todos iguales y con el mismo margen (ISLE_M) de los cuatro lados, así el mapa y el mundo son simétricos;
+// además los huecos del medio y los portales. Para la colisión y la navegación, el vacío entre islas y los huecos son cajas infranqueables (`top` infinito):
 // no se cae ni se salta por encima; a otra isla se pasa pisando un portal.
 import { C, MARGIN } from './const.ts';
 import { cx, cy, type Board } from './puzzle.ts';
 import type { Box, Lim } from './body.ts';
 
-export const INNER = 0.4;   // celdas de piso del lado del vacío, más allá de la media celda
+export const ISLE_M = 0.75; // celdas de piso alrededor de cada isla, más allá de la media celda (con GAP = 3 quedan 1,5 de vacío)
 export const HOLE_IN = 0.1; // cuánto entra el piso en las celdas de un hueco
 export const PAD_R = 0.8;   // radio del portal (m)
 export const VOID = -2;     // id de las cajas del vacío
@@ -15,11 +15,8 @@ export type PadW = { x: number, z: number, to: number, isle: number };
 export type Ground = { lim: Lim, floors: Floor[], holes: Lim[], voids: Box[], pads: PadW[] };
 
 export function groundOf(b: Board, ox: number, oz: number): Ground {
-  const isles = b.isles ?? [[0, 0, b.w - 1, b.h - 1]], r = isles.length > 1 ? C * 0.55 : C * 0.75;
-  const floors: Floor[] = isles.map(([x0, y0, x1, y1]) => ({
-    x0: ox + (x0 - 0.5 - (x0 === 0 ? MARGIN : INNER)) * C, z0: oz + (y0 - 0.5 - (y0 === 0 ? MARGIN : INNER)) * C,
-    x1: ox + (x1 + 0.5 + (x1 === b.w - 1 ? MARGIN : INNER)) * C, z1: oz + (y1 + 0.5 + (y1 === b.h - 1 ? MARGIN : INNER)) * C, r,
-  }));
+  const isles = b.isles ?? [[0, 0, b.w - 1, b.h - 1]], many = isles.length > 1, m = (many ? ISLE_M : MARGIN) + 0.5, r = C * (many ? 0.6 : 0.75);
+  const floors: Floor[] = isles.map(([x0, y0, x1, y1]) => ({ x0: ox + (x0 - m) * C, z0: oz + (y0 - m) * C, x1: ox + (x1 + m) * C, z1: oz + (y1 + m) * C, r }));
   const lim = { x0: Math.min(...floors.map(f => f.x0)), z0: Math.min(...floors.map(f => f.z0)), x1: Math.max(...floors.map(f => f.x1)), z1: Math.max(...floors.map(f => f.z1)) };
   const holes = (b.holes ?? []).map(([x0, y0, x1, y1]) => ({
     x0: ox + (x0 - 0.5 + HOLE_IN) * C, z0: oz + (y0 - 0.5 + HOLE_IN) * C, x1: ox + (x1 + 0.5 - HOLE_IN) * C, z1: oz + (y1 + 0.5 - HOLE_IN) * C,
