@@ -41,7 +41,10 @@ export const PETS: { id: PetId, name: string, cost: number, desc: string }[] = [
   { id: 'dragui', name: 'Dragui', cost: 850, desc: 'Un dragoncito violeta. El más caro, el más orgulloso.' },
 ];
 
-export type Settings = { sens: number, invert: boolean, sound: boolean, music: boolean, quality: 'alta' | 'baja', fov: number };
+// gfx: calidad de los gráficos; 'auto' = MEDIA en los táctiles y ALTA en la compu
+export type Gfx = 'auto' | 'alta' | 'media' | 'baja';
+export const GFX: Gfx[] = ['auto', 'alta', 'media', 'baja'];
+export type Settings = { sens: number, invert: boolean, sound: boolean, music: boolean, gfx: Gfx, fov: number };
 export type Save = {
   v: 1, coins: number, up: Record<UpKind, number>, pets: PetId[], pet: PetId | null,
   styles: string[],                  // estilos ganados («mascota:estilo»)
@@ -59,7 +62,7 @@ export const fresh = (): Save => ({
   v: 1, coins: 0, up: { vel: 0, salto: 0, vis: 0 }, pets: [], pet: null, styles: [], look: {}, chests: 0,
   prog: { facil: 1, dificil: 1, extremo: 1, islas: 1 }, diff: 'facil', tut: 0, tips: 0,
   stats: { won: 0, arrows: 0, errors: 0, tp: 0, pats: 0, chests: 0 },
-  set: { sens: 1, invert: false, sound: true, music: true, quality: 'alta', fov: 70 },
+  set: { sens: 1, invert: false, sound: true, music: true, gfx: 'auto', fov: 70 },
 });
 
 // Lee lo guardado completando lo que falte (versiones viejas o datos rotos)
@@ -87,7 +90,8 @@ export function parse(raw: string | null): Save {
     s.stats = { won: num(o.stats?.won, 0), arrows: num(o.stats?.arrows, 0), errors: num(o.stats?.errors, 0), tp: num(o.stats?.tp, 0),
       pats: num(o.stats?.pats, 0), chests: num(o.stats?.chests, 0) };
     s.set = { sens: num(o.set?.sens, 1, 0.2, 3), invert: !!o.set?.invert, sound: o.set?.sound !== false, music: o.set?.music !== false,
-      quality: o.set?.quality === 'baja' ? 'baja' : 'alta', fov: num(o.set?.fov, 70, 55, 90) };
+      // antes era `quality` ('alta' por defecto o 'baja'): lo que no era 'baja' pasa a 'auto'
+      gfx: GFX.includes(o.set?.gfx) ? o.set.gfx : o.set?.quality === 'baja' ? 'baja' : 'auto', fov: num(o.set?.fov, 70, 55, 90) };
   } catch { /* datos rotos: se empieza de cero */ }
   return s;
 }

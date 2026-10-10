@@ -5,7 +5,7 @@
 // Flujo: al entrar arranca directo en el nivel que sigue (la primera vez, el tutorial) → nivel resuelto (monedas) → el
 // siguiente. Física a 120 Hz con paso fijo, dibujo por rAF.
 import * as THREE from 'three';
-import { World, Marker, Portal, PAD_COLORS } from './world.ts';
+import { World, Marker, Portal, PAD_COLORS, type Quality } from './world.ts';
 import { ArrowView, type ArrowEv } from './arrows.ts';
 import { initInput, read, clearInput, IN } from './input.ts';
 import * as H from './hud.ts';
@@ -24,7 +24,7 @@ import { occupancy, blockerOf, freeArrows, cx, cy, head, isleOf, type Board } fr
 import { groundOf, isleAt, roundCorner, safeAt, PAD_R, type Ground } from './sim/ground.ts';
 import { newBody, stepBody, arrowBoxes, boxDist, onLand, type Box, type Lim, type Body } from './sim/body.ts';
 import { navOf, type Nav } from './sim/nav.ts';
-import { parse, phys, buyUp, buyPet, unlocked, upCost, freeTravel, lookOf, wear, FOG, MAP_R, TRAJ_AT, HINT_COST, UNLOCK, TIP, type Save, type PetId, type UpKind } from './sim/meta.ts';
+import { parse, phys, buyUp, buyPet, unlocked, upCost, freeTravel, lookOf, wear, type Gfx, FOG, MAP_R, TRAJ_AT, HINT_COST, UNLOCK, TIP, type Save, type PetId, type UpKind } from './sim/meta.ts';
 import type { V2 } from './sim/geom.ts';
 
 const KEY = 'flechazo.save', params = new URLSearchParams(location.search);
@@ -33,7 +33,9 @@ const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(save)); }
 if (params.get('todo') === '1') { save.prog.facil = Math.max(save.prog.facil, UNLOCK + 1); save.prog.dificil = Math.max(save.prog.dificil, UNLOCK + 1); save.tut = Math.max(save.tut, 1); }
 
 const cv = document.getElementById('game') as HTMLCanvasElement;
-const W = new World(cv, save.set.quality);
+// AUTO: MEDIA en los táctiles (los teléfonos llenan muchos píxeles con poca GPU), ALTA en la compu
+const gfxOf = (g: Gfx): Quality => g !== 'auto' ? g : params.get('touch') === '1' || (matchMedia('(pointer: coarse)').matches && params.get('touch') !== '0') ? 'media' : 'alta';
+const W = new World(cv, gfxOf(save.set.gfx));
 const $ = (id: string) => document.getElementById(id)!;
 
 type News = { bit: number, tag: string, text: string, tip: string, t: number };
@@ -46,7 +48,7 @@ type Level = {
 };
 type Mode = 'play' | 'menu';
 const app = { mode: 'play' as Mode, lockFails: 0, lockTry: false, overArrow: false, jumpPend: false, mapOpen: false, acc: 0, last: performance.now(), auto: false, shake: 0, dip: 0, bob: 0, stepD: 0, eye: EYE, hintNag: 0, noTargetNag: 0, padLock: -1,
-  safe: [0, 0] as V2, isle: 0, freeze: 0 }; // freeze: segundos sin caminar después de caer
+  safe: [0, 0] as V2, isle: 0, freeze: 0, frame: 0 }; // freeze: segundos sin caminar después de caer
 const FALL_Y = -9; // más abajo que esto, cayó al vacío
 let L!: Level, body: Body = newBody(0, 0), yaw = 0, pitch = 0, target = -1, petAim = false, pet: PetCtl | null = null, win: M.WinInfo | null = null;
 const markers: Marker[] = [];
@@ -321,7 +323,7 @@ const ctx = (): M.MenuCtx => ({
   },
   buyPet: (id: PetId) => { const ok = buyPet(save, id); if (ok) { persist(); spawnPet(); H.coins(save.coins); A.S.pet(); } return ok; },
   equip: (id) => { save.pet = id; persist(); spawnPet(); if (id) A.S.pet(); },
-  settings: () => { persist(); A.setVolumes(save.set.sound, save.set.music); W.resize(save.set.fov); },
+  settings: () => { persist(); A.setVolumes(save.set.sound, save.set.music); if (gfxOf(save.set.gfx) !== W.quality) W.setQuality(gfxOf(save.set.gfx)); W.resize(save.set.fov); },
   thumbs: () => petThumbs(['gomita', 'michi', 'pio', 'croac', 'bu', 'ajolote', 'zumbi', 'robi', 'dragui'], save.look),
   sfx: (k) => A.S[k](),
   thumb: (p, look, size) => petThumb(p, look, size),
@@ -444,13 +446,24 @@ function tutCtx(): TutCtx {
   return { px: body.x, pz: body.z, beacon: L.beacon, onArrow: body.on >= 0 || app.overArrow, gone: L.gone, mapOpened: L.mapOpened, idle: L.idle, touch: IN.touch, left: L.left, free: free[0] ?? -1 };
 }
 
+// Las flechas que quedan detrás de la niebla no se ven: no se dibujan ni hacen sombra (en EXTREMO e ISLAS son muchas)
+function cullArrows() {
+  const cam = W.camera.position, far = W.fog.far + 2;
+  for (const v of L.views) {
+    if (v.mode === 'done') continue;
+    const bs = v.mesh.geometry.boundingSphere;
+    v.mesh.visible = !bs || Math.hypot(bs.center.x - cam.x, bs.center.z - cam.z) - bs.radius < far;
+  }
+}
+
 // La flecha apuntada (−1 = ninguna). Si la mira le pega antes a la mascota, se la acaricia (petAim)
 const petHit = new THREE.Vector3(), petRay = new THREE.Ray();
 function pickTarget(): number {
   const eye = W.camera.position;
   ray.setFromCamera(new THREE.Vector2(0, 0), W.camera);
   ray.far = REACH;
-  const meshes = L.views.filter(v => v.mode === 'rest' && !L.gone[v.id]).map(v => v.mesh);
+  // solo las que están al alcance (el rayo contra todas las mallas, triángulo por triángulo, cuesta en un teléfono)
+  const meshes = L.views.filter(v => v.mode === 'rest' && !L.gone[v.id] && L.boxCache[v.id].some(k => boxDist(eye.x, eye.z, k) < REACH + 0.5)).map(v => v.mesh);
   const hit = ray.intersectObjects(meshes, false)[0];
   petAim = false;
   if (pet && !app.auto) { // el piloto automático no acaricia (y la mascota no le tapa las flechas)
@@ -532,6 +545,7 @@ function tick(dt: number) {
   for (const id of L.ghost) if (!L.boxCache[id].some(k => overlap(k))) { L.ghost.delete(id); setSolid(id, true); }
   const evs: ArrowEv[] = [];
   for (const v of L.views) v.update(dt, evs);
+  cullArrows();
   for (const e of evs) onArrow(e);
 
   // cámara
@@ -558,10 +572,12 @@ function tick(dt: number) {
     W.setTrajectory(target >= 0 && save.up.vis >= TRAJ_AT ? L.views[target].trajectory() : null, target >= 0 ? L.views[target].hex : '#fff');
   }
 
-  // portales: giran y sueltan chispas que suben
+  // portales: giran y sueltan chispas que suben (solo los cercanos: los lejos no se ven entre la niebla)
+  const cam = W.camera.position;
   L.portals.forEach((p, i) => {
-    p.update(dt);
-    if (Math.random() < dt * 9) {
+    const pd = L.gr.pads[i], d = Math.hypot(pd.x - cam.x, pd.z - cam.z);
+    p.update(dt, d);
+    if (d < 22 && Math.random() < dt * 9) {
       const a = Math.random() * Math.PI * 2, r = Math.random() * PAD_R;
       W.fx.emit(L.gr.pads[i].x + Math.cos(a) * r, 0.1, L.gr.pads[i].z + Math.sin(a) * r, p.color, 1, { speed: 0.2, up: 1.4, size: 0.12, life: 1.3, grav: -0.6 });
     }
@@ -576,7 +592,7 @@ function tick(dt: number) {
   while (markers.length < ms.length) { const m = new Marker(); markers.push(m); W.scene.add(m.g); }
   markers.forEach((m, i) => {
     m.g.visible = i < ms.length;
-    if (i < ms.length) { m.set(ms[i].x, ms[i].z, ms[i].y, ms[i].hex); m.update(dt); }
+    if (i < ms.length) { m.set(ms[i].x, ms[i].z, ms[i].y, ms[i].hex); m.update(dt, Math.hypot(ms[i].x - cam.x, ms[i].z - cam.z)); }
   });
   if (L.fallTip > 0 && playing) {
     // después de caer sin el equipo: por qué
@@ -620,7 +636,7 @@ function tick(dt: number) {
   H.isle(app.isle + 1, L.gr.floors.length);
   lockHint.hidden = !(playing && !app.mapOpen && !IN.locked && lockable());
   const st = mapState();
-  drawMini($('minimap') as HTMLCanvasElement, st, t);
+  if (!IN.touch || (app.frame++ & 1) === 0) drawMini($('minimap') as HTMLCanvasElement, st, t);
   if (app.mapOpen) bigTr = drawBig(bigCv, st, t);
   W.fx.update(dt);
   W.follow(body.x, body.z, dt);
@@ -635,10 +651,10 @@ function warp() {
   if (at < 0) { app.padLock = -1; return; }
   if (at === app.padLock || body.y > 0.4 || L.over) return;
   const from = P[at], to = P[from.to], col = L.portals[at].color;
-  W.fx.emit(body.x, 1, body.z, col, 30, { speed: 3, up: 3, size: 0.16, life: 0.8, grav: 2 });
+  W.fx.emit(body.x, 0.3, body.z, col, 16, { speed: 3, up: 2.5, size: 0.16, life: 0.7, grav: 2 });
   body.x = to.x, body.z = to.z;
   app.padLock = from.to, app.dip = 0.12, app.safe = [to.x, to.z];
-  W.fx.emit(to.x, 1, to.z, col, 40, { speed: 4, up: 3.5, size: 0.18, life: 0.9, grav: 2 });
+  W.fx.emit(to.x, 0.3, to.z, col, 22, { speed: 4, up: 2.5, size: 0.18, life: 0.8, grav: 2 });
   pet?.place(to.x - 1, to.z - 1);
   H.warp(L.portals[at].color.getStyle());
   A.S.warp();
@@ -680,8 +696,9 @@ function finishWin() {
 // ---- Bucle ---------------------------------------------------------------------------------------------------------
 function frame(now: number) {
   requestAnimationFrame(frame);
-  const dt = Math.min(0.05, Math.max(0, (now - app.last) / 1000));
+  const ms = now - app.last, dt = Math.min(0.05, Math.max(0, ms / 1000));
   app.last = now;
+  if (!document.hidden) W.adapt(ms);
   tick(dt);
   W.render();
 }
@@ -706,7 +723,16 @@ Object.assign(window, {
     petIt, petAim: () => petAim,
     event: (k: EvKind) => { if (L.ev) { W.scene.remove(L.ev.root); L.ev.dispose(); } L.ev = new LevelEvent(k, L.t); },
     ev: () => L.ev && { kind: L.ev.kind, state: L.ev.state, t: L.ev.t, gold: L.ev.gold, next: L.ev.next, rings: L.ev.rings.map(r => ({ x: r.x, y: r.y, z: r.z })), c: { x: L.ev.cx, y: L.ev.cy, z: L.ev.cz }, chest: L.chest },
-    chests: (n: number) => { save.chests += n; persist(); }, petAt: () => pet && { x: pet.x, y: pet.y, z: pet.z, mood: pet.mood },
+    chests: (n: number) => { save.chests += n; persist(); },
+    // n cuadros (lógica + dibujo, esperando a la GPU): ms por cuadro, llamadas de dibujo, triángulos y la resolución
+    bench: (n = 60) => {
+      const gl = W.renderer.getContext(), px = new Uint8Array(4);
+      let ms = 0;
+      for (let k = 0; k < n; k++) { const t0 = performance.now(); tick(1 / 60); W.render(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); ms += performance.now() - t0; }
+      const i = W.renderer.info.render;
+      return { ms: +(ms / n).toFixed(2), calls: i.calls, tris: i.triangles, points: i.points, pr: +W.renderer.getPixelRatio().toFixed(2) };
+    },
+    perf: () => ({ fps: +(1000 / W.res.avg).toFixed(1), scale: W.res.scale, pr: +W.renderer.getPixelRatio().toFixed(2), quality: W.quality, calls: W.renderer.info.render.calls, tris: W.renderer.info.render.triangles }), petAt: () => pet && { x: pet.x, y: pet.y, z: pet.z, mood: pet.mood },
     release, act, auto: (on: boolean) => { app.auto = on; if (on) unlockPointer(); },
     solve: () => { for (;;) { const f = freeArrows(L.b, L.gone).filter(id => L.views[id].mode === 'rest'); if (!f.length) break; f.forEach(release); } },
     tp: (x: number, z: number) => { body.x = x, body.z = z, body.vx = body.vz = 0; },
@@ -715,6 +741,6 @@ Object.assign(window, {
     pet: (id: PetId | null) => { if (id && !save.pets.includes(id)) save.pets.push(id); save.pet = id; persist(); spawnPet(); },
     menu: (p: M.Page) => openMenu(p), map: (on: boolean) => on ? openMap() : closeMap(), resume,
     advance: (secs: number) => { for (let k = 0; k < secs * 60; k++) tick(1 / 60); W.render(); },
-    board: () => L.b, free: () => freeArrows(L.b, L.gone), save, app,
+    board: () => L.b, free: () => freeArrows(L.b, L.gone), save, app, W, L: () => L,
   },
 });

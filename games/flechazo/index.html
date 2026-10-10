@@ -87,9 +87,9 @@
   .toast.good { color: #0b8f5c; } .toast.bad { color: #d0234a; } .toast.gold { color: #b06d00; }
   .toast.out { opacity: 0; transform: translateY(-6px); transition: opacity .3s, transform .3s; }
   @keyframes tin { from { opacity: 0; transform: translateY(-8px) scale(.96); } }
-  #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(255, 50, 90, .55)); transition: opacity .5s; }
+  #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; will-change: opacity; background: radial-gradient(ellipse at center, transparent 45%, rgba(255, 50, 90, .55)); transition: opacity .5s; }
   #flash.on { opacity: 1; transition: none; }
-  #warp { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .6s;
+  #warp { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .6s; will-change: opacity;
     background: radial-gradient(ellipse at center, rgba(255, 255, 255, .35) 20%, var(--wc, #19c9e6) 120%); }
   #warp.on { opacity: .85; transition: none; }
 
@@ -183,6 +183,9 @@
   .diff[disabled] { filter: grayscale(.8); opacity: .6; cursor: default; }
   .set { display: grid; grid-template-columns: 1fr auto; gap: 10px 14px; align-items: center; font-weight: 700; }
   .set input[type=range] { width: min(220px, 45vw); accent-color: var(--violet); }
+  .seg { display: flex; gap: 4px; background: #f1efff; border-radius: 999px; padding: 3px; }
+  .seg button { border: 0; background: none; border-radius: 999px; padding: 6px 10px; font-weight: 900; font-size: 12px; cursor: pointer; color: var(--ink2); }
+  .seg button.on { background: var(--violet); color: #fff; }
   .tog { width: 52px; height: 30px; border-radius: 999px; border: 0; background: #dcd8f2; position: relative; cursor: pointer; }
   .tog::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 2px 4px rgba(0, 0, 0, .2); }
   .tog.on { background: var(--violet); } .tog.on::after { left: 25px; }
@@ -309,10 +312,13 @@
     box-shadow: 0 3px 0 rgba(176, 109, 0, .35), 0 8px 18px -8px rgba(176, 109, 0, .7); }
   #event svg { width: 20px; height: 20px; }
   #event .tm { background: rgba(255, 255, 255, .55); border-radius: 999px; padding: 1px 8px; font-variant-numeric: tabular-nums; }
-  #event.won { background: linear-gradient(90deg, #8b5cff, #ff5fb4); color: #fff; animation: evwon 1.6s ease-in-out infinite; }
+  #event { position: relative; }
+  #event.won { background: linear-gradient(90deg, #8b5cff, #ff5fb4); color: #fff; }
+  #event.won::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; box-shadow: 0 0 0 3px #fff, 0 0 24px #ff5fb4;
+    opacity: 0; animation: evwon 1.6s ease-in-out infinite; will-change: opacity; }
   #event.won .chest { filter: drop-shadow(0 0 4px #fff); }
   #event.warn .tm { background: #ff4d6d; color: #fff; }
-  @keyframes evwon { 50% { box-shadow: 0 6px 18px -6px rgba(176, 109, 0, .7), 0 0 0 3px #fff, 0 0 26px #ff5fb4; } }
+  @keyframes evwon { 50% { opacity: 1; } }
   @media (max-width: 760px), (max-height: 520px) { #event { font-size: 11.5px; } #event svg { width: 16px; height: 16px; } }
   @media (prefers-reduced-motion: reduce) { .tap, #lockhint { animation: none; } #splash { animation-duration: .01s; animation-delay: 2.4s; } }
 </style>

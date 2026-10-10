@@ -1,12 +1,19 @@
 // La escena: un tablero blanco con puntos que flota en un cielo pastel (como estar adentro de la pantalla del juego de
 // flechas), niebla que marca hasta dónde se ve, sol con sombras que sigue al jugador, nubes y flechas gigantes lejanas,
 // partículas, los marcadores (columnas de luz que se ven a través de la niebla) y los portales entre islas.
+// Calidad (`PRESET`): ALTA (bordes suavizados, sombras 2048, hasta 2× de resolución), MEDIA (lo de los teléfonos: sin
+// suavizado, sombras 1024, hasta 1,5×, nubes más simples, menos partículas) y BAJA (sin sombras, 1×). Encima, resolución
+// adaptativa (`adapt`): si los cuadros tardan, baja la resolución hasta `minScale` y con margen la vuelve a subir. Lo que
+// llena la pantalla de transparencias pegado a la cámara se apaga: las columnas de luz de portales y marcadores cuando
+// estás adentro y las partículas que pasan rozando el ojo (en un teléfono eso es lo que más cuesta: cada píxel se pinta
+// varias veces).
 import * as THREE from 'three';
 import { C, MARGIN } from './sim/const.ts';
 import { arrowMesh, type V2 } from './sim/geom.ts';
 import type { Board } from './sim/puzzle.ts';
 import type { Lim } from './sim/body.ts';
 import { PAD_R, type Ground } from './sim/ground.ts';
+import { newRes, adaptRes } from './sim/res.ts';
 
 export const FOG_COLOR = new THREE.Color('#f2dcf6');
 const SKY_TOP = new THREE.Color('#6f9dff'), SKY_MID = new THREE.Color('#bba9ff');
@@ -35,16 +42,23 @@ class Particles {
     g.setAttribute('alpha', new THREE.BufferAttribute(this.alpha, 1));
     const m = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
-      uniforms: { scale: { value: 600 } },
-      vertexShader: `attribute float size; attribute float alpha; attribute vec3 color; varying vec3 vC; varying float vA; uniform float scale;
-        void main() { vC = color; vA = alpha; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = size * scale / max(0.1, -mv.z); gl_Position = projectionMatrix * mv; }`,
+      uniforms: { scale: { value: 600 }, maxSize: { value: 80 } },
+      // pegadas a la cámara se desvanecen (si no, un punto de cerca llena la pantalla) y hay un tamaño máximo; las muertas, tamaño 0
+      vertexShader: `attribute float size; attribute float alpha; attribute vec3 color; varying vec3 vC; varying float vA; uniform float scale; uniform float maxSize;
+        void main() { vC = color; vec4 mv = modelViewMatrix * vec4(position, 1.0); float d = -mv.z; vA = alpha * smoothstep(0.45, 1.5, d);
+          gl_PointSize = vA > 0.004 ? min(maxSize, size * scale / max(0.1, d)) : 0.0; gl_Position = projectionMatrix * mv; }`,
       fragmentShader: `varying vec3 vC; varying float vA;
-        void main() { vec2 d = gl_PointCoord - 0.5; float r = length(d); if (r > 0.5) discard; float a = smoothstep(0.5, 0.25, r) * vA; gl_FragColor = vec4(vC + (1.0 - r * 2.0) * 0.25, a); }`,
+        void main() { if (vA < 0.004) discard; vec2 d = gl_PointCoord - 0.5; float r = length(d); if (r > 0.5) discard; float a = smoothstep(0.5, 0.25, r) * vA; gl_FragColor = vec4(vC + (1.0 - r * 2.0) * 0.25, a); }`,
     });
     this.pts = new THREE.Points(g, m);
     this.pts.frustumCulled = false;
+    this.pts.visible = false;
   }
+  alive = 0; mul = 1; // mul: cuántas partículas (según la calidad)
   emit(x: number, y: number, z: number, color: THREE.Color, n: number, o: { speed?: number, up?: number, size?: number, life?: number, grav?: number, spread?: number } = {}) {
+    if (n > 1) n = Math.max(1, Math.round(n * this.mul));
+    else if (this.mul < 1 && Math.random() > this.mul) return;
+    this.pts.visible = true, this.alive = Math.max(this.alive, 1);
     for (let k = 0; k < n; k++) {
       const i = this.next = (this.next + 1) % NP, sp = (o.speed ?? 4) * (0.4 + Math.random() * 0.8), a = Math.random() * Math.PI * 2, e = (Math.random() - 0.3) * Math.PI;
       const s = o.spread ?? 0;
@@ -58,8 +72,11 @@ class Particles {
     }
   }
   update(dt: number) {
+    if (!this.alive) return;
+    let alive = 0;
     for (let i = 0; i < NP; i++) {
       if (this.life[i] <= 0) { this.alpha[i] = 0; continue; }
+      alive++;
       this.life[i] -= dt;
       const f = Math.max(0, this.life[i] / this.max[i]);
       this.vel[i * 3 + 1] -= this.grav[i] * dt;
@@ -68,13 +85,19 @@ class Particles {
       this.alpha[i] = Math.min(1, f * 2.2);
       this.size[i] = this.s0[i] * (0.5 + f * 0.5);
     }
+    this.alive = alive;
+    this.pts.visible = alive > 0;
     const g = this.pts.geometry;
     for (const k of ['position', 'color', 'size', 'alpha']) (g.getAttribute(k) as THREE.BufferAttribute).needsUpdate = true;
   }
-  clear() { this.life.fill(0); this.alpha.fill(0); }
+  clear() { this.life.fill(0); this.alpha.fill(0); this.alive = 0; this.pts.visible = false; }
 }
 
 // ---- Marcador: anillo en el piso, columna de luz y un chevrón que baja y sube ------------------------------------------
+// Brillo de una columna de luz según la distancia (en planta) de la cámara a su eje: adentro no se dibuja (sería una
+// transparencia que cubre toda la pantalla)
+const beamFade = (d: number, r: number) => { const u = Math.min(1, Math.max(0, (d - r - 0.25) / 2.2)); return u * u * (3 - 2 * u); };
+
 export class Marker {
   g = new THREE.Group(); ring: THREE.Mesh; beam: THREE.Mesh; chev: THREE.Mesh; color = new THREE.Color(); t = Math.random() * 6;
   constructor() {
@@ -104,15 +127,17 @@ export class Marker {
     (this.ring.material as THREE.MeshBasicMaterial).color.copy(this.color);
     (this.chev.material as THREE.MeshBasicMaterial).color.copy(this.color);
   }
-  update(dt: number) {
+  update(dt: number, camDist = 99) {
     this.t += dt;
     const y = (this.chev.userData.y as number) ?? 1;
+    const fade = beamFade(camDist, 0.42);
+    this.beam.visible = fade > 0.02;
     this.chev.position.y = y + 1.4 + Math.sin(this.t * 3) * 0.25;
     this.chev.rotation.y += dt * 1.5;
     const s = 1 + Math.sin(this.t * 4) * 0.08;
     this.ring.scale.set(s, s, s);
     (this.ring.material as THREE.MeshBasicMaterial).opacity = 0.75 + Math.sin(this.t * 4) * 0.2;
-    ((this.beam.material as THREE.ShaderMaterial).uniforms.k.value as number) = 0.42 + Math.sin(this.t * 2.5) * 0.1;
+    ((this.beam.material as THREE.ShaderMaterial).uniforms.k.value as number) = (0.42 + Math.sin(this.t * 2.5) * 0.1) * fade;
   }
 }
 
@@ -169,12 +194,14 @@ export class Portal {
     if (label) this.g.add(this.sign = sign(label, hex));
     this.g.position.set(x, 0, z);
   }
-  update(dt: number) {
+  update(dt: number, camDist = 99) {
     this.t += dt;
     this.swirl.uniforms.t.value = this.t;
     const s = 1 + Math.sin(this.t * 3) * 0.05;
     this.ring.scale.set(s, s, 1);
-    ((this.beam.material as THREE.ShaderMaterial).uniforms.k.value as number) = 0.55 + Math.sin(this.t * 2.2) * 0.12;
+    const fade = beamFade(camDist, PAD_R);
+    this.beam.visible = fade > 0.02;
+    ((this.beam.material as THREE.ShaderMaterial).uniforms.k.value as number) = (0.55 + Math.sin(this.t * 2.2) * 0.12) * fade;
     this.sign?.position.set(0, 3.1 + Math.sin(this.t * 2) * 0.08, 0);
   }
   dispose() {
@@ -182,20 +209,26 @@ export class Portal {
   }
 }
 
-export type Quality = 'alta' | 'baja';
+export type Quality = 'alta' | 'media' | 'baja';
+export const PRESET: Record<Quality, { aa: boolean, shadow: number, area: number, pr: number, cloud: number, fx: number, minScale: number }> = {
+  alta: { aa: true, shadow: 2048, area: 24, pr: 2, cloud: 2, fx: 1, minScale: 0.7 },
+  media: { aa: false, shadow: 1024, area: 18, pr: 1.5, cloud: 1, fx: 0.7, minScale: 0.6 },
+  baja: { aa: false, shadow: 0, area: 18, pr: 1, cloud: 1, fx: 0.5, minScale: 0.6 },
+};
 export class World {
   renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera: THREE.PerspectiveCamera;
   sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; fx = new Particles(); board = new THREE.Group(); deco = new THREE.Group();
-  fog: THREE.Fog; fogFar = 20; fogT = 20; quality: Quality;
-  traj: THREE.InstancedMesh; trajN = 0;
+  fog: THREE.Fog; fogFar = 20; fogT = 20; quality: Quality; fov = 70;
+  traj: THREE.InstancedMesh; trajN = 0; cloudMesh: THREE.InstancedMesh | null = null;
+  // resolución adaptativa: escala sobre el máximo de la calidad, promedio de los cuadros y el control para no oscilar
+  res = newRes();
 
   constructor(cv: HTMLCanvasElement, q: Quality) {
     this.quality = q;
-    this.renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: q === 'alta', powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ canvas: cv, antialias: PRESET[q].aa, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.toneMappingExposure = 1.02;
-    this.renderer.shadowMap.enabled = q === 'alta';
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.camera = new THREE.PerspectiveCamera(72, 1, 0.05, 900);
     this.camera.rotation.order = 'YXZ';
@@ -204,10 +237,7 @@ export class World {
     this.scene.background = FOG_COLOR;
     this.hemi = new THREE.HemisphereLight('#efeaff', '#ffe6f4', 1.25);
     this.sun = new THREE.DirectionalLight('#fff4e6', 2.1);
-    this.sun.castShadow = q === 'alta';
-    this.sun.shadow.mapSize.set(2048, 2048);
-    const sc = this.sun.shadow.camera;
-    sc.left = sc.bottom = -24, sc.right = sc.top = 24, sc.near = 1, sc.far = 90;
+    this.sun.shadow.camera.near = 1, this.sun.shadow.camera.far = 90;
     this.sun.shadow.bias = -0.0006, this.sun.shadow.normalBias = 0.03, this.sun.shadow.radius = 3;
     this.scene.add(this.hemi, this.sun, this.sun.target, this.board, this.deco, this.fx.pts);
     this.scene.add(this.sky());
@@ -217,20 +247,42 @@ export class World {
     this.traj = new THREE.InstancedMesh(tg, new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.9 }), 80);
     this.traj.count = 0, this.traj.frustumCulled = false;
     this.scene.add(this.traj);
-    this.resize();
+    this.setQuality(q);
+  }
+
+  // Cambia la calidad en vivo (el suavizado de bordes solo se fija al crear el contexto: ese, al recargar)
+  setQuality(q: Quality) {
+    const P = PRESET[q], had = this.renderer.shadowMap.enabled;
+    this.quality = q;
+    this.renderer.shadowMap.enabled = P.shadow > 0;
+    this.sun.castShadow = P.shadow > 0;
+    if (P.shadow && this.sun.shadow.mapSize.x !== P.shadow) { this.sun.shadow.mapSize.set(P.shadow, P.shadow); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
+    const sc = this.sun.shadow.camera;
+    sc.left = sc.bottom = -P.area, sc.right = sc.top = P.area;
+    sc.updateProjectionMatrix();
+    if (had !== P.shadow > 0) this.scene.traverse(o => { const m = (o as THREE.Mesh).material; if (m) for (const x of Array.isArray(m) ? m : [m]) x.needsUpdate = true; });
+    this.fx.mul = P.fx;
+    if (this.cloudMesh) { const g = this.cloudMesh.geometry; this.cloudMesh.geometry = new THREE.IcosahedronGeometry(1, P.cloud); g.dispose(); }
+    this.res.scale = 1;
+    this.resize(this.fov);
   }
 
   // fov: ángulo vertical; con la pantalla parada se abre lo necesario para ver al menos 60° de costado a costado
-  resize(fov = 70) {
+  resize(fov = this.fov) {
+    this.fov = fov;
     const w = innerWidth, h = innerHeight, a = w / h;
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, this.quality === 'alta' ? 2 : 1));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, PRESET[this.quality].pr) * this.res.scale);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = a;
     const need = (2 * Math.atan(Math.tan(Math.PI / 6) / a) * 180) / Math.PI;
     this.camera.fov = Math.min(100, Math.max(fov, need));
     this.camera.updateProjectionMatrix();
-    (this.fx.pts.material as THREE.ShaderMaterial).uniforms.scale.value = h * this.renderer.getPixelRatio() * 0.6;
+    const u = (this.fx.pts.material as THREE.ShaderMaterial).uniforms, hp = h * this.renderer.getPixelRatio();
+    u.scale.value = hp * 0.6, u.maxSize.value = Math.max(24, hp * 0.07);
   }
+
+  // Resolución adaptativa (sim/res.ts): con cuadros lentos baja el pixel ratio y con margen lo vuelve a subir
+  adapt(frameMs: number) { if (adaptRes(this.res, frameMs, PRESET[this.quality].minScale)) this.resize(this.fov); }
 
   private sky() {
     const g = new THREE.SphereGeometry(600, 32, 16);
@@ -264,7 +316,7 @@ export class World {
         puffs.push(m);
       }
     }
-    const im = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 3),
+    const im = this.cloudMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 2),
       new THREE.MeshLambertMaterial({ color: '#ffffff', emissive: '#e9e0ff', emissiveIntensity: 0.55, fog: false }), puffs.length);
     puffs.forEach((m, i) => im.setMatrixAt(i, m));
     this.deco.add(im);

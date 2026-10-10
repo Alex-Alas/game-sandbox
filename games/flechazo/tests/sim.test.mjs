@@ -13,6 +13,7 @@ import { arrowMesh, clip, plen, pointAt, rounded } from '../src/sim/geom.ts';
 import { fresh, parse, buyUp, buyPet, unlocked, phys, upCost, UP_MAX, openChest, wear, lookOf } from '../src/sim/meta.ts';
 import { STYLES, rollPrize, decoy, styleKey, DUP_COINS } from '../src/sim/styles.ts';
 import { rng, next } from '../src/sim/rng.ts';
+import { newRes, adaptRes } from '../src/sim/res.ts';
 import { navOf, findPath } from '../src/sim/nav.ts';
 import { C, MARGIN, WALL_H, R } from '../src/sim/const.ts';
 
@@ -441,4 +442,28 @@ test('estilos: solo se pone lo ganado y en su lugar; lo guardado se valida al le
   assert.deepEqual(bad.styles, ['gomita:oro', 'gomita:corona'], 'sin estilos de mascotas que no se tienen ni inventados');
   assert.deepEqual(bad.look, { gomita: { skin: null, acc: 'corona' } }, 'solo lo ganado');
   assert.equal(bad.chests, 0);
+});
+
+// ---- Resolución adaptativa ----------------------------------------------------------------------------------------
+test('resolución adaptativa: baja si la GPU no da abasto, no baja por un tope de 30 fps y vuelve a subir', () => {
+  // la GPU tarda en proporción a los píxeles (escala²): a escala 1, 30 ms por cuadro
+  const gpu = newRes();
+  for (let k = 0; k < 60 * 30; k++) adaptRes(gpu, Math.max(16.7, 30 * gpu.scale * gpu.scale), 0.6);
+  assert.ok(gpu.scale < 0.9 && gpu.scale >= 0.6, `bajó: ${gpu.scale}`);
+  assert.ok(30 * gpu.scale * gpu.scale < 24, 'y anda cerca de los 45 fps o más');
+  // el teléfono en ahorro de batería: 33 ms por cuadro hagas lo que hagas
+  const cap = newRes();
+  let min = 1;
+  for (let k = 0; k < 30 * 60; k++) { adaptRes(cap, 33.3, 0.6); min = Math.min(min, cap.scale); }
+  assert.ok(cap.scale === 1, `vuelve a la escala completa: ${cap.scale}`);
+  assert.ok(min >= 0.85, `y casi no la toca: ${min}`);
+  // si después anda rápido, sube hasta 1
+  for (let k = 0; k < 60 * 20; k++) adaptRes(gpu, 12, 0.6);
+  assert.equal(gpu.scale, 1);
+  // pestaña oculta (cuadros larguísimos): no cuenta
+  const hid = newRes(); adaptRes(hid, 5000, 0.6); assert.equal(hid.clock, 0);
+  // un teléfono muy lento (120 ms por cuadro, que no mejora) también prueba bajar
+  const slow = newRes(); let low = 1;
+  for (let k = 0; k < 100; k++) { adaptRes(slow, 120 * Math.max(0.5, slow.scale * slow.scale), 0.6); low = Math.min(low, slow.scale); }
+  assert.ok(low < 1, 'probó bajar');
 });

@@ -3,7 +3,7 @@
 // cero con el estado del momento.
 import { ICON } from './hud.ts';
 import { DIFFS, DIFF_NAME, levelOf, type Diff } from './sim/levels.ts';
-import { UPGRADES, UP_MAX, PETS, UNLOCK, FREE_AT, upCost, unlocked, freeTravel, lookOf, type Save, type UpKind, type PetId } from './sim/meta.ts';
+import { UPGRADES, UP_MAX, PETS, UNLOCK, FREE_AT, GFX, upCost, unlocked, freeTravel, lookOf, type Save, type UpKind, type PetId, type Gfx } from './sim/meta.ts';
 import { STYLES, TIERS, styleKey, type Look, type Slot } from './sim/styles.ts';
 
 export type Page = 'pause' | 'shop' | 'pets' | 'styles' | 'levels' | 'settings' | 'win' | 'lose';
@@ -24,6 +24,7 @@ export function hide() { el().hidden = true; el().innerHTML = ''; cur = null; }
 
 const coinTag = (n: number) => `<span class="price">${ICON.coin}${n}</span>`;
 const fmtT = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const GFX_NAME: Record<Gfx, string> = { auto: 'AUTO', alta: 'ALTA', media: 'MEDIA', baja: 'BAJA' };
 const UP_ICON: Record<UpKind, [string, string]> = { vel: [ICON.speed, '#ff8a1f'], salto: [ICON.jump, '#16c47f'], vis: [ICON.eye, '#4a78ff'] };
 
 export function show(p: Page, c: MenuCtx, from: Page | null = null) {
@@ -100,8 +101,8 @@ export function show(p: Page, c: MenuCtx, from: Page | null = null) {
       <span>Invertir mirada vertical</span>${tog('invert', st.invert)}
       <span>Sonidos</span>${tog('sound', st.sound)}
       <span>Música</span>${tog('music', st.music)}
-      <span>Gráficos altos (sombras)</span>${tog('quality', st.quality === 'alta')}
-    </div><p class="note">Los gráficos se aplican al recargar.</p></div>`;
+      <span>Gráficos</span><div class="seg">${GFX.map(q => `<button class="${st.gfx === q ? 'on' : ''}" data-gfx="${q}">${GFX_NAME[q]}</button>`).join('')}</div>
+    </div><p class="note">AUTO usa MEDIA en el teléfono y ALTA en la compu. Si el juego va lento, probá MEDIA o BAJA (sin sombras). La resolución además baja sola cuando hace falta.</p></div>`;
   } else if (p === 'win') {
     const w = c.win!;
     h = `<div class="card"><h2>${w.tutorial ? '¡TUTORIAL SUPERADO!' : '¡RESUELTO!'}</h2><p class="sub">${DIFF_NAME[c.d]} · nivel ${c.n}</p>
@@ -142,12 +143,12 @@ export function show(p: Page, c: MenuCtx, from: Page | null = null) {
     if (t.dataset.pet) { c.sfx('ui'); c.equip(t.dataset.pet as PetId); again(); return; }
     if (t.dataset.unpet) { c.sfx('ui'); c.equip(null); again(); return; }
     if (t.dataset.play) { c.sfx('ui'); c.play(t.dataset.play as Diff); return; }
+    if (t.dataset.gfx) { c.save.set.gfx = t.dataset.gfx as Gfx; c.settings(); c.sfx('ui'); again(); return; }
     if (t.dataset.tog) {
       const k = t.dataset.tog, st = c.save.set;
       if (k === 'invert') st.invert = !st.invert;
       if (k === 'sound') st.sound = !st.sound;
       if (k === 'music') st.music = !st.music;
-      if (k === 'quality') st.quality = st.quality === 'alta' ? 'baja' : 'alta';
       c.settings(); c.sfx('ui'); again();
     }
   };
