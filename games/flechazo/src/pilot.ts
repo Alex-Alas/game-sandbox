@@ -43,7 +43,7 @@ export class Pilot {
     const out: PilotOut = { yaw: s.yaw, pitch: -0.12, fwd: 0, jumpHit: false, act: false };
     if (n.d < 1.45) {
       out.yaw = yawTo(n.p[0] - bd.x, n.p[1] - bd.z);
-      out.pitch = -0.5;
+      out.pitch = -0.36;
       if (s.target === this.goal && this.actT <= 0 && Math.abs(wrap(out.yaw - s.yaw)) < 0.3) out.act = true, this.actT = 0.6;
       return out;
     }

@@ -271,6 +271,9 @@ export class PetCtl {
     this.vx += ((d > 1e-3 ? dx / d : 0) * want - this.vx) * k;
     this.vz += ((d > 1e-3 ? dz / d : 0) * want - this.vz) * k;
     this.x += this.vx * dt, this.z += this.vz * dt;
+    // nunca pegada a la cámara (al girar quedaría tapando la vista)
+    const px = this.x - p.x, pz = this.z - p.z, pd = Math.hypot(px, pz), MIN = fly ? 1.2 : 1.5;
+    if (pd < MIN) { const k = pd > 1e-3 ? MIN / pd : 0; this.x = p.x + (pd > 1e-3 ? px * k : fx * MIN), this.z = p.z + (pd > 1e-3 ? pz * k : fz * MIN); }
     const sp = Math.hypot(this.vx, this.vz);
     this.move += ((sp > 0.4 ? 1 : 0) - this.move) * Math.min(1, dt * 8);
     // mira hacia donde va; quieta, al jugador
