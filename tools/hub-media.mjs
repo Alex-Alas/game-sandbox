@@ -75,6 +75,19 @@ const GAMES = {
       await pumpFor(page, 2.5);
     },
   },
+  flechazo: {
+    // en primera persona, con el piloto automático: camina entre las flechas de un DIFÍCIL y las va liberando, con Michi
+    url: '/games/flechazo/?dif=dificil&nivel=3', view: [1152, 720], size: [960, 600], secs: 6, seed: 3, crf: 28,
+    async setup(page) {
+      await page.waitForFunction(() => window.__flechazo, null, { timeout: 60000, polling: 200 });
+      await page.evaluate(() => {
+        const f = __flechazo;
+        Object.assign(f.save.up, { vel: 2, vis: 3 });
+        f.pet('michi'); f.play('dificil', 3); f.auto(true);
+      });
+      await pumpFor(page, 3.5);
+    },
+  },
   vortice: {
     url: '/games/vortice/', view: [1152, 720], size: [960, 600], secs: 6, seed: 3, sub: 4, crf: 31, // 120 Hz: 4 pasos por cuadro
     async setup(page) {

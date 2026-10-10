@@ -107,11 +107,11 @@
 
   @media (min-width: 700px) {
     .games { grid-template-columns: repeat(2, 1fr); }
-    .g-catapum, .g-bananazo, .g-downcastle { grid-column: span 2; }
+    .g-catapum, .g-bananazo, .g-flechazo, .g-downcastle { grid-column: span 2; }
   }
   @media (min-width: 1080px) {
     .games { grid-template-columns: repeat(3, 1fr); }
-    .g-catapum, .g-bananazo { grid-column: span 3; }
+    .g-catapum, .g-bananazo, .g-flechazo { grid-column: span 3; }
     .g-downcastle { grid-column: span 2; }
   }
   @media (max-width: 699px) {
@@ -120,7 +120,7 @@
     .phone .media { aspect-ratio: 1; }
     .wide .body { padding: 18px 20px 20px; justify-content: flex-start; }
   }
-  @media (min-width: 700px) { .g-catapum .media, .g-bananazo .media { aspect-ratio: 16 / 9; } .wide .hook { font-size: 19px; } .g-bananazo { flex-direction: row-reverse; } }
+  @media (min-width: 700px) { .g-catapum .media, .g-bananazo .media, .g-flechazo .media { aspect-ratio: 16 / 9; } .wide .hook { font-size: 19px; } .g-bananazo { flex-direction: row-reverse; } }
 
   /* ── Voz de cada juego (colores y logo de su propia pantalla de título) ── */
   .g-catapum { --bg: #1a1033; --dim: #c4bce3; --acc: #ffd23f; --acc-ink: #2a1300; }
@@ -129,6 +129,9 @@
   .g-bananazo { --bg: #2a1a0e; --dim: #d6c2a2; --acc: #ffd23f; --acc-ink: #2a1a0e; }
   .g-bananazo .logo { font: 900 clamp(40px, 5.2vw, 68px)/.95 system-ui, "Segoe UI", Roboto, sans-serif; color: #ffd23f; transform: rotate(-3deg); transform-origin: left;
     -webkit-text-stroke: 3px #2a1a0e; paint-order: stroke fill; text-shadow: 0 4px 0 #c47a12, 0 8px 0 #2a1a0e; padding-bottom: 8px; }
+  .g-flechazo { --bg: linear-gradient(125deg, #4f8cff, #8b5cff 55%, #ff5fb4); --fg: #fff; --dim: #f1ecff; --acc: #fff; --acc-ink: #5a3fd6; }
+  .g-flechazo .logo { font: 900 clamp(40px, 5.2vw, 68px)/.95 ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", system-ui, sans-serif; letter-spacing: .02em;
+    color: #fff; text-shadow: 0 4px 0 #5a3fd6, 0 10px 22px rgba(60, 30, 140, .45); padding-bottom: 6px; }
   .g-vortice { --bg: #070a12; --dim: #9db3c6; --acc: #ff2f5b; --acc-ink: #1a0008; }
   .g-vortice .logo { font: 900 34px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: .08em;
     background: linear-gradient(180deg, #fff, #47f3ff 60%, #2a7dff); -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -199,6 +202,22 @@
           <li><svg aria-hidden="true"><use href="#i-wifi"/></svg>Online, de a 3</li>
           <li><svg aria-hidden="true"><use href="#i-people"/></svg>Con voz o por chat</li>
           <li><svg aria-hidden="true"><use href="#i-clock"/></svg>Bombas de 4 a 8 min</li>
+        </ul>
+        <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg>Jugar</span>
+      </div>
+    </li>
+
+    <li class="game wide g-flechazo">
+      <div class="media">
+        <video muted loop playsinline preload="none" poster="/hub/flechazo.webp" aria-hidden="true"><source src="/hub/flechazo.webm" type="video/webm" /><source src="/hub/flechazo.mp4" type="video/mp4" /></video>
+      </div>
+      <div class="body">
+        <h2 class="name"><a href="./games/flechazo/"><span class="logo">FLECHAZO</span></a></h2>
+        <p class="hook">El rompecabezas de flechas, pero desde adentro: caminá entre ellas, subite encima y liberalas en el orden justo. Si una choca, perdés una vida.</p>
+        <ul class="facts">
+          <li><svg aria-hidden="true"><use href="#i-desk"/></svg>3D en primera persona</li>
+          <li><svg aria-hidden="true"><use href="#i-star"/></svg>Fácil, difícil y extremo</li>
+          <li><svg aria-hidden="true"><use href="#i-phone"/></svg>También en el teléfono</li>
         </ul>
         <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg>Jugar</span>
       </div>
