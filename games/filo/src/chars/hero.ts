@@ -54,11 +54,11 @@ function hemRest(P: Pose): V[] {
   const { C } = frames(P);
   const fl = num(P, 'cl');
   return [
-    C(5.2, 13.5 - fl * 2),
-    C(1.2 - fl * 3, 17.5 - fl * 3),
-    C(-3.5 - fl * 6, 19.5 - fl * 4),
-    C(-8 - fl * 8, 16.5 - fl * 6),
-    C(-12.5 - fl * 10, 16 - fl * 8),
+    C(6.2, 16 - fl * 2),
+    C(1.6 - fl * 3, 21.5 - fl * 3),
+    C(-3.6 - fl * 6, 25.5 - fl * 4),
+    C(-9 - fl * 8, 21.5 - fl * 6),
+    C(-15 - fl * 10, 23 - fl * 8),
   ];
 }
 const tailAnchor = (P: Pose) => frames(P).H(-13, -4.5);
@@ -70,10 +70,10 @@ export const hero: CharDef<HeroPhys> = {
   base: HERO_BASE,
   clips: HERO_CLIPS as Record<string, Clip>,
   order: Object.keys(HERO_CLIPS),
-  ink: { ink: HC.ink, ol: 0.85, olShadow: 0.7, rimC: 'rgba(96,186,206,0.9)', rimW: 0.95 },
+  ink: { ink: HC.ink, ol: 0.85, olShadow: 0.7, rimC: 'rgba(96,186,206,0.62)', rimW: 0.62 },
   phys(P) {
     const tail = new Chain(9, 3.9, tailAnchor(P), tailRest(P), 380, 2.4, 0.04);
-    const hem = new Springs(hemRest(P), 300, 10, 3.4, 40, 12);
+    const hem = new Springs(hemRest(P), 260, 9, 3.6, 46, 14);
     const { T } = frames(P);
     const sash = new Chain(5, 2.6, T(-3.6, 3), [-0.6, 0.8], 300, 3, 0.05);
     return { tail, hem, sash };
@@ -144,11 +144,11 @@ function heroParts(P: Pose, ph: HeroPhys, o: DrawOpts): Part[] {
   const hem = ph.hem.p;
   const capePts = (inset: number): V[] => {
     const pts: V[] = [
-      C(3.4, -0.4), C(6.4, 3.4), C(6.8 - inset, 8.8),
+      C(3.6, -0.4), C(7.2, 3.6), C(7.6 - inset, 9.8),
       hem[0], hem[1], hem[2],
       vlerp(hem[2], hem[3], 0.5, 1.6), hem[3],
       vlerp(hem[3], hem[4], 0.45, 1.2), hem[4],
-      C(-9.8 + inset, 7.6), C(-6.6, 1.2), C(-2.6, -1.3),
+      C(-11.4 + inset, 8.4), C(-7.2, 1.0), C(-2.8, -1.4),
     ];
     return pts;
   };
@@ -218,11 +218,11 @@ function heroParts(P: Pose, ph: HeroPhys, o: DrawOpts): Part[] {
     const mpts = spline(m, true, 6, m.map((_, i) => i === 5));
     parts.push({ pts: mpts, z: 7, fill: HC.mask, shade: HC.maskS, shadeW: 2.1, hatch: 1.5, hatchL: 2.6, hatchC: 'rgba(70,45,100,0.5)', deep: HC.maskD, deepW: 5, rim: HC.maskR, rimW: 0.75, hl: HC.maskH, hlW: 0.9, line: 0.75,
       deco: (cx) => {
-        // marca carmesí de la frente y grieta
-        stroke(cx, [H(1.8, -11.4), H(2.6, -8.4), H(3.4, -6.2)], 1.9, 0.2, HC.hood, 0.15);
-        stroke(cx, [H(-4.8, -7.8), H(-3.6, -6.2), H(-4.2, -4.8), H(-3.1, -3.6)], 0.55, 0.15, HC.maskD, 0.2);
-        // lágrimas bajo el ojo de adelante
-        stroke(cx, [H(5.8, 4.4), H(5.6, 6.8), H(5.1, 9.2)], 1.1, 0.15, HC.hood, 0.2);
+        // la marca: una franja carmesí que baja de la frente, atraviesa el ojo de adelante y se afina en la mejilla
+        stroke(cx, [H(3.2, -11.6), H(3.9, -8.6), H(4.5, -5.6)], 2.3, 1.2, HC.hood, 0.1);
+        stroke(cx, [H(5.4, 4.6), H(5.6, 7.2), H(5.0, 10.4)], 1.5, 0.12, HC.hood, 0.1);
+        // borde de hueso gastado (una muesca chica arriba atrás)
+        stroke(cx, [H(-6.8, -6.2), H(-5.4, -5.4), H(-5.8, -4.2)], 0.5, 0.2, HC.maskD, 0.2);
       },
       after: (cx) => {
         // ojos: almendras inclinadas, se entrecierran al atacar
@@ -235,10 +235,13 @@ function heroParts(P: Pose, ph: HeroPhys, o: DrawOpts): Part[] {
         const eF = eyeShape(H(4.8, 0.4), 3.6, 6.2, 0.18), eB = eyeShape(H(-2.2, 0.2), 2.5, 5.6, 0.1);
         cx.fillStyle = HC.ink;
         cx.fill(pathOfL(eF)); cx.fill(pathOfL(eB));
-        // pupila de brasa
+        // pupila de brasa y un brillo chico
         cx.fillStyle = HC.ember;
         const pu = H(5.2, 1.4 + (1 - eye) * -1);
         cx.beginPath(); cx.ellipse(pu[0], pu[1], 0.9, 1.2 * eye + 0.2, 0, 0, Math.PI * 2); cx.fill();
+        cx.fillStyle = HC.emberHot;
+        const gl = H(5.6, 0.6 - (1 - eye));
+        cx.beginPath(); cx.arc(gl[0], gl[1], 0.35, 0, Math.PI * 2); cx.fill();
       },
       glowDraw: (g) => {
         const pu = H(5.2, 1.4 + (1 - eye) * -1);

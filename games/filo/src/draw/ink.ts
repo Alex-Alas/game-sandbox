@@ -118,12 +118,18 @@ export function paint(c: CanvasRenderingContext2D, parts: Part[], st: InkStyle, 
     x.setTransform(1, 0, 0, 1, 0, 0);
     x.clearRect(0, 0, sc.width, sc.height);
     x.setTransform(c.getTransform());
-    x.fillStyle = st.rimC;
+    // máscara opaca: con un color translúcido, destination-out solo borra en parte y queda un velo
+    x.fillStyle = '#fff';
     // unión pintando pieza por pieza (un solo Path2D con sentidos de giro mezclados deja huecos)
     for (let i = 0; i < list.length; i++) if (list[i].outline !== false) x.fill(paths[i]);
     x.globalCompositeOperation = 'destination-out';
     x.translate(lx * (st.rimW ?? 1), ly * (st.rimW ?? 1));
     for (let i = 0; i < list.length; i++) if (list[i].outline !== false) x.fill(paths[i]);
+    // y recién ahí el color (con su alfa parejo en todo el borde)
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.globalCompositeOperation = 'source-in';
+    x.fillStyle = st.rimC;
+    x.fillRect(0, 0, sc.width, sc.height);
     x.globalCompositeOperation = 'source-over';
     c.save();
     c.setTransform(1, 0, 0, 1, 0, 0);

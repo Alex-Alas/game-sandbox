@@ -35,13 +35,15 @@ export function contactSheet(def: CharDef<any>, clipId: string, scale: number, o
 
 export function runLab() {
   const q = new URLSearchParams(location.search);
-  const cv = document.getElementById('game') as HTMLCanvasElement;
-  cv.style.display = 'none';
+  const cv = document.getElementById('game');
+  if (cv) cv.style.display = 'none';
+  for (const id of ['loading', 'top', 'tabs', 'over', 'caption']) { const e = document.getElementById(id); if (e) e.style.display = 'none'; }
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;inset:0;overflow:auto;background:' + (q.get('bg') === 'dark' ? '#1b2330' : '#9a9aa2');
   document.body.appendChild(host);
   {
     const def = q.get('ch') === 'brute' ? brute : hero;
+    if (q.get('rim') === '0') def.ink = { ...def.ink, rimC: undefined };
     const ids = (q.get('c') ?? 'idle').split(',');
     const s = +(q.get('s') ?? 4);
     for (const id of ids) {
