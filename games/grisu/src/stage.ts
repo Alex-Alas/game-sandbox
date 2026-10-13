@@ -7,7 +7,8 @@ import type { EMIT } from './render/palette.ts';
 type Glow = keyof typeof EMIT;
 import { setUniform } from './render/toon.ts';
 
-export type Who = { a: Actor, school: Glow, heavy?: boolean, flash: number, hitstop: number, tele: number, aura: boolean };
+// skip: eventos del clip que no se dibujan (en el juego los golpes los dicta la sim); frozen: en hitstop (no se anima)
+export type Who = { a: Actor, school: Glow, heavy?: boolean, flash: number, hitstop: number, tele: number, aura: boolean, skip?: Set<string>, frozen?: boolean };
 
 export class Stage {
   fx = new Fx();
@@ -31,6 +32,7 @@ export class Stage {
     return new THREE.Vector3(a.root.position.x + f * (q[0] + b.z), a.root.position.y + q[1], a.root.position.z + 0.4);
   }
   ev(w: Who, e: ClipEv) {
+    if (w.skip?.has(e.k)) return;
     const a = w.a, f = this.facing(a), fx = this.fx, sc = schoolRgb(w.school);
     const p = this.at(a, e.at);
     const foot = this.at(a, [0, 0.05]);
@@ -72,7 +74,7 @@ export class Stage {
     if (this.freeze > 0) { this.freeze -= dt; dt *= 0.0; }
     for (const w of this.who) {
       if (!w.a.root.visible) continue;
-      w.a.update(dt);
+      if (!w.frozen) w.a.update(dt);
       if (w.flash > 0) { w.flash = Math.max(0, w.flash - dt * 6); }
       if (w.tele > 0) w.tele = Math.max(0, w.tele - dt);
       // destello blanco de la telegrafía: titila a 10 Hz (en cuadros enteros, como un sprite)
@@ -96,7 +98,8 @@ export class Stage {
   }
   // los smears del cuadro actual de cada actor
   liveSmears() {
-    this.fx.smears = [];
+    this.fx.smears = this.fx.smears.filter((s) => !s.live);   // los de los eventos (dash, picada…) siguen su vida
+    const n0 = this.fx.smears.length;
     for (const w of this.who) {
       const a = w.a, s = a.smear();
       if (!s) continue;
@@ -113,5 +116,6 @@ export class Stage {
         }
       } else this.fx.smear(c.x, c.y, c.z + 0.2, s.r, ang(s.from), ang(s.to), s.w, cols, 0.0001);
     }
+    for (let i = n0; i < this.fx.smears.length; i++) this.fx.smears[i].live = true;
   }
 }

@@ -90,7 +90,7 @@ type Part = {
   c: Rgb; c2?: Rgb; glow: boolean;
 };
 type Burst = { k: 'ring' | 'flash' | 'boom' | 'star' | 'wave'; x: number; y: number; z: number; t: number; life: number; r: number; c: Rgb; c2: Rgb; c3: Rgb; seed: number };
-type Smear = { pts: number[][]; inner: number[][]; t: number; life: number; c: [Rgb, Rgb, Rgb] };
+type Smear = { pts: number[][]; inner: number[][]; t: number; life: number; c: [Rgb, Rgb, Rgb]; live?: boolean };   // live: el del cuadro del clip (se rehace cada dibujo)
 type Trail = { pts: { x: number; y: number; z: number; t: number }[]; c: [Rgb, Rgb, Rgb]; life: number; w: number };
 
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);

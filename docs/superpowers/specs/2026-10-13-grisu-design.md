@@ -728,3 +728,5 @@ Tras el escaparate (F0.5), el mismo día:
 7. **Alto interno: 360 px.** Con la vista de 13 m, el Esgrimista mide 55 px y el Estibador, 60.
 8. **La paleta de Galerías queda como está** (pared de pizarra lila, personajes oscuros, charcos cálidos), con la LUT.
 9. **Las caras ocultas y las siluetas se leen** a escala de juego.
+10. **La dirección de arte del escaparate le encanta.** Vio dos errores menores (la capa del Esgrimista algo separada
+    de él y el ancla deforme; corregidos) y pidió empezar a probar el juego en acción: F1 (plan).

@@ -76,6 +76,13 @@ export class Sfx {
         this.noise(t, 0.25, 'highpass', 3000, 1500, 0.6, 0.25); break;
       case 'hiss': this.noise(t, 0.6, 'highpass', 4500, 6000, 0.5, 0.12, 0.08); break;
       case 'steam': this.noise(t, 0.5, 'bandpass', 3500, 2500, 0.8, 0.08, 0.05); break;
+      case 'pogo': this.tone(t, 'sine', 520, 260, 0.12, 0.4); this.tone(t, 'triangle', 1040, 780, 0.08, 0.12); this.noise(t, 0.05, 'bandpass', 1800, 1200, 2, 0.25); break;
+      case 'chain': for (let i = 0; i < 6; i++) { const f = 2200 + Math.random() * 1600; this.tone(t + i * 0.018, 'triangle', f, f * 0.9, 0.05, 0.05); } this.noise(t, 0.12, 'highpass', 3000, 5000, 0.7, 0.08); break;
+      case 'latch': this.tone(t, 'square', 180, 90, 0.08, 0.12); this.noise(t, 0.05, 'bandpass', 2400, 1600, 3, 0.3); break;
+      case 'block': this.tone(t, 'triangle', 880, 860, 0.18, 0.12); this.noise(t, 0.06, 'highpass', 2500, 2000, 0.7, 0.35); this.tone(t, 'sine', 140, 70, 0.1, 0.35); break;
+      case 'shoot': this.noise(t, 0.12, 'bandpass', 900, 400, 1.5, 0.3); this.tone(t, 'square', 330, 160, 0.1, 0.06); break;
+      case 'pit': this.tone(t, 'sawtooth', 300, 60, 0.5, 0.1); break;
+      case 'combo': this.tone(t, 'sine', 660 * (1 + Math.min(1, (o.n as number ?? 0) / 30)), 990, 0.06, 0.06); break;
       case 'dissolve': this.noise(t, 1.0, 'bandpass', 600, 3000, 3, 0.25, 0.1); this.tone(t, 'sawtooth', 220, 55, 1.0, 0.06, 0.1); break;
     }
   }

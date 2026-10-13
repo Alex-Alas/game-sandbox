@@ -15,7 +15,7 @@ const D = Math.PI / 180;
 
 export function esgrimista(): ModelDef {
   const m = {
-    coat: toon('coat'), coatD: toon({ base: '#2c3036', S: '#1e1f28', D: '#1b1420', R: '#6f8aa0', H: '#3e4a44' }),
+    coat: toon('coat'), coatS: toon('coat', { side: THREE.DoubleSide }), coatD: toon({ base: '#2c3036', S: '#1e1f28', D: '#1b1420', R: '#6f8aa0', H: '#3e4a44' }),
     hat: toon('coal', { metal: 0.6, rough: 0.2 }), face: toon('shadow'),
     brass: toon('brass', { metal: 1, rough: 0.3 }), leather: toon('leather'), boots: toon('leather', { metal: 0.4, rough: 0.4 }),
     parch: toon('parch'), steel: toon('steel', { metal: 1.2, rough: 0.1 }), glass: toon('glass', { metal: 1 }),
@@ -42,11 +42,15 @@ export function esgrimista(): ModelDef {
     mesh(box(0.084, 0.02, 0.06), m.brass, foot, 0, -0.065, 0.13);                   // puntera de latón
   }
 
-  // faldones de la levita (cuelgan detrás, con física)
+  // la falda de la levita: un torno abierto por delante que sigue al torso y une los faldones al cuerpo (sin ella los
+  // faldones colgaban como paneles sueltos detrás de las piernas)
+  const skirtG = new THREE.LatheGeometry([[0.152, 0.1], [0.165, 0.0], [0.185, -0.12], [0.2, -0.21]].map(([x, y]) => new THREE.Vector2(x, y)), 14, Math.PI * 0.32, Math.PI * 1.36);
+  mesh(skirtG, m.coatS, hips, 0, 0, 0, 0, 0, 0, 1, 1, 0.74);
+  // faldones (cuelgan del ruedo de la falda, por detrás, con física)
   for (const s of [1, -1]) {
-    const tail = R.joint('tail' + (s > 0 ? 'L' : 'R'), hips, s * 0.075, 0.06, -0.1);
-    tail.rotation.set(0.12, 0, s * 0.06);
-    mesh(frayed(0.2, 0.72, 0.03, 4, 0.05, s > 0 ? 3 : 7), m.coat, tail, 0, 0, 0);
+    const tail = R.joint('tail' + (s > 0 ? 'L' : 'R'), hips, s * 0.07, -0.19, -0.115);
+    tail.rotation.set(0.04, 0, s * 0.05);
+    mesh(frayed(0.21, 0.56, 0.03, 4, 0.06, s > 0 ? 3 : 7), m.coat, tail, 0, 0.02, 0);
   }
   // falda delantera abierta (cortita)
   for (const s of [1, -1]) mesh(frayed(0.13, 0.3, 0.025, 2, 0.03, s > 0 ? 11 : 13), m.coat, hips, s * 0.11, 0.08, 0.06, -0.12, s * 0.5, 0);
@@ -193,10 +197,54 @@ export function esgrimista(): ModelDef {
     ], ev: [{ t: 0.5 / 12, k: 'hurt', at: [0.1, 1.2] }] },
   };
 
-  const dangles = [new Dangle(J.tailL, 70, 7, 0.012, 1.1, 0.12), new Dangle(J.tailR, 64, 6.5, 0.013, 1.1, 0.12)];
+  Object.assign(clips, gameClips(base));
+  const dangles = [new Dangle(J.tailL, 70, 7, 0.012, 1.1, 0.03), new Dangle(J.tailR, 64, 6.5, 0.013, 1.1, 0.03)];
   return {
     rig: R, base, clips, dangles, height: 2.0, feet: ['footL', 'footR'], footY: 0.07,
     glow: { setSchool: (c: string) => setEmit(glow as Toon, c, 1.9) },
+  };
+}
+
+// Clips del juego (F1): las mismas poses del escaparate sin el desplazamiento de la raíz (en el juego lo pone la sim).
+// En el aire no se apoyan los pies (plant: false); el dash se inclina hacia su dirección desde game (el contenedor).
+function gameClips(base: Pose): Record<string, Clip> {
+  const B = pick(base);
+  const RISE: Pose = { spine: [-0.1, 0.1, 0], legR: [0.1, 0, 0], kneeR: [0.1, 0, 0], legL: [0.3, 0, 0], kneeL: [0.3, 0, 0], footL: [0.4, 0, 0], footR: [0.4, 0, 0],
+    armR: [-2.4, 0, -0.3], elbowR: [-0.2, 0, 0], handR: [0.3, 0, 0], armL: [-0.4, 0, 0.8], elbowL: [-1.6, 0, 0], head: [-0.05, -0.2, 0] };
+  const APEX: Pose = { spine: [0.25, 0.1, 0], legR: [-1.3, 0, 0], kneeR: [2.0, 0, 0], legL: [-0.9, 0, 0], kneeL: [2.1, 0, 0], footL: [0, 0, 0], footR: [0, 0, 0],
+    armR: [-1.2, 0, -0.5], elbowR: [-0.9, 0, 0], handR: [0.55, 0, 0], armL: [0.3, 0, 0.7] };
+  const FALL: Pose = { spine: [0.1, 0.1, 0], legR: [-0.6, 0, 0], kneeR: [0.6, 0, 0], legL: [-0.2, 0, 0], kneeL: [0.8, 0, 0], footR: [0.3, 0, 0], footL: [0.3, 0, 0],
+    armR: [-1.6, 0, -0.7], elbowR: [-0.7, 0, 0], armL: [-0.6, 0, 1.0] };
+  const CROUCH: Pose = { spine: [0.4, 0.25, 0], legR: [-0.9, 0, 0], kneeR: [1.4, 0, 0], legL: [-0.2, 0, 0], kneeL: [1.5, 0, 0], footL: [-0.3, 0, 0],
+    armR: [-0.4, 0, -0.6], armL: [0.2, 0, 0.9], pos: [0, -0.3, 0] };
+  const SMEAR: Pose = { spine: [0.5, -0.3, 0], head: [-0.45, 0.15, 0], armR: [-1.55, 0, -0.15], elbowR: [-0.05, 0, 0], handR: [0.1, 0, 0], armL: [0.9, 0, 0.5], elbowL: [-0.3, 0, 0],
+    legR: [-0.95, 0, 0], kneeR: [0.35, 0, 0], legL: [0.75, 0, 0], kneeL: [0.25, 0, 0], footL: [0.5, 0, 0], pos: [0, -0.1, 0] };
+  const CUT: Pose = { spine: [0.42, -0.45, 0], head: [-0.4, 0.3, 0], armR: [-1.2, 0, -0.35], elbowR: [-0.1, 0, 0], handR: [0.75, 0, 0], armL: [0.8, 0, 0.6], elbowL: [-0.4, 0, 0],
+    legR: [-0.85, 0, 0], kneeR: [0.75, 0, 0], legL: [0.6, 0, 0], kneeL: [0.35, 0, 0], footL: [0.45, 0, 0], pos: [0, -0.15, 0] };
+  const GUARD: Pose = { spine: [-0.05, 0.6, 0], head: [-0.1, -0.5, 0], armR: [-1.5, 0, -0.9], elbowR: [-1.3, 0, 0], handR: [0.2, -0.3, 1.2], armL: [-0.9, 0, 0.3], elbowL: [-1.4, 0, 0], handL: [0, 0, 0.6],
+    legR: [-0.5, 0, 0], kneeR: [0.9, 0, 0], legL: [0.45, 0, 0], kneeL: [0.6, 0, 0], pos: [0, -0.16, 0] };
+  const PARRY: Pose = { spine: [-0.15, 0.4, 0], armR: [-1.9, 0, -0.6], elbowR: [-0.8, 0, 0], handR: [0.3, -0.2, 0.7], pos: [0, -0.1, 0], scl: [0.96, 1.05, 0.96] };
+  return {
+    g_rise: { len: 3 / 12, plant: false, keys: [{ t: 0, p: { ...RISE, scl: [0.86, 1.18, 0.86] } }, { t: 2 / 12, e: 'out', p: { ...RISE, scl: [1, 1, 1] } }] },
+    g_fall: { len: 4 / 12, plant: false, keys: [{ t: 0, p: { ...APEX, scl: [1, 1, 1] } }, { t: 3 / 12, e: 'io', p: FALL }] },
+    g_land: { len: 4 / 12, next: 'idle', keys: [{ t: 0, p: { ...CROUCH, scl: [1.16, 0.84, 1.16] } }, { t: 3 / 12, e: 'io', p: { ...B } }] },
+    g_dash: { len: 6 / 12, plant: false, keys: [
+      { t: 0, p: { ...SMEAR, scl: [0.88, 0.92, 1.35] } },
+      { t: 1 / 12, e: 'snap', p: { ...CUT, scl: [1.04, 0.96, 1.04] } },
+      { t: 3 / 12, e: 'hold', p: {} },
+      { t: 6 / 12, e: 'io', p: { ...FALL, scl: [1, 1, 1], pos: [0, 0, 0], head: [-0.05, -0.2, 0] } },
+    ] },
+    g_guard: { len: 2 / 12, next: 'g_guardhold', keys: [{ t: 0, p: {} }, { t: 1 / 12, e: 'snap', p: { ...GUARD, scl: [0.96, 1.04, 0.96] } }, { t: 2 / 12, e: 'io', p: { scl: [1, 1, 1] } }] },
+    g_guardhold: { len: 1.2, loop: true, keys: [{ t: 0, p: { ...GUARD, scl: [1, 1, 1] } }, { t: 0.6, p: { spine: [-0.02, 0.6, 0], pos: [0, -0.19, 0] } }] },
+    g_parry: { len: 6 / 12, next: 'g_guardhold', keys: [
+      { t: 0, p: { ...GUARD, scl: [1, 1, 1] } }, { t: 1 / 12, e: 'snap', p: PARRY }, { t: 3 / 12, e: 'hold', p: {} }, { t: 6 / 12, e: 'io', p: { ...GUARD, scl: [1, 1, 1] } },
+    ] },
+    g_hit: { len: 8 / 12, next: 'idle', keys: [
+      { t: 0, p: {} },
+      { t: 1 / 12, e: 'snap', p: { spine: [-0.45, 0.4, 0.15], head: [-0.5, 0.3, 0.2], armR: [-0.3, 0, -1.0], elbowR: [-0.4, 0, 0], armL: [-0.2, 0, 1.1], legR: [-0.1, 0, 0], legL: [0.5, 0, 0], kneeL: [0.6, 0, 0], pos: [0, 0, 0], scl: [0.92, 1.06, 0.92] } },
+      { t: 3 / 12, e: 'hold', p: {} },
+      { t: 8 / 12, e: 'io', p: { ...B } },
+    ] },
   };
 }
 
