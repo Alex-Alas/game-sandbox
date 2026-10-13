@@ -23,6 +23,7 @@ export default defineConfig({
         bananazo: resolve(import.meta.dirname, 'games/bananazo/index.html'),
         flechazo: resolve(import.meta.dirname, 'games/flechazo/index.html'),
         filo: resolve(import.meta.dirname, 'games/filo/index.html'),
+        grisu: resolve(import.meta.dirname, 'games/grisu/index.html'),
       },
     },
   },
