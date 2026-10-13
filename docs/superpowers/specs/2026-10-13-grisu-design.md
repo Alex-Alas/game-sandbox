@@ -48,8 +48,12 @@ crecer los números.
 | Nombre | **GRISÚ**: el gas explosivo de las minas. En el juego, las bolsas de grisú son un peligro que también es un arma | yo | VETA, HONDURA, LATÓN |
 | Gesto por mecánica | Toque = salto en todas las clases; deslizar y mantener cambian según la clase (§4) | yo | un gesto fijo por mecánica |
 | Cámara | Perspectiva de foco largo (28°), casi de costado (9° hacia abajo), **fija** y anclada a la grilla de píxeles; los modelos giran 30° hacia la cámara (vista 3/4) (§3) | yo | ortográfica, isométrica, giro dinámico (descartado: en pixel art girar la cámara hace parpadear todo) |
-| Lo incremental | Forja de rangos infinitos + escalado exponencial de SIN FONDO (§12.5) | yo | solo árbol finito |
-| Al morir | Te llevas **toda la arcanita** y pierdes el latón | yo | perder la mitad |
+| Lo incremental | **También dentro de la run**: la CALDERA (nivel de la run), la vida de los enemigos escalando por piso, el combo que multiplica el daño y números grandes en pantalla (§11.3). Además, en la meta, la Forja de rangos infinitos y SIN FONDO (§12.5) | usuario | solo en la meta, más capas de meta |
+| Al morir | **Según la profundidad**: te llevas la arcanita de los estratos que completaste y la mitad de la del estrato en el que caes; el latón se pierde | usuario | toda, la mitad |
+| Caminata en la SALA | **Elegible en AJUSTES**: HACIA EL ENEMIGO (por defecto) o QUIETO | usuario | una sola fija |
+| Nombres | **GRISÚ**, Remache, Don Válvula, Ancla y Bobina: aprobados | usuario | — |
+| Antes de construir | **Un escaparate breve de los assets** (personajes, enemigo, escenario, efectos, retratos e íconos) antes de empezar el juego: fase F0.5 del plan | usuario | arte al final (F4) |
+| Subir de CALDERA | Automático, sin menú (las elecciones son los pergaminos), para no cortar la acción | yo | elegir 1 de 3 mejoras chicas en cada nivel |
 
 ## 2. Mundo y tono
 
@@ -118,8 +122,10 @@ calibran:
 
 - **Sin joystick, ¿cómo se camina?**
   - En el PASILLO se corre solo.
-  - En la SALA hay **caminata asistida**: en el suelo el héroe va hacia el enemigo más cercano (o hacia el último que
-    golpeaste) y se frena a su alcance.
+  - En la SALA hay **caminata asistida**, elegible en AJUSTES (decisión del usuario):
+    - HACIA EL ENEMIGO (por defecto): en el suelo el héroe va hacia el enemigo más cercano (o hacia el último que
+      golpeaste) y se frena a su alcance;
+    - QUIETO: no se mueve hasta un gesto.
   - En el POZO se cae solo.
   - Todo lo demás (esquivar, reposicionarse, cruzar) sale de las mecánicas.
   - Es el **riesgo número uno** del diseño y lo primero que se prueba en F1. Si no funciona, se agrega un esquema
@@ -252,6 +258,7 @@ brilla en el turquesa de la arcanita. Así el build se lee en la pantalla sin ab
 - **Combo:**
   - cada golpe sin recibir daño suma 1; se pierde al recibir daño o tras 2 s sin pegar;
   - multiplica el latón y la arcanita que sueltan los enemigos: × (1 + 0,05 por golpe), tope × 3;
+  - multiplica también **el daño**: × (1 + 0,02 por golpe), tope × 2 (§11.3);
   - se ve en el HUD con un manómetro que sube de presión.
   - Es el premio a jugar activo y bien.
 - **Bolsas de grisú:** explotan al recibir chispas, fuego o un golpe de metal, en cadena, y dañan a enemigos **y a ti**.
@@ -288,7 +295,11 @@ Entre estratos, una **fuente de vapor** cura el 30 % y se elige la puerta del si
 
 ### 9.3 Al terminar
 
-- **Morir:** te llevas toda la arcanita, los núcleos y la XP de clase; el latón se pierde.
+- **Morir** (según la profundidad, decisión del usuario):
+  - te llevas toda la arcanita de los estratos que completaste y la mitad de la del estrato en el que caes;
+  - los núcleos y la XP de clase, enteros;
+  - el latón se pierde.
+  - La pantalla de fin muestra lo que se salvó y lo que se perdió, para que llegar un estrato más abajo se sienta.
 - **Ganar** (vencer al jefe final): abre **PRESIÓN** y **SIN FONDO** (§12.6).
 
 ## 10. Enemigos y jefes
@@ -379,6 +390,35 @@ Está **al final de cada estrato** (antes del jefe) y se paga con el **latón** 
   - *Pluma mecánica*: caída máxima −30 %; dash −15 % de distancia.
 - **Otros:** parche de latón (cura 35), tinta (vuelve a sortear los pergaminos) y un pergamino a la venta por estrato.
 
+### 11.3 Números que suben dentro de la run
+
+El usuario quiere lo incremental **también dentro de cada run**, al estilo Vampire Survivors o Brotato: que los números
+crezcan rápido y se vean. Primer tiro, para calibrar con `simrun`:
+
+- **La CALDERA** (el nivel de la run):
+  - cada enemigo suelta **vapor**;
+  - cada nivel de caldera multiplica el daño × 1,15 y suma 5 de integridad máxima;
+  - una run ganada llega a ~20 niveles: ~× 16 de daño.
+  - **Sube sola, sin menú** (decidí yo): un destello «¡CALDERA 7!» y un silbato. Las elecciones siguen siendo los
+    pergaminos, así la acción no se corta.
+- **Los enemigos escalan por piso:** su vida y lo que sueltan × 1,22 por piso de combate (~24 en una run, ~× 120). Un
+  topo-barrena del primer piso tiene 30 de vida; uno del último estrato, ~3.500.
+  - **El daño que te hacen casi no escala** (+10 % por estrato), así la integridad sigue siendo legible (100–200).
+- **Lo que multiplica tu daño:**
+  - la caldera;
+  - los pergaminos y objetos, con multiplicadores (× 1,2 a × 1,5) que se multiplican entre sí;
+  - el combo (× 2 como tope, §8).
+  - Una run buena sube el daño ~× 150–300 contra ~× 120 de la vida enemiga: un buen build los derrite al final y uno
+    flojo sufre.
+- **Números en pantalla, en píxel:**
+  - cada golpe hace saltar su número, con sufijos desde 10 mil (12,4K, 3,1M);
+  - los **críticos** salen en dorado y más grandes (el parry perfecto y los golpes a un aturdido lo son);
+  - el golpe letal hace temblar su número.
+- **Contadores que ruedan:** latón, arcanita, bajas y el récord de combo de la run.
+- **Pantalla de fin:** las sumas totales («daño total 1,3M · 412 bajas · combo máximo 63»).
+- **Enlace con la meta:** la Forja (§12.5) tiene rangos que empujan la caldera desde el inicio (*Caldera precalentada*:
+  empiezas en el nivel 1 + n).
+
 ## 12. Fuera de la run: builds y lo que crece
 
 ### 12.1 Monedas
@@ -386,7 +426,7 @@ Está **al final de cada estrato** (antes del jefe) y se paga con el **latón** 
 | Moneda | Dónde se consigue | Para qué | Al morir |
 | --- | --- | --- | --- |
 | **Latón** | Enemigos y cofres de la run | Tienda | Se pierde |
-| **Arcanita** | **Vetas** (minarlas golpeándolas: pogo, dash o martillo), élites y jefes | Mods, forja de overclocks, Forja de la Brigada | Se conserva |
+| **Arcanita** | **Vetas** (minarlas golpeándolas: pogo, dash o martillo), élites y jefes | Mods, forja de overclocks, Forja de la Brigada | Toda la de los estratos completos; la mitad de la del estrato en curso |
 | **Núcleos** | Cofres sellados (raros) y jefes | Forjar overclocks | Se conservan |
 | **XP de clase** | Jugar la run | Niveles de clase (desbloquean niveles de mods) | Se conserva |
 
@@ -422,10 +462,10 @@ desbloquea con una **hazaña** de la clase (los logros de TF2). Por ejemplo:
 - **INESTABLE:** gran ganancia, gran contra. Por ejemplo, *Sed*: matar cura 3, pero 3 s sin matar te quema 2 por
   segundo.
 
-### 12.5 Lo incremental: la Forja de la Brigada
+### 12.5 Lo incremental en la meta: la Forja de la Brigada
 
-Lo que pidió el usuario al principio era un incremental. Con «todo activo y sin prestigio», lo incremental queda **en la
-meta** (decidí yo, para confirmar):
+Lo que pidió el usuario al principio era un incremental. Con «todo activo y sin prestigio», lo incremental vive en dos
+lugares: **dentro de la run** (§11.3) y **en la meta** (esto):
 
 - **Forja de la Brigada:** mejoras generales con **rangos infinitos** y costo geométrico (× 1,15 por rango). Por
   ejemplo: +2 % de integridad, +3 % de latón inicial, +1 % de daño, suerte de pergaminos raros. Se abre al ganar la
@@ -630,11 +670,17 @@ Web Audio procedural, sin archivos (como en todo el sandbox):
 
 ## 16. Alcance
 
+### Antes del MVP: el escaparate de assets
+
+Pedido del usuario: antes de construir el juego, ver un escaparate breve de los assets en 3D pixelado (como el de
+FILO). Su contenido y sus pasos están en la fase F0.5 del plan.
+
 ### MVP: la rebanada vertical
 
 - **Esgrimista y Estibador**, con las cuatro mecánicas.
 - **Estrato 1 completo**: los tres tipos de piso, con bloques suficientes para que no se repita en 10 runs; sus cinco
   enemigos; la tienda y EL TOPO REY.
+- **La CALDERA**, el escalado por piso y los números en pantalla (§11.3).
 - **Pergaminos:** 4 escuelas, unos 24, más 3 malditos.
 - **Tienda:** 6 gadgets y 6 objetos mágicos.
 - **La Boca del Pozo:** mods de los niveles 1–3 y 1 variante por arma con su hazaña.
@@ -668,11 +714,14 @@ Con esto se decide si el juego tiene alma antes de hacer los estratos 2–4.
 5. **Cohesión del arte mixto.** Shader y paleta compartidos, y revisión con capturas en cada vuelta (el ciclo de
    revisión de la skill).
 
-## 18. Preguntas abiertas (para confirmar)
+## 18. Respuestas del usuario (2026-10-13)
 
-1. ¿El nombre **GRISÚ** y los nombres de las clases (Remache, Don Válvula, Ancla, Bobina) te gustan?
-2. **Caminata asistida** en la SALA: ¿hacia el enemigo más cercano o quedarse quieto hasta un gesto?
-3. ¿Conservar **toda** la arcanita al morir?
-4. ¿Lo incremental como **Forja de rangos infinitos + SIN FONDO** te alcanza, o quieres más «números que suben»
-   dentro de la run?
-5. ¿La **paleta por estrato** de §13.2 va bien, o algún estrato tiene que tener otro color de luz?
+1. Los nombres **GRISÚ**, Remache, Don Válvula, Ancla y Bobina quedan.
+2. **Caminata asistida:** elegible en AJUSTES, HACIA EL ENEMIGO por defecto (§4).
+3. **Arcanita al morir:** según la profundidad (§9.3).
+4. **Lo incremental, también dentro de la run** (§11.3).
+5. **Paleta por estrato:** por ahora está bien; se revisa más adelante.
+6. **Antes de construir el juego, un escaparate breve de los assets:** fase F0.5 del plan.
+
+Queda para el escaparate: confirmar viendo los assets la paleta de Galerías, el tamaño del héroe en píxeles y la
+legibilidad de las caras ocultas.
