@@ -723,5 +723,8 @@ Con esto se decide si el juego tiene alma antes de hacer los estratos 2–4.
 5. **Paleta por estrato:** por ahora está bien; se revisa más adelante.
 6. **Antes de construir el juego, un escaparate breve de los assets:** fase F0.5 del plan.
 
-Queda para el escaparate: confirmar viendo los assets la paleta de Galerías, el tamaño del héroe en píxeles y la
-legibilidad de las caras ocultas.
+Tras el escaparate (F0.5), el mismo día:
+
+7. **Alto interno: 360 px.** Con la vista de 13 m, el Esgrimista mide 55 px y el Estibador, 60.
+8. **La paleta de Galerías queda como está** (pared de pizarra lila, personajes oscuros, charcos cálidos), con la LUT.
+9. **Las caras ocultas y las siluetas se leen** a escala de juego.
