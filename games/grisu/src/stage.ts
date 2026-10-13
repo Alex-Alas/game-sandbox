@@ -71,6 +71,7 @@ export class Stage {
   update(dt: number) {
     if (this.freeze > 0) { this.freeze -= dt; dt *= 0.0; }
     for (const w of this.who) {
+      if (!w.a.root.visible) continue;
       w.a.update(dt);
       if (w.flash > 0) { w.flash = Math.max(0, w.flash - dt * 6); }
       if (w.tele > 0) w.tele = Math.max(0, w.tele - dt);

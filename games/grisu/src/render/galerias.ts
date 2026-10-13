@@ -30,7 +30,10 @@ class Bucket {
     for (const k of Object.keys(gg.attributes)) if (k !== 'position' && k !== 'normal') gg.deleteAttribute(k);
     if (!gg.attributes.normal) gg.computeVertexNormals();
     if (layer === 'far') outline = false;   // lo lejano: siluetas sin contorno ni bordes
-    const id = layer + ':' + key + (outline ? '' : ':no');
+    // en trozos de 40 m a lo largo de x: así la cámara descarta lo que no ve
+    const cx = new THREE.Vector3(); gg.computeBoundingBox(); gg.boundingBox!.getCenter(cx);
+    const chunk = layer === 'far' ? 'f' : Math.floor(cx.x / 40);
+    const id = layer + ':' + key + (outline ? '' : ':no') + ':' + chunk;
     if (!this.m.has(id)) this.m.set(id, { mat, geos: [], outline, layer });
     this.m.get(id)!.geos.push(gg);
     void gg;
@@ -178,7 +181,7 @@ export function buildGalerias(): World {
   for (let x = X0; x < X1; x += 8) {
     const op = isOpen(x + 4);
     const h = op ? 1.8 : 10;
-    const g = new THREE.PlaneGeometry(8.4, h, 18, op ? 4 : 20);
+    const g = new THREE.PlaneGeometry(8.4, h, 14, op ? 3 : 16);
     const pp = g.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < pp.count; i++) {
       const vx = pp.getX(i) + x + 4, vy = pp.getY(i) + h / 2;

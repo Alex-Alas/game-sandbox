@@ -44,6 +44,8 @@ export class UI {
     $('snd').onclick = () => { this.sound = !this.sound; $('snd').setAttribute('aria-pressed', String(this.sound)); this.onSound?.(this.sound); };
     $('fs').onclick = () => this.fullscreen();
     $('toggle').onclick = () => this.panel.classList.toggle('closed');
+    // en el teléfono parado el panel empieza cerrado (tapa media pantalla)
+    if (innerHeight > innerWidth && innerWidth < 760) this.panel.classList.add('closed');
     // comparador: la línea se arrastra
     const sp = $('split');
     let drag = false;
@@ -205,7 +207,9 @@ export class UI {
     if ((this.fr++ & 7) === 0) this.syncMeta();
     // el panel de la derecha tapa parte de la escena: la cámara lo compensa (en pantallas anchas)
     const r = this.panel.getBoundingClientRect();
-    this.app.panelPx = !this.panel.hidden && !this.panel.classList.contains('closed') && r.width > 0 && r.left > innerWidth * 0.5 ? innerWidth - r.left : 0;
+    const open = !this.panel.hidden && !this.panel.classList.contains('closed') && r.width > 0;
+    this.app.panelPx = open && r.left > innerWidth * 0.5 ? innerWidth - r.left : 0;
+    this.app.panelBottom = open && r.width > innerWidth * 0.6 && r.top > innerHeight * 0.35 ? innerHeight - r.top : 0;
   }
 
   gallery() {

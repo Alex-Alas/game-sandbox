@@ -157,8 +157,9 @@ export function estibador(): ModelDef {
     // MARTILLAZO: carga lenta (4), smear pesado (1), contacto sostenido con la onda (4), recobro (5)
     hammer: { len: 1.5, next: 'idle', keys: [
       { t: 0, p: {} },
-      { t: 4 / 12, e: 'out', p: { spine: [-0.35, 0.5, 0], head: [-0.1, -0.3, 0], armR: [-3.0, 0, -0.2], elbowR: [-0.5, 0, 0], handR: [1.5, 0, 0], armL: [-2.6, 0, 0.1], elbowL: [-0.6, 0, 0],
-        legR: [-0.5, 0, 0], kneeR: [0.5, 0, 0], legL: [0.45, 0, 0], kneeL: [0.4, 0, 0], pos: [0, 0.05, -0.15], scl: [0.95, 1.07, 0.95] } },
+      { t: 2 / 12, e: 'out', p: { spine: [0.35, 0.2, 0], armR: [-2.2, 0, -0.3], elbowR: [-1.4, 0, 0], handR: [1.6, 0, 0], legR: [-0.5, 0, 0], kneeR: [0.9, 0, 0], legL: [0.3, 0, 0], kneeL: [0.9, 0, 0], scl: [1.08, 0.9, 1.08] } },
+      { t: 4 / 12, e: 'out', p: { spine: [-0.6, 0.55, 0], head: [-0.1, -0.35, 0], armR: [-3.1, 0, -0.2], elbowR: [-0.4, 0, 0], handR: [2.0, 0, 0], armL: [-2.7, 0, 0.1], elbowL: [-0.5, 0, 0],
+        legR: [-0.55, 0, 0], kneeR: [0.4, 0, 0], legL: [0.5, 0, 0], kneeL: [0.3, 0, 0], pos: [0, 0.05, -0.3], scl: [0.92, 1.1, 0.92] } },
       { t: 5 / 12, e: 'snap', p: { spine: [0.55, -0.1, 0], head: [-0.4, 0.1, 0], armR: [-1.6, 0, -0.1], elbowR: [-0.1, 0, 0], handR: [0.2, 0, 0], armL: [-1.4, 0, 0.0], elbowL: [-0.2, 0, 0],
         legR: [-0.8, 0, 0], kneeR: [0.7, 0, 0], legL: [0.5, 0, 0], kneeL: [0.3, 0, 0], pos: [0, -0.1, 0.5], scl: [0.92, 0.95, 1.2] } },
       { t: 6 / 12, e: 'snap', p: { spine: [0.75, -0.15, 0], head: [-0.6, 0.15, 0], armR: [-0.95, 0, -0.1], elbowR: [-0.05, 0, 0], handR: [0.7, 0, 0], armL: [-0.75, 0, 0.0], elbowL: [-0.2, 0, 0],
@@ -172,11 +173,11 @@ export function estibador(): ModelDef {
     anchor: { len: 2.2, next: 'idle', keys: [
       { t: 0, p: {} },
       { t: 3 / 12, e: 'out', p: { spine: [-0.15, 0.6, 0], armR: [-2.0, 0, -0.9], elbowR: [-1.4, 0, 0], handR: [1.2, 0, 0], armL: [-0.9, 0, 0.5], elbowL: [-1.0, 0, 0], legR: [-0.4, 0, 0], kneeR: [0.4, 0, 0], legL: [0.4, 0, 0], kneeL: [0.5, 0, 0], pos: [0, 0, -0.1] } },
-      { t: 4 / 12, e: 'snap', p: { spine: [0.35, -0.3, 0], armR: [-1.75, 0, -0.1], elbowR: [-0.05, 0, 0], handR: [0.1, 0, 0], armL: [0.6, 0, 0.6], elbowL: [-0.4, 0, 0], legR: [-0.7, 0, 0], kneeR: [0.5, 0, 0], legL: [0.6, 0, 0], kneeL: [0.4, 0, 0], pos: [0, 0, 0.3], anc: [2.0] } },
+      { t: 4 / 12, e: 'snap', p: { spine: [0.35, -0.3, 0], armR: [-1.75, 0, -0.1], elbowR: [-0.05, 0, 0], handR: [1.45, 0, 0], armL: [0.6, 0, 0.6], elbowL: [-0.4, 0, 0], legR: [-0.7, 0, 0], kneeR: [0.5, 0, 0], legL: [0.6, 0, 0], kneeL: [0.4, 0, 0], pos: [0, 0, 0.3], anc: [2.0] } },
       { t: 6 / 12, e: 'out', p: { anc: [4.2] } },
-      { t: 7 / 12, e: 'snap', p: { spine: [0.0, 0.2, 0], armR: [-1.5, 0, -0.2], elbowR: [-0.5, 0, 0], handR: [0.4, 0, 0], armL: [-0.9, 0, 0.3], elbowL: [-1.2, 0, 0], legR: [-0.55, 0, 0], kneeR: [0.6, 0, 0], legL: [0.55, 0, 0], kneeL: [0.6, 0, 0], pos: [0, 0, -0.1], anc: [4.0] } },
+      { t: 7 / 12, e: 'snap', p: { spine: [0.0, 0.2, 0], armR: [-1.5, 0, -0.2], elbowR: [-0.5, 0, 0], handR: [2.05, 0, 0], armL: [-0.9, 0, 0.3], elbowL: [-1.2, 0, 0], legR: [-0.55, 0, 0], kneeR: [0.6, 0, 0], legL: [0.55, 0, 0], kneeL: [0.6, 0, 0], pos: [0, 0, -0.1], anc: [4.0] } },
       { t: 16 / 12, e: 'hold', p: {} },
-      { t: 18 / 12, e: 'in', p: { spine: [-0.25, 0.4, 0], armR: [-1.0, 0, -0.5], elbowR: [-1.6, 0, 0], handR: [0.6, 0, 0], pos: [0, 0, -0.3], anc: [1.0] } },
+      { t: 18 / 12, e: 'in', p: { spine: [-0.25, 0.4, 0], armR: [-1.0, 0, -0.5], elbowR: [-1.6, 0, 0], handR: [2.6, 0, 0], pos: [0, 0, -0.3], anc: [1.0] } },
       { t: 19 / 12, e: 'snap', p: { anc: [0] } },
       { t: 26 / 12, e: 'io', p: { ...pick(base) } },
     ], ev: [{ t: 4 / 12, k: 'whoosh', heavy: true }, { t: 6 / 12, k: 'clank', at: [5.0, 1.2] }] },

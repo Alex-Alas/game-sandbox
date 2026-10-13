@@ -91,6 +91,7 @@
     #gallery .wrap { grid-template-columns: 1fr; }
     #brand .sub { display: none; }
   }
+  @media (max-width: 520px) { #caption { top: calc(112px + var(--sat)); font-size: 10px; } #caption b { font-size: 13px; } }
   @media (max-height: 520px) and (min-width: 700px) {
     #panel { left: auto; right: calc(8px + var(--sar)); width: 300px; top: calc(56px + var(--sat)); bottom: calc(52px + var(--sab)); max-height: none; }
     #gallery .wrap { grid-template-columns: 1fr 1fr; }

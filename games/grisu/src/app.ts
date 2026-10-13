@@ -203,7 +203,7 @@ export class App {
       tr.t += dt;
       if (tr.t < 0) continue;
       const sc = schoolRgb(tr.school);
-      if (!tr.tr) tr.tr = fx.trail({ pts: [], c: sc, life: 0.45, w: 0.16 });
+      if (!tr.tr) { const p0 = tr.pts[0]; tr.tr = fx.trail({ pts: [{ x: p0[0], y: p0[1], z: p0[2], t: 0 }], c: sc, life: 0.45, w: 0.16 }); }
       const n = Math.min(tr.pts.length, Math.floor(tr.t / 0.022));
       while (tr.tr.pts.length < n && tr.tr.pts.length < tr.pts.length) {
         const p = tr.pts[tr.tr.pts.length];
@@ -284,12 +284,19 @@ export class App {
   }
 
   panelPx = 0;   // px CSS que tapa el panel a la derecha (la cámara se corre la mitad)
+  panelBottom = 0; // px CSS que tapa el panel abajo (teléfono parado)
   render() {
     for (const [k, on] of Object.entries(this.layers)) this.W.groups[k as Layer].visible = on;
+    // en las vistas de «pedestal» el primer plano no tapa al modelo
+    if (this.mode !== 'escenario' && this.mode !== 'retratos') this.W.groups.fore.visible = false;
     this.frameCamera();
     if (this.panelPx > 0 && this.mode !== 'escenario') {
       const mpp = this.rig.view / (this.P.sh / this.P.dpr);   // metros por px CSS
       this.rig.target.x += this.panelPx * 0.5 * mpp;
+    }
+    if (this.panelBottom > 0 && this.mode !== 'escenario') {
+      const mpp = this.rig.view / (this.P.sh / this.P.dpr);
+      this.rig.target.y -= this.panelBottom * 0.5 * mpp;
     }
     const [sx, sy] = this.S.shakeOffset();
     this.rig.update(this.P.H, this.P.rh, this.P.frac);
@@ -299,7 +306,7 @@ export class App {
       this.rig.cam.updateMatrixWorld();
     }
     this.W.update(this.t, this.rig.target.x);
-    this.P.flash = this.S.screenFlash > 0.15 ? 0.5 : 0;
+    this.P.flash = this.S.screenFlash > 0.22 ? 0.22 : 0;
     this.P.opt.split = this.sel.split ? this.splitX : -1;
     this.P.render(this.scene, this.rig.cam, this.bg);
   }

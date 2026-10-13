@@ -21,7 +21,7 @@ out vec3 vN; out float vZ;
 void main() {
   vec4 v = modelViewMatrix * vec4(position, 1.0);
   vZ = -v.z;
-  vN = normalize(transpose(inverse(mat3(modelViewMatrix))) * normal);
+  vN = normalize(normalMatrix * normal);
   gl_Position = projectionMatrix * v;
 }`;
 const ND_FRAG = /* glsl */`

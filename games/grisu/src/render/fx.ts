@@ -194,20 +194,20 @@ export class Fx {
     const R = this.R;
     R.set(d, w, h);
     const P = (x: number, y: number, z: number) => { const v = project(x, y, z); return [v.x, v.y]; };
-    // estelas
-    for (const tr of this.trails) {
+    // estelas: en tres pasadas (tinta, color, núcleo) así un tramo no tapa el color del anterior
+    for (let pass = 0; pass < 3; pass++) for (const tr of this.trails) {
       const n = tr.pts.length;
       for (let i = 1; i < n; i++) {
         const a = tr.pts[i - 1], b = tr.pts[i];
         const u = 1 - b.t / tr.life;
         const pa = P(a.x, a.y, a.z), pb = P(b.x, b.y, b.z);
-        const th = Math.max(0.5, tr.w * ppm * u);
+        const th = Math.max(0.6, tr.w * ppm * Math.sqrt(u));
         const steps = Math.max(1, Math.ceil(Math.hypot(pb[0] - pa[0], pb[1] - pa[1])));
-        for (let s = 0; s <= steps; s++) {
-          const x = pa[0] + (pb[0] - pa[0]) * (s / steps), y = pa[1] + (pb[1] - pa[1]) * (s / steps);
-          R.disc(x, y, th + 1, C.ink, false, u * 1.4);
-          R.disc(x, y, th, tr.c[1], true, u * 1.6);
-          if (th > 1.2) R.disc(x, y, th * 0.45, tr.c[0], true, u * 1.8);
+        for (let st = 0; st <= steps; st++) {
+          const x = pa[0] + (pb[0] - pa[0]) * (st / steps), y = pa[1] + (pb[1] - pa[1]) * (st / steps);
+          if (pass === 0) R.disc(x, y, th + 1, C.ink, false, u * 2.2);
+          else if (pass === 1) R.disc(x, y, th, tr.c[1], true, u * 2.4);
+          else if (th > 1.2) R.disc(x, y, th * 0.4, tr.c[0], true, u * 2.6);
         }
       }
     }
@@ -224,7 +224,14 @@ export class Fx {
         case 'glint': R.px(x, y, p.c, true); break;
         case 'chip': R.px(x, y, p.c, false); R.px(x + 1, y, p.c2!, false); break;
         case 'bubble': R.ring(x, y, 1.2, p.c, true, 1.3 - u); break;
-        case 'dust': case 'smoke': case 'steam': {
+        case 'steam': {
+          // vapor: bocanadas claras con borde gris (sin tinta), que se abren y se traman al irse
+          const r = p.r * ppm * (0.7 + u * 1.6);
+          R.disc(x, y, r + 1, p.c2!, false, 1.1 - u);
+          R.disc(x - r * 0.2, y + r * 0.25, r * 0.8, p.c, false, 1.1 - u * 1.2);
+          break;
+        }
+        case 'dust': case 'smoke': {
           const r = p.r * ppm * (0.6 + u * 0.9);
           R.disc(x, y, r + 1, C.ink, false, 1.25 - u);
           R.disc(x, y, r, p.c2!, false, 1.25 - u);

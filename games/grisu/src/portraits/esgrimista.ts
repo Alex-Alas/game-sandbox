@@ -107,8 +107,13 @@ export function drawEsgrimista(cv: HTMLCanvasElement, school = EMIT.arcanita) {
   }
 
   // ---------- la mano y la empuñadura (adelante) ----------
-  P.push({ pts: S([[68, 104], [73, 96], [80, 98], [82, 106], [78, 113], [70, 112]]), z: 16, ...mat(m.leather, { shadeW: 1.8 }),
-    deco: (cx) => { for (const k of [0, 1, 2]) stroke(cx, [[72 + k * 2.6, 99 + k * 0.5], [71 + k * 2.6, 106 + k]], 0.3, 0.6, m.leather.D, 0.4); } });
+  // el puño enguantado: cuatro nudillos que abrazan el mango y el pulgar por encima
+  P.push({ pts: S([[67, 103], [70.5, 97.5], [75, 96.5], [79.5, 99], [81.5, 104], [80.5, 109.5], [76, 113], [70, 112.5], [67, 108.5]]), z: 16, ...mat(m.leather, { shadeW: 1.6, deepW: 3 }),
+    deco: (cx) => {
+      for (const k of [0, 1, 2, 3]) { const y = 100.5 + k * 3.1; stroke(cx, [[70 + k * 0.4, y], [76 + k * 0.6, y + 0.8], [80 - k * 0.5, y + 1.6]], 0.25, 0.55, m.leather.D, 0.5); }
+      for (const k of [0, 1, 2, 3]) { cx.fillStyle = m.leather.H; cx.beginPath(); cx.arc(79.6 - k * 0.5, 100.8 + k * 3.1, 0.55, 0, 7); cx.fill(); }
+    } });
+  P.push({ pts: S([[69, 99], [74, 95.5], [77.5, 96.8], [74.5, 99.4], [70.5, 101.4]]), z: 16.5, ...mat(m.leather, { shadeW: 0.8, deep: undefined }) });
   // el pistón sobre el lomo de la hoja
   P.push({ pts: taper(spline([[70, 94], [74.5, 78]], false, 4), () => 2.0), z: 15, ...mat(m.brass, { shadeW: 1.3, deepW: 2.4 }),
     deco: (cx) => { stroke(cx, [[70.5, 88], [72.5, 88.6]], 0.6, 0.6, m.brass.D, 0.5); stroke(cx, [[71.6, 84], [73.6, 84.6]], 0.6, 0.6, m.brass.D, 0.5); } });

@@ -34,7 +34,8 @@ out vec3 vW; out vec3 vN;
 void main() {
   vec4 w = modelMatrix * vec4(position, 1.0);
   vW = w.xyz;
-  vN = normalize(transpose(inverse(mat3(modelMatrix))) * normal);
+  // normal del mundo: la de la vista (normalMatrix ya trae la inversa transpuesta) devuelta por la vista (ortonormal)
+  vN = normalize((vec4(normalMatrix * normal, 0.0) * viewMatrix).xyz);
   gl_Position = projectionMatrix * viewMatrix * w;
 }`;
 
