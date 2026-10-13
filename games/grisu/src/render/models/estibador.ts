@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { Rig, Dangle, type ModelDef, type Clip, type Pose } from '../anim.ts';
 import { toon, glowMat, setEmit, type Toon } from '../toon.ts';
 import { EMIT } from '../palette.ts';
-import { mesh, sphere, cyl, box, torus, lathe, limb, extrude, solid, flat, rivetsArc } from './kit.ts';
+import { mesh, sphere, cyl, box, torus, lathe, limb, extrude, solid, flat, rivetsArc, tube } from './kit.ts';
 import { Chain } from './chain.ts';
 
 export function estibador(): ModelDef {
@@ -105,13 +105,19 @@ export function estibador(): ModelDef {
   mesh(torus(0.085, 0.022, 5, 10), m.iron, anc, 0, 0, -0.24, 0, Math.PI / 2, 0);               // argolla
   mesh(flat(box(0.34, 0.05, 0.05)), m.iron, anc, 0, 0, -0.08);                                  // cepo
   const crown = new THREE.Group(); crown.position.set(0, 0, 0.88); anc.add(crown);
-  mesh(flat(box(0.22, 0.22, 0.26)), m.brass, crown, 0, 0, 0.0);                                // cabeza de martillo
-  mesh(flat(box(0.25, 0.25, 0.05)), m.iron, crown, 0, 0, 0.13);
-  mesh(flat(box(0.25, 0.25, 0.05)), m.iron, crown, 0, 0, -0.13);
-  const arms = mesh(torus(0.34, 0.04, 5, 12, Math.PI * 0.95), m.iron, crown, 0, 0, -0.26, 0, -Math.PI / 2, -Math.PI / 2 - Math.PI * 0.475);
-  void arms;
-  for (const s of [1, -1]) mesh(flat(extrude([[0, 0], [0.12, 0.1], [0.04, 0.22], [-0.05, 0.08]], 0.03)), m.iron, crown, 0, s * 0.34, -0.26 + 0.0, Math.PI / 2, s > 0 ? Math.PI : 0, s > 0 ? Math.PI : 0);
-
+  mesh(flat(box(0.2, 0.2, 0.22)), m.brass, crown, 0, 0, 0.04);                                 // cabeza de martillo
+  mesh(flat(box(0.23, 0.23, 0.05)), m.iron, crown, 0, 0, 0.165);                                // la cara que pega
+  mesh(flat(box(0.23, 0.23, 0.04)), m.iron, crown, 0, 0, -0.08);
+  // los brazos: un arco en el plano y–z (perpendicular al cepo) que nace en la corona y se curva hacia la argolla,
+  // con una uña en cada punta (antes era un toroide girado que se leía como un garabato)
+  const AR = 0.34, AA = 72 * Math.PI / 180, arm: number[][] = [];
+  for (let i = 0; i <= 12; i++) { const a = -AA + (2 * AA * i) / 12; arm.push([0, AR * Math.sin(a), -AR + AR * Math.cos(a) - 0.06]); }
+  mesh(tube(arm, 0.036, 24, 6), m.iron, crown);
+  for (const sy of [1, -1]) {
+    const tipY = sy * AR * Math.sin(AA), tipZ = -AR + AR * Math.cos(AA) - 0.06;
+    const f = mesh(flat(extrude([[0, -0.02], [0.17, 0.03], [0.15, 0.12], [0.02, 0.07]], 0.03)), m.iron, crown, 0, tipY, tipZ, 0, Math.PI / 2, 0);
+    f.scale.set(1, sy, 1);
+  }
   solid(R.root);
 
   // la cadena: de la argolla al gancho del cinturón (o a la pinza, al lanzar)
@@ -190,9 +196,11 @@ export function estibador(): ModelDef {
     ], ev: [{ t: 0.5 / 12, k: 'hurt', at: [0.1, 1.4] }] },
   };
 
+  Object.assign(clips, gameClips(base));
   const V = new THREE.Vector3();
   return {
     rig: R, base, clips, dangles: [] as Dangle[], height: 2.15, feet: ['footL', 'footR'], footY: 0.14,
+    parts: { anc, chain: chainG },
     glow: { setSchool: (c: string) => setEmit(glow as Toon, c, 1.9) },
     step(dt) {
       ring.getWorldPosition(chain.a);
@@ -207,6 +215,46 @@ export function estibador(): ModelDef {
       chain.sample();
       void V;
     },
+  };
+}
+
+// Clips del juego (F1): sin desplazamiento de la raíz (lo pone la sim). PICADA: la grúa abajo y el ancla bajo los pies
+// (la cabeza de martillo es lo que pega: el pogo); COLUMPIO: colgado de la cadena (game inclina el cuerpo hacia la liga).
+function gameClips(base: Pose): Record<string, Clip> {
+  const B = pick(base);
+  const RISE: Pose = { spine: [-0.05, 0.1, 0], legR: [0.1, 0, 0], kneeR: [0.1, 0, 0], legL: [0.25, 0, 0], kneeL: [0.25, 0, 0], footL: [0.4, 0, 0], footR: [0.4, 0, 0], armL: [-2.2, 0, 0.5] };
+  const APEX: Pose = { spine: [0.2, 0.1, 0], legR: [-1.2, 0, 0], kneeR: [1.8, 0, 0], legL: [-0.8, 0, 0], kneeL: [1.9, 0, 0], footL: [0, 0, 0], footR: [0, 0, 0], armL: [-0.8, 0, 0.9] };
+  const FALL: Pose = { spine: [0.15, 0.1, 0], legR: [-0.4, 0, 0], kneeR: [0.4, 0, 0], legL: [0, 0, 0], kneeL: [0.5, 0, 0], armL: [-1.4, 0, 1.0] };
+  const CROUCH: Pose = { spine: [0.5, 0.12, 0], legR: [-0.9, 0, 0], kneeR: [1.5, 0, 0], legL: [-0.2, 0, 0], kneeL: [1.6, 0, 0], footL: [-0.3, 0, 0], armL: [0.3, 0, 1.1], pos: [0, -0.3, 0] };
+  const DIVE: Pose = { spine: [0.15, 0.1, 0], head: [-0.25, -0.1, 0], armR: [-0.3, 0, -0.2], elbowR: [-0.2, 0, 0], handR: [2.07, 0, 0], armL: [-1.7, 0, 0.9], elbowL: [-0.4, 0, 0],
+    legR: [-1.0, 0, 0], kneeR: [1.7, 0, 0], legL: [-0.7, 0, 0], kneeL: [1.8, 0, 0], footR: [0.3, 0, 0], footL: [0.3, 0, 0] };
+  const RAISE: Pose = { spine: [-0.6, 0.55, 0], head: [-0.1, -0.35, 0], armR: [-3.1, 0, -0.2], elbowR: [-0.4, 0, 0], handR: [2.0, 0, 0], armL: [-2.7, 0, 0.1], elbowL: [-0.5, 0, 0],
+    legR: [-0.55, 0, 0], kneeR: [0.4, 0, 0], legL: [0.5, 0, 0], kneeL: [0.3, 0, 0], scl: [0.92, 1.1, 0.92] };
+  const SMASH: Pose = { spine: [0.75, -0.15, 0], head: [-0.6, 0.15, 0], armR: [-0.95, 0, -0.1], elbowR: [-0.05, 0, 0], handR: [0.7, 0, 0], armL: [-0.75, 0, 0.0], elbowL: [-0.2, 0, 0],
+    legR: [-1.0, 0, 0], kneeR: [1.1, 0, 0], legL: [0.55, 0, 0], kneeL: [0.6, 0, 0], pos: [0, -0.25, 0], scl: [1.12, 0.88, 1.12] };
+  const HANG: Pose = { spine: [-0.1, 0.0, 0], head: [-0.3, 0, 0], armR: [-3.0, 0, -0.15], elbowR: [-0.15, 0, 0], handR: [1.25, 0, 0], armL: [-0.6, 0, 0.5], elbowL: [-0.8, 0, 0],
+    legR: [-0.35, 0, 0], kneeR: [0.6, 0, 0], legL: [0.2, 0, 0], kneeL: [0.35, 0, 0], footR: [0.4, 0, 0], footL: [0.4, 0, 0] };
+  return {
+    g_rise: { len: 3 / 12, plant: false, keys: [{ t: 0, p: { ...RISE, scl: [0.88, 1.15, 0.88] } }, { t: 2 / 12, e: 'out', p: { ...RISE, scl: [1, 1, 1] } }] },
+    g_fall: { len: 4 / 12, plant: false, keys: [{ t: 0, p: { ...APEX, scl: [1, 1, 1] } }, { t: 3 / 12, e: 'io', p: FALL }] },
+    g_land: { len: 4 / 12, next: 'idle', keys: [{ t: 0, p: { ...CROUCH, scl: [1.2, 0.8, 1.2] } }, { t: 3 / 12, e: 'io', p: { ...B } }] },
+    g_slam: { len: 8 / 12, next: 'idle', keys: [{ t: 0, p: { ...CROUCH, ...DIVE, legR: [-0.9, 0, 0], kneeR: [1.5, 0, 0], legL: [-0.2, 0, 0], kneeL: [1.6, 0, 0], pos: [0, -0.35, 0], scl: [1.25, 0.78, 1.25] } },
+      { t: 3 / 12, e: 'hold', p: {} }, { t: 8 / 12, e: 'io', p: { ...B } }] },
+    g_dive: { len: 2 / 12, plant: false, keys: [{ t: 0, p: { ...DIVE, scl: [0.9, 1.15, 0.9] } }, { t: 1 / 12, e: 'snap', p: { ...DIVE, scl: [1, 1, 1] } }] },
+    g_hammer: { len: 6 / 12, plant: false, keys: [
+      { t: 0, p: {} },
+      { t: 1 / 12, e: 'out', p: RAISE },
+      { t: 2 / 12, e: 'snap', p: SMASH },
+      { t: 3 / 12, e: 'hold', p: {} },
+      { t: 6 / 12, e: 'io', p: { ...B, spine: [0.3, 0.12, 0] } },
+    ] },
+    g_swing: { len: 1.4, loop: true, plant: false, keys: [{ t: 0, p: HANG }, { t: 0.7, p: { legR: [-0.15, 0, 0], kneeR: [0.4, 0, 0], legL: [0.0, 0, 0], kneeL: [0.5, 0, 0] } }] },
+    g_hit: { len: 8 / 12, next: 'idle', keys: [
+      { t: 0, p: {} },
+      { t: 1 / 12, e: 'snap', p: { spine: [-0.3, 0.3, 0.1], head: [-0.4, 0.2, 0.15], armL: [-0.3, 0, 1.0], legL: [0.4, 0, 0], kneeL: [0.5, 0, 0], pos: [0, 0, 0], scl: [0.95, 1.04, 0.95] } },
+      { t: 3 / 12, e: 'hold', p: {} },
+      { t: 8 / 12, e: 'io', p: { ...B } },
+    ] },
   };
 }
 

@@ -4,8 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
 <meta name="theme-color" content="#0d0b12" />
-<meta name="description" content="GRISÚ: escaparate de los assets en 3D pixelado. Personajes, enemigos, la galería de la mina, efectos, retratos e íconos." />
-<title>GRISÚ · escaparate</title>
+<meta name="description" content="GRISÚ: roguelite de acción en 3D pixelado en una mina steampunk. El patio de las mecánicas (F1) y el escaparate de assets." />
+<title>GRISÚ</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect x='4' y='2' width='8' height='12' fill='%23b88e44'/%3E%3Crect x='5' y='5' width='6' height='6' fill='%233bded3'/%3E%3Crect x='3' y='13' width='10' height='2' fill='%231b1420'/%3E%3C/svg%3E">
 <style>
   :root {
@@ -96,6 +96,58 @@
     #panel { left: auto; right: calc(8px + var(--sar)); width: 300px; top: calc(56px + var(--sat)); bottom: calc(52px + var(--sab)); max-height: none; }
     #gallery .wrap { grid-template-columns: 1fr 1fr; }
   }
+
+  /* ======== EL JUEGO (F1: el patio) ======== */
+  .game #top, .game #panel, .game #tabs, .game #caption, .game #split, .game #gallery { display: none !important; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; font-family: var(--mono); }
+  #hud .tl { position: absolute; top: calc(10px + var(--sat)); left: calc(12px + var(--sal)); display: flex; flex-direction: column; gap: 6px; }
+  #hpwrap { display: flex; align-items: center; gap: 8px; }
+  #hpbar { width: min(34vw, 190px); height: 12px; padding: 2px; }
+  #hpbar i { display: block; height: 100%; background: linear-gradient(#e8d2b0, #b88e44); box-shadow: inset 0 -2px 0 #583e20; transition: width .12s steps(6); }
+  #hpbar i.low { background: linear-gradient(#ff8a6a, #c92821); box-shadow: inset 0 -2px 0 #6e1214; }
+  #hptxt { font: 800 13px var(--mono); color: var(--parch); text-shadow: 0 2px 0 var(--ink); min-width: 2.5em; }
+  #pips { display: flex; align-items: center; gap: 4px; }
+  #pips span { font: 700 9px var(--mono); letter-spacing: .2em; color: var(--parch2); text-shadow: 0 1px 0 var(--ink); margin-right: 3px; }
+  #pips i { width: 14px; height: 14px; border: 2px solid var(--ink); background: linear-gradient(to top, var(--arc) calc(var(--f) * 100%), #262531 0); box-shadow: 0 2px 0 var(--ink); }
+  #pips i.full { background: var(--arc); box-shadow: 0 2px 0 var(--ink), inset 0 2px 0 #b8fff6; }
+  #zonelbl { font: 700 9px var(--mono); letter-spacing: .18em; color: var(--parch2); text-shadow: 0 1px 0 var(--ink); }
+  #combo { position: absolute; top: calc(10px + var(--sat)); left: 50%; transform: translateX(-50%); text-align: center; color: var(--brass2); text-shadow: 0 3px 0 var(--ink), 0 0 10px rgba(27,20,32,.8); }
+  #combo b { display: block; font: 900 calc(26px + 14px * var(--k, 0)) var(--mono); line-height: 1; color: color-mix(in srgb, #f3d27e, #ff9a3c calc(var(--k, 0) * 100%)); }
+  #combo small { font: 700 9px var(--mono); letter-spacing: .2em; color: var(--parch); }
+  #msg { position: absolute; top: 28%; left: 50%; transform: translateX(-50%); font: 900 22px var(--mono); letter-spacing: .16em; color: var(--parch); text-shadow: 0 3px 0 var(--ink), 0 0 12px var(--ink); white-space: nowrap; }
+  #msg.gold { color: #fff4c8; font-size: 30px; text-shadow: 0 3px 0 var(--ink), 0 0 16px #ffb35a; }
+  #msg.red { color: #ff8a6a; }
+  #msg.dim { color: var(--parch2); font-size: 14px; }
+  #hint { position: absolute; left: 50%; bottom: calc(10px + var(--sab)); transform: translateX(-50%); font: 600 11px var(--sans); color: var(--parch2); text-shadow: 0 1px 0 var(--ink), 0 0 6px var(--ink); white-space: nowrap; transition: opacity 2s; max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis; }
+  #hint b { color: var(--brass2); font: 800 10px var(--mono); letter-spacing: .1em; }
+  #hint.fade { opacity: 0; }
+  #gbtns { position: absolute; top: calc(10px + var(--sat)); right: calc(12px + var(--sar)); display: flex; gap: 6px; pointer-events: auto; }
+  #gbtns .tb { height: 40px; padding: 0 10px; font: 800 10px var(--mono); letter-spacing: .14em; cursor: pointer; color: var(--parch); }
+  #gbtns .tb:active, #gbtns .ib:active { transform: translateY(2px); }
+  #menu { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgba(13,11,18,.6); padding: 8px max(8px, var(--sar)) 8px max(8px, var(--sal)); }
+  #menu .panel { width: min(640px, 100%); max-height: 100%; display: flex; flex-direction: column; background: rgba(27,20,32,.97); border: 2px solid var(--brassD); box-shadow: inset 0 0 0 2px var(--ink), 0 6px 0 var(--ink); }
+  #menu header { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 2px solid var(--ink); }
+  #menu header b { font: 800 13px var(--mono); letter-spacing: .16em; color: var(--brass2); }
+  #menu nav { display: flex; gap: 3px; flex: 1; overflow-x: auto; scrollbar-width: none; }
+  #menu button { border: 2px solid var(--slate2); background: var(--slate); color: var(--parch); font: 700 11px var(--mono); padding: 6px 9px; cursor: pointer; letter-spacing: .06em; }
+  #menu button[aria-selected=true], #menu .seg button[aria-pressed=true] { background: var(--brass); color: var(--ink); border-color: var(--brassD); }
+  #menu .tab { white-space: nowrap; }
+  #menu .x { width: 34px; padding: 0; }
+  #menu .body { overflow: auto; padding: 4px 12px 12px; flex: 1; overscroll-behavior: contain; font-size: 12.5px; }
+  #menu h3 { margin: 14px 0 4px; font: 700 10px var(--mono); letter-spacing: .2em; color: var(--arc); text-transform: uppercase; }
+  #menu .hint { color: var(--parch2); margin: 2px 0 6px; font-size: 11.5px; line-height: 1.45; }
+  #menu .seg { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+  #menu .seg button { flex: 1; }
+  #menu footer { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-top: 2px solid var(--ink); }
+  #menu .msg { color: var(--parch2); font-size: 11px; }
+  #menu .row { display: grid; grid-template-columns: minmax(10em, 1fr) minmax(7em, 1.2fr) 3.5em; gap: 8px; align-items: center; min-height: 30px; border-bottom: 1px dashed rgba(219,191,155,.08); }
+  #menu .row span { color: var(--parch); }
+  #menu .row output { text-align: right; color: var(--brass2); font: 700 11px var(--mono); }
+  #menu input[type=range] { width: 100%; accent-color: var(--brass); }
+  #menu input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--arc); }
+  @media (max-height: 460px) { #menu .body { font-size: 12px; } #hint { font-size: 10px; } #msg { top: 22%; } }
+  @media (max-width: 480px) { #clsbtn, #zonebtn { display: none; } }
+  @media (max-width: 560px) { #gbtns .tb { padding: 0 7px; font-size: 9px; letter-spacing: .08em; } #hpbar { width: 28vw; } #menu .row { grid-template-columns: minmax(8em, 1fr) minmax(5em, 1fr) 3em; } }
 </style>
 </head>
 <body>
@@ -109,12 +161,31 @@
     <div class="seg px" id="heights"><span>Alto</span></div>
     <button class="ib px" id="toggle" aria-label="Panel"><svg viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="2" y="3" width="12" height="2" fill="currentColor"/><rect x="2" y="7" width="12" height="2" fill="currentColor"/><rect x="2" y="11" width="12" height="2" fill="currentColor"/></svg></button>
     <button class="ib px" id="snd" aria-label="Sonido" aria-pressed="true"><svg viewBox="0 0 16 16" shape-rendering="crispEdges"><path d="M2 6h3l4-3v10l-4-3H2z" fill="currentColor"/><rect x="11" y="5" width="2" height="6" fill="currentColor"/></svg></button>
+    <a class="ib px" id="play" href="?modo=juego" aria-label="Jugar" title="Jugar (el patio de F1)" style="text-decoration:none;color:inherit;font:800 9px var(--mono);letter-spacing:.1em;width:auto;padding:0 10px">JUGAR</a>
     <button class="ib px" id="fs" aria-label="Pantalla completa"><svg viewBox="0 0 16 16" shape-rendering="crispEdges"><path d="M1 1h5v2H3v3H1zM10 1h5v5h-2V3h-3zM1 10h2v3h3v2H1zM13 10h2v5h-5v-2h3z" fill="currentColor"/></svg></button>
   </div>
 </div>
 <div id="panel" class="px"></div>
 <div id="tabs" class="px" role="tablist"></div>
 <div id="gallery" hidden><div class="wrap"></div></div>
+<div id="hud" hidden>
+  <div class="tl">
+    <div id="hpwrap"><div id="hpbar" class="px"><i></i></div><span id="hptxt"></span></div>
+    <div id="pips"></div>
+    <div id="zonelbl"></div>
+  </div>
+  <div id="combo" hidden></div>
+  <div id="msg" hidden></div>
+  <div id="hint"></div>
+  <div id="gbtns">
+    <button class="tb px" id="clsbtn" title="cambiar de clase"></button>
+    <button class="tb px" id="zonebtn" title="cambiar de zona"></button>
+    <button class="ib px" id="gsnd" aria-label="Sonido" aria-pressed="true"><svg viewBox="0 0 16 16" shape-rendering="crispEdges"><path d="M2 6h3l4-3v10l-4-3H2z" fill="currentColor"/><rect x="11" y="5" width="2" height="6" fill="currentColor"/></svg></button>
+    <button class="ib px" id="gfs" aria-label="Pantalla completa"><svg viewBox="0 0 16 16" shape-rendering="crispEdges"><path d="M1 1h5v2H3v3H1zM10 1h5v5h-2V3h-3zM1 10h2v3h3v2H1zM13 10h2v5h-5v-2h3z" fill="currentColor"/></svg></button>
+    <button class="ib px" id="gear" aria-label="Ajustes"><svg viewBox="0 0 16 16" shape-rendering="crispEdges"><path d="M7 1h2v2h2v2h2v2h2v2h-2v2h-2v2H9v2H7v-2H5v-2H3V9H1V7h2V5h2V3h2zM7 6v4h2V6z" fill="currentColor"/></svg></button>
+  </div>
+</div>
+<div id="menu" hidden></div>
 <script type="module" src="./src/main.ts"></script>
 </body>
 </html>

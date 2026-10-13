@@ -110,6 +110,7 @@ export type ModelDef = {
   glow: { setSchool?: (c: string) => void };
   step?: (dt: number, a: Actor) => void;   // física propia (la cadena del ancla)
   frame?: (a: Actor) => void;               // después de aplicar cada cuadro
+  parts?: Record<string, THREE.Object3D>;   // piezas que el juego mueve aparte (el ancla lanzada, la cadena)
 };
 
 export class Actor {
@@ -213,9 +214,10 @@ export class Actor {
   private plant() {
     const R = this.def.rig, v = new THREE.Vector3();
     R.root.updateMatrixWorld(true);
+    const ry = R.root.getWorldPosition(new THREE.Vector3()).y;   // la raíz puede colgar de un contenedor (el juego)
     let lo = Infinity;
     for (const f of this.def.feet!) { R.joints[f].getWorldPosition(v); lo = Math.min(lo, v.y - this.def.footY!); }
-    R.body.position.y -= lo - R.root.position.y;
+    R.body.position.y -= lo - ry;
   }
   // el smear activo en el cuadro actual (o null)
   smear(): Smear | null {
