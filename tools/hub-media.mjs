@@ -138,6 +138,11 @@ const GAMES = {
     url: '/games/downcastle/?solo=1&bots=3&ext=bajada&seed=3', view: [384, 720], dpr: 2, size: [432, 810], secs: 6, seed: 3, crf: 29,
     async setup(page) { await pumpFor(page, 1); await page.evaluate(() => __downcastle.auto(true)); await pumpFor(page, 4); },
   },
+  chibolazo: {
+    // CAOS en la oleada 11 con la mesa armada y el piloto dando aletazos: reacciones en cadena contra los espectros
+    url: '/games/chibolazo/', view: [384, 720], dpr: 2, size: [432, 810], secs: 6, seed: 4, crf: 29, keep: ['#cv'],
+    async setup(page) { await pumpFor(page, 1); await page.evaluate(() => __chibolazo.showcase()); await pumpFor(page, 8); },
+  },
   hyperflowgeon: {
     url: '/games/hyperflowgeon/', view: [1152, 720], size: [960, 600], secs: 4.4, seed: 1, sub: 2, // 60 Hz: 2 pasos por cuadro
     // corre, salta y se columpia de viga en viga con la liga hasta la torre (teclas como una persona)

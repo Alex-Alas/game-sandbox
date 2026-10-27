@@ -107,11 +107,11 @@
 
   @media (min-width: 700px) {
     .games { grid-template-columns: repeat(2, 1fr); }
-    .g-catapum, .g-bananazo, .g-flechazo, .g-filo, .g-downcastle { grid-column: span 2; }
+    .g-catapum, .g-bananazo, .g-flechazo, .g-filo, .g-downcastle, .g-chibolazo { grid-column: span 2; }
   }
   @media (min-width: 1080px) {
     .games { grid-template-columns: repeat(3, 1fr); }
-    .g-catapum, .g-bananazo, .g-flechazo, .g-filo { grid-column: span 3; }
+    .g-catapum, .g-bananazo, .g-flechazo, .g-filo, .g-chibolazo { grid-column: span 3; }
     .g-downcastle { grid-column: span 2; }
   }
   @media (max-width: 699px) {
@@ -137,6 +137,9 @@
     letter-spacing: .2em; color: #efe7d8; text-shadow: 0 3px 0 #000, 0 0 26px rgba(194, 42, 58, .45); padding-bottom: 6px; }
   .g-filo .logo::after { content: ""; position: absolute; left: -6%; right: -4%; top: 52%; height: 2px; transform: rotate(-6deg);
     background: linear-gradient(90deg, transparent, #ff7a6a 20%, #fff5eb 50%, #ff7a6a 80%, transparent); box-shadow: 0 0 10px rgba(255, 90, 80, .8); }
+  .g-chibolazo { --bg: #160f28; --fg: #f3ecff; --dim: #bba8e0; --acc: #ff5fa2; --acc-ink: #1a0d24; }
+  .g-chibolazo .logo { display: inline-block; font: 900 clamp(38px, 4.6vw, 60px)/1 system-ui, "Segoe UI", Roboto, sans-serif; letter-spacing: .04em; color: #fff;
+    text-shadow: 3px 3px 0 #ff5fa2, 6px 6px 0 #5a2d8a; padding-bottom: 8px; }
   .g-vortice { --bg: #070a12; --dim: #9db3c6; --acc: #ff2f5b; --acc-ink: #1a0008; }
   .g-vortice .logo { font: 900 34px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: .08em;
     background: linear-gradient(180deg, #fff, #47f3ff 60%, #2a7dff); -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -241,6 +244,24 @@
           <li><svg aria-hidden="true"><use href="#i-phone"/></svg>También en el teléfono</li>
         </ul>
         <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg>Ver</span>
+      </div>
+    </li>
+
+    <li class="game wide phone g-chibolazo">
+      <div class="media" style="background-image:url(/hub/chibolazo.webp)">
+        <div class="screen">
+          <video muted loop playsinline preload="none" poster="/hub/chibolazo.webp" aria-hidden="true"><source src="/hub/chibolazo.webm" type="video/webm" /><source src="/hub/chibolazo.mp4" type="video/mp4" /></video>
+        </div>
+      </div>
+      <div class="body">
+        <h2 class="name"><a href="./games/chibolazo/"><span class="logo">CHIBOLAZO</span></a></h2>
+        <p class="hook">Pinball contra hordas: la bola es tu arma. Armá la mesa con piezas que la prenden fuego, la congelan o la duplican, y encadená reacciones antes de que crucen la línea.</p>
+        <ul class="facts">
+          <li><svg aria-hidden="true"><use href="#i-phone"/></svg>En el teléfono, en vertical</li>
+          <li><svg aria-hidden="true"><use href="#i-star"/></svg>Roguelite de builds</li>
+          <li><svg aria-hidden="true"><use href="#i-clock"/></svg>15 oleadas y sin fin</li>
+        </ul>
+        <span class="play" aria-hidden="true"><svg><use href="#i-play"/></svg>Jugar</span>
       </div>
     </li>
 
