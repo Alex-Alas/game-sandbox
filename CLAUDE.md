@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 npm install
-npm run dev      # Vite en :5173 (hub en / ; ELYTRA en /games/elytra/ ; DOWNCASTLE en /games/downcastle/ ; VÓRTICE en /games/vortice/ ; LUCERO en /games/lucero/ ; HYPERFLOWGEON en /games/hyperflowgeon/ ; CATAPUM en /games/catapum/ ; BANANAZO en /games/bananazo/ ; FLECHAZO en /games/flechazo/ ; FILO en /games/filo/ ; GRISÚ en /games/grisu/)
+npm run dev      # Vite en :5173 (hub en / ; ELYTRA en /games/elytra/ ; DOWNCASTLE en /games/downcastle/ ; VÓRTICE en /games/vortice/ ; LUCERO en /games/lucero/ ; HYPERFLOWGEON en /games/hyperflowgeon/ ; CATAPUM en /games/catapum/ ; BANANAZO en /games/bananazo/ ; FLECHAZO en /games/flechazo/ ; FILO en /games/filo/ ; GRISÚ en /games/grisu/ ; CHIBOLAZO en /games/chibolazo/)
 npm run build    # salida en dist/
 npm test         # tests de HYPERFLOWGEON, CATAPUM, BANANAZO, FLECHAZO y GRISÚ (node --test, sin dependencias)
 npm run typecheck  # tsc sobre games/hyperflowgeon, games/catapum, games/bananazo, games/flechazo, games/filo y games/grisu (TypeScript 7)
@@ -223,3 +223,12 @@ Roguelite 2.5D de acción en 3D pixelado: una mina steampunk con magia, por piso
 - Retratos (`portraits/`): `ink.ts` y `curves.ts` copiados de FILO; `card.ts` pone fondo, halo, bloom (lienzo de brillo desenfocado), viñeta, grano y marco. Unidades 100 × 122. Íconos 24 × 24 (`icons.ts`): formas por material con sombreado automático en píxel (brillo hacia la luz, sombra y oclusión del otro lado) y contorno con selout.
 - Rendimiento medido con SwiftShader (todo por CPU, no representa un teléfono): ~150–190 ms por cuadro en 1280×720 y ~270 en 844×390 a 3×; la actualización cuesta <0,1 ms. Con GPU real el costo por píxel es mínimo (resolución interna ~640×360).
 - Verificado con Playwright global contra `npm run dev` en 1280×720, 844×390 y 390×844 táctil (en el teléfono parado el panel empieza cerrado y la cámara se corre lo que tapa el panel).
+
+### CHIBOLAZO (`games/chibolazo/`, prototipo sin calibrar)
+
+Pinball roguelite vertical para teléfono: la bola mata a los enemigos que bajan; si cruzan la línea roja o se cae la bola, −1 ❤. Entre oleadas, tienda (3 ofertas, otras ofertas, reparar) e interés de +1 cada 5 monedas. JavaScript sin dependencias, Canvas 2D; enemigos con el atlas 0x72 de DOWNCASTLE (`public/downcastle/sprites/`, CC0), lo demás dibujado en código. Sin tests a pedido del usuario: se valida jugando.
+
+- `src/data.js` (solo datos): enemigos, piezas, mejoras, máquinas (las «barajas»: CLÁSICA, HORNO, TORMENTA, MULTIBOLA, TALLER, CAOS, CRISTAL) y reacciones. `src/game.js` (sin DOM): `step(G, dt, [izq, der])` a 60 Hz con 8 subpasos; aletas como cápsulas que giran (velocidad de la superficie en el choque); eventos `{ k, … }` en `G.ev` que `main.js` vacía. `src/main.js`: dibujo, efectos, sonido, tienda y menús.
+- Diseño: la bola es la protagonista. Las piezas (8 enchufes fijos) solo actúan cuando la bola las toca: le dan elementos (fuego, hielo, rayo), disparan con sus elementos (CAÑÓN), la duplican (GEMELA), amontonan enemigos (IMÁN). Dos elementos en un enemigo reaccionan (VAPOR, PLASMA, QUIEBRE); morir ardiendo explota, morir congelado suelta esquirlas, y las cadenas van por la cola `G.q` con retraso. Prioridad del usuario: caos y sinergias antes que balance.
+- `window.__chibolazo`: `start(id)`, `auto(on)` (piloto que da aletazos), `advance(seg)`, `give(n)`, `G`.
+
