@@ -23,6 +23,24 @@
   .mach small { display: block; color: #cfc2ea; font-weight: 500; margin-top: 4px; }
   .mach i { display: block; color: #8f80b0; font-style: normal; font-size: 12px; margin-top: 6px; }
   .mach:active { transform: translateY(2px); }
+  #title { background: linear-gradient(180deg, #0d0918cc, #0d091833 40%, #0d0918dd); justify-content: flex-end; padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
+  #title .logo { font-size: clamp(46px, 14vw, 72px); transform: rotate(-4deg); margin-bottom: auto; margin-top: 12vh; animation: bob 2.4s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: rotate(-2deg) translateY(-6px); } }
+  #title .big, #title .btn { width: min(300px, 86%); flex: none; }
+  #title .row .btn { width: auto; flex: 1; }
+  .back { position: absolute; top: max(10px, env(safe-area-inset-top)); left: 10px; padding: 8px 12px; border-radius: 10px; background: #2d2150; }
+  #menu { justify-content: flex-start; padding-top: 56px; }
+  .lbl { margin: 6px 0 -4px; color: #8f80b0; font-size: 12px; letter-spacing: 2px; }
+  #chassis { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: min(520px, 100%); }
+  .chip { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 10px; border-radius: 10px; background: #1d1433; border: 2px solid #3a2d60; font-size: 12px; }
+  .chip canvas { position: static; width: 48px; height: 28px; }
+  .chip.on { border-color: #ffd84a; color: #ffd84a; }
+  #chdesc { margin: 0; color: #cfc2ea; font-weight: 500; font-size: 12px; text-align: center; min-height: 16px; }
+  #how p { max-width: 440px; margin: 0; color: #d8ccf0; font-weight: 500; }
+  #how b { color: #fff; }
+  #nextw { padding: 8px 10px; border-radius: 10px; background: #241a40; font-size: 12px; font-weight: 500; color: #d8ccf0; }
+  #nextw b { letter-spacing: .5px; }
+  .offer .fz { font-size: 10px; color: #ffd84a; }
   .hint { color: #8f80b0; font-weight: 500; text-align: center; max-width: 420px; margin: 4px 0 0; }
   .sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 64vh; overflow-y: auto; padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); background: #160f28f2; border-top: 3px solid #ff5fa2; border-radius: 18px 18px 0 0; display: flex; flex-direction: column; gap: 10px; }
   .row { display: flex; gap: 8px; }
@@ -56,15 +74,35 @@
 <canvas id="cv"></canvas>
 <button id="pausebtn" class="hidden" aria-label="Pausa">II</button>
 
-<section id="menu" class="screen">
+<section id="title" class="screen">
   <h1 class="logo">CHIBOLAZO</h1>
-  <p class="tag">Pinball contra hordas. Elige tu máquina.</p>
+  <button class="big" id="play">JUGAR</button>
+  <button class="btn" id="howbtn">CÓMO SE JUEGA</button>
+  <div class="row" style="width:min(300px,86%)"><button class="btn" id="musbtn"></button><button class="btn" id="sfxbtn"></button></div>
+</section>
+
+<section id="how" class="screen">
+  <button class="back" data-back>◀ Volver</button>
+  <h2 class="logo" style="font-size:30px">CÓMO SE JUEGA</h2>
+  <p>Tocá la <b>mitad izquierda o derecha</b> de la pantalla para mover cada aleta (en la compu: ← y →, espacio las dos). Los enemigos bajan: <b>la bola los mata</b>. Si uno cruza la línea roja o se te cae la bola, perdés un ❤.</p>
+  <p>Entre oleadas, la <b>tienda</b>: piezas que se instalan en la mesa y solo hacen algo cuando la bola las toca, y mejoras para la bola y las aletas. Los precios suben con cada oleada y cobrás interés por lo que ahorrás.</p>
+  <p><b>Tres piezas iguales se fusionan</b> en una ★ (y tres ★ en una ★★), y liberan sus enchufes.</p>
+  <p>La tienda te avisa qué trae la <b>próxima oleada</b>: cada amenaza pide un contra distinto. Preparate.</p>
+  <p>Fuego + hielo = <b>OLLA EXPRÉS</b>. Fuego + rayo = <b>CORTOCIRCUITO</b>. Hielo + rayo = <b>CRISTALAZO</b>.</p>
+</section>
+
+<section id="menu" class="screen">
+  <button class="back" data-back>◀ Volver</button>
+  <p class="lbl">CHASIS</p>
+  <div id="chassis"></div>
+  <p id="chdesc"></p>
+  <p class="lbl">MÁQUINA</p>
   <div id="machines"></div>
-  <p class="hint">Toca la mitad izquierda o derecha de la pantalla para mover cada aleta (en la compu: ← y →). Que ningún enemigo cruce la línea roja.</p>
 </section>
 
 <section id="shop" class="sheet hidden">
   <div class="head"><b id="shoptitle"></b><span class="coins" id="shopcoins"></span></div>
+  <div id="nextw"></div>
   <div id="offers"></div>
   <div class="row"><button class="btn" id="repair"></button><button class="btn" id="reroll"></button></div>
   <div id="build"></div>
@@ -81,7 +119,8 @@
 <section id="pause" class="screen end hidden">
   <h2>PAUSA</h2>
   <button class="big" id="resume">SEGUIR</button>
-  <button class="btn" id="quit">SALIR A LAS MÁQUINAS</button>
+  <div class="row" style="width:min(280px,90%)"><button class="btn" id="musbtn2"></button><button class="btn" id="sfxbtn2"></button></div>
+  <button class="btn" id="quit">SALIR AL MENÚ</button>
 </section>
 
 <section id="end" class="screen end hidden">
