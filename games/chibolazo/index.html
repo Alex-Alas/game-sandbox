@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#0d0918" />
+<title>CHIBOLAZO</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2212%22 fill=%22%23eee%22 stroke=%22%23ff5fa2%22 stroke-width=%223%22/%3E%3C/svg%3E" />
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0918; color: #f3ecff; font: 600 14px/1.3 system-ui, -apple-system, 'Segoe UI', sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+  button { font: inherit; color: inherit; cursor: pointer; border: 0; }
+  .hidden { display: none !important; }
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 20px; background: rgba(13, 9, 24, .86); overflow-y: auto; }
+  .logo { margin: 0; font: 900 44px/1 system-ui, sans-serif; letter-spacing: 2px; color: #fff; text-shadow: 3px 3px 0 #ff5fa2, 6px 6px 0 #5a2d8a; }
+  .tag { margin: 0 0 6px; color: #bba8e0; text-align: center; }
+  #machines { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; width: min(520px, 100%); }
+  .mach { text-align: left; padding: 12px; border-radius: 12px; background: #1d1433; border: 2px solid var(--c); box-shadow: 0 4px 0 #000a; }
+  .mach b { display: block; color: var(--c); font-size: 17px; letter-spacing: 1px; }
+  .mach small { display: block; color: #cfc2ea; font-weight: 500; margin-top: 4px; }
+  .mach i { display: block; color: #8f80b0; font-style: normal; font-size: 12px; margin-top: 6px; }
+  .mach:active { transform: translateY(2px); }
+  .hint { color: #8f80b0; font-weight: 500; text-align: center; max-width: 420px; margin: 4px 0 0; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 64vh; overflow-y: auto; padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); background: #160f28f2; border-top: 3px solid #ff5fa2; border-radius: 18px 18px 0 0; display: flex; flex-direction: column; gap: 10px; }
+  .row { display: flex; gap: 8px; }
+  .head { display: flex; justify-content: space-between; align-items: baseline; }
+  .head b { font-size: 18px; letter-spacing: 1px; }
+  .coins { color: #ffd84a; font-size: 18px; }
+  #offers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .offer { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 6px; border-radius: 12px; background: #241a40; border: 2px solid var(--c); text-align: center; min-height: 150px; }
+  .offer canvas { position: static; width: 40px; height: 40px; }
+  .offer .nm { color: var(--c); font-size: 13px; letter-spacing: .5px; }
+  .offer .kd { font-size: 10px; color: #8f80b0; letter-spacing: 1px; }
+  .offer .ds { font-size: 11px; font-weight: 500; color: #d8ccf0; flex: 1; }
+  .offer .pr { color: #ffd84a; }
+  .offer:disabled { opacity: .4; }
+  .offer.sold { visibility: hidden; }
+  .btn { flex: 1; padding: 10px; border-radius: 10px; background: #2d2150; }
+  .btn:disabled { opacity: .4; }
+  .big { padding: 14px; border-radius: 12px; background: #ff5fa2; color: #1a0d24; font-size: 17px; font-weight: 900; letter-spacing: 1px; box-shadow: 0 4px 0 #8a2d5a; }
+  #build { font-size: 12px; color: #bba8e0; font-weight: 500; }
+  details { font-size: 12px; color: #bba8e0; font-weight: 500; }
+  summary { cursor: pointer; color: #f3ecff; font-weight: 700; }
+  #placebar { position: fixed; left: 0; right: 0; bottom: 0; padding: 14px 14px calc(14px + env(safe-area-inset-bottom)); background: #160f28f2; border-top: 3px solid #ffd84a; display: flex; align-items: center; gap: 10px; }
+  #placebar span { flex: 1; }
+  #pausebtn { position: fixed; top: max(6px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: 34px; height: 28px; border-radius: 8px; background: #2d2150cc; font-weight: 900; z-index: 2; }
+  .end h2 { margin: 0; font: 900 32px/1.1 system-ui, sans-serif; text-align: center; }
+  .end p { margin: 0; color: #cfc2ea; text-align: center; }
+  .end .big, .end .btn { width: min(280px, 90%); flex: none; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<button id="pausebtn" class="hidden" aria-label="Pausa">II</button>
+
+<section id="menu" class="screen">
+  <h1 class="logo">CHIBOLAZO</h1>
+  <p class="tag">Pinball contra hordas. Elige tu máquina.</p>
+  <div id="machines"></div>
+  <p class="hint">Toca la mitad izquierda o derecha de la pantalla para mover cada aleta (en la compu: ← y →). Que ningún enemigo cruce la línea roja.</p>
+</section>
+
+<section id="shop" class="sheet hidden">
+  <div class="head"><b id="shoptitle"></b><span class="coins" id="shopcoins"></span></div>
+  <div id="offers"></div>
+  <div class="row"><button class="btn" id="repair"></button><button class="btn" id="reroll"></button></div>
+  <div id="build"></div>
+  <details><summary>Elementos y reacciones</summary>
+    <p>La bola agarra un elemento al tocar BRASERO (fuego), NEVERA (hielo), BOBINA (rayo) o al Zombi helado. Cada golpe se lo pega al enemigo. Dos elementos distintos en el mismo enemigo reaccionan:</p>
+    <p id="reacts"></p>
+    <p>El que muere ardiendo explota y prende a sus vecinos; el que muere congelado suelta esquirlas de hielo. La armadura solo frena a la bola: rayos, balas y explosiones la ignoran.</p>
+  </details>
+  <button class="big" id="next">SIGUIENTE OLEADA ▶</button>
+</section>
+
+<div id="placebar" class="hidden"><span>Toca un enchufe para instalar <b id="placename"></b></span><button class="btn" id="placecancel" style="flex:none">Cancelar</button></div>
+
+<section id="pause" class="screen end hidden">
+  <h2>PAUSA</h2>
+  <button class="big" id="resume">SEGUIR</button>
+  <button class="btn" id="quit">SALIR A LAS MÁQUINAS</button>
+</section>
+
+<section id="end" class="screen end hidden">
+  <h2 id="endtitle"></h2>
+  <p id="endtxt"></p>
+  <button class="big hidden" id="cont">SEGUIR (OLEADAS INFINITAS)</button>
+  <button class="big" id="again">OTRA VEZ</button>
+  <button class="btn" id="tomenu">MÁQUINAS</button>
+</section>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
