@@ -2,6 +2,7 @@
 import { W, H, TOP, LINE, BR, PR, SOCKETS, ELS, EL_COL, REACT, ENEMIES, THREATS, EVENTS, CHASSIS, PARTS, MODS, MACHINES, LAST_WAVE } from './data.js';
 import { newRun, step, nextWave, reroll, rerollCost, buy, place, repair, repairCost, sameCount, inflation, outline, topAt, FLIPPERS, flipTip, FL_R, REST, SAVE_Y } from './game.js';
 import * as M from './music.js';
+import { initFullscreen, autoFs } from './fullscreen.js';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('cv'), g = cv.getContext('2d');
@@ -14,12 +15,13 @@ const keep = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } cat
 const SET = load('chibolazo.set', { mus: true, sfx: true });
 let chId = load('chibolazo.ch', 'chata');
 
+const fsPos = () => { const b = $('fsbtn'); b.style.top = b.classList.contains('game') ? OY + 6 * S + 'px' : ''; }; // en partida va junto a la pausa
 function resize() {
   DPR = Math.min(2, devicePixelRatio || 1);
   cv.width = innerWidth * DPR; cv.height = innerHeight * DPR;
   S = Math.min(innerWidth / W, innerHeight / H);
   OX = (innerWidth - W * S) / 2; OY = (innerHeight - H * S) / 2;
-  $('pausebtn').style.top = OY + 6 * S + 'px';
+  $('pausebtn').style.top = OY + 6 * S + 'px'; fsPos();
   buildBg();
 }
 addEventListener('resize', () => resize());
@@ -531,7 +533,7 @@ function saveBest() {
   keep('chibolazo.best', best);
 }
 const SCREENS = ['title', 'how', 'menu', 'shop', 'placebar', 'pause', 'end'];
-const show = (id) => { for (const x of SCREENS) $(x).classList.toggle('hidden', x !== id); $('pausebtn').classList.toggle('hidden', id !== null); };
+const show = (id) => { for (const x of SCREENS) $(x).classList.toggle('hidden', x !== id); $('pausebtn').classList.toggle('hidden', id !== null); $('fsbtn').classList.toggle('game', id === null); fsPos(); };
 
 function applySet() {
   for (const k of ['', '2']) { $('musbtn' + k).textContent = 'MÚSICA: ' + (SET.mus ? 'SÍ' : 'NO'); $('sfxbtn' + k).textContent = 'SONIDO: ' + (SET.sfx ? 'SÍ' : 'NO'); }
@@ -572,7 +574,8 @@ $('chassis').addEventListener('click', (e) => {
   attract(true); showMenu(); // la demo de fondo muestra el chasis elegido
 });
 $('machines').addEventListener('click', (e) => { const b = e.target.closest('[data-m]'); if (b) { unlockAudio(); start(b.dataset.m); } });
-$('play').onclick = () => { unlockAudio(); showMenu(); };
+initFullscreen($('fsbtn'));
+$('play').onclick = () => { unlockAudio(); autoFs(); showMenu(); };
 $('howbtn').onclick = () => { unlockAudio(); show('how'); };
 for (const b of document.querySelectorAll('[data-back]')) b.onclick = showTitle;
 
