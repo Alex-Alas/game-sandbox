@@ -71,3 +71,24 @@ cuerda elástica bajan por las entrañas de un castillo mágico, al estilo Downw
 
 Sin red: «Jugar solo con bots» o `?solo=1`. Depuración: `__downcastle.bots(n)`, `advance(seg)`,
 `state()`, `seed(s)`, `auto(on)`. Créditos en [games/downcastle/CREDITS.md](games/downcastle/CREDITS.md).
+
+### ABISMO — `games/abismo/`
+Roguelite dentro de roguelite, survivor vertical para teléfono. Morí, elegí una reliquia permanente,
+volvé más fuerte. Matá al Guardián a los 3 min → Descenso completado → NG+ (Corrupción y bloque de
+reliquias nuevas). Arte ocultista pulp procedural en Canvas 2D (papel sepia, tinta negra, dorado);
+todo por código, sin assets externos.
+
+- **Run (interior)**: joystick flotante de una mano, armas automáticas (6: Púa del Hereje, Litania
+  de Fuego, Cadenas del Abismo, Lectura de Runas, Campana Espectral, Leviatán), 8 pasivas, críticas,
+  imán de almas, combo/FIEBRE. Al subir de nivel elegís 1 de 3 cartas (teclas 1/2/3 en compu).
+  A los 180 s aparece el **Guardián del Umbral**: te persigue, invoca horda, lanza dash y gira 3 runas
+  que queman; 3 fases y su vida se calibra con tu DPS para que la pelea dure ~25 s.
+- **Descenso (exterior)**: al morir o vencer elegís 1 de 3 reliquias permanentes (15 en total;
+  NG+ con 4 nuevas tras vencer 1 vez, NG++ con 3 tras vencer 2). Cada muerte sube la Corrupción
+  (más densa la horda, pero más botín). Cofre por Descenso completado y misiones diarias.
+- **Persistencia** localStorage `abismo.save`: reliquias, Descensos, corrupción, récords, misiones,
+  cofres, skins y ajustes. Sin cuenta, sin nube.
+- **Cámara** que sigue al peregrino con zoom de teléfono (el Abismo es un círculo de 1100 unidades),
+  arte ocultista pulp procedural y audio Web Audio sin archivos.
+
+Depuración: `__abismo.start()`, `advance(seg)`, `state()`, `sim()`, `save`, `showcase()`.

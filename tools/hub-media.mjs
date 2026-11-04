@@ -143,6 +143,11 @@ const GAMES = {
     url: '/games/chibolazo/', view: [384, 720], dpr: 2, size: [432, 810], secs: 6, seed: 4, crf: 29, keep: ['#cv'],
     async setup(page) { await pumpFor(page, 1); await page.evaluate(() => __chibolazo.showcase()); await pumpFor(page, 8); },
   },
+  abismo: {
+    // el Descenso en vertical: el peregrino dorado contra la horda de tinta, con las almas doradas a la vista
+    url: '/games/abismo/', view: [384, 720], dpr: 2, size: [432, 810], secs: 6, seed: 12, crf: 29, keep: ['#game'],
+    async setup(page) { await pumpFor(page, 1); await page.evaluate(() => __abismo.showcase()); await pumpFor(page, 6); },
+  },
   hyperflowgeon: {
     url: '/games/hyperflowgeon/', view: [1152, 720], size: [960, 600], secs: 4.4, seed: 1, sub: 2, // 60 Hz: 2 pasos por cuadro
     // corre, salta y se columpia de viga en viga con la liga hasta la torre (teclas como una persona)
