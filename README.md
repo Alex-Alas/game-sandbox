@@ -74,21 +74,25 @@ Sin red: «Jugar solo con bots» o `?solo=1`. Depuración: `__downcastle.bots(n)
 
 ### ABISMO — `games/abismo/`
 Roguelite dentro de roguelite, survivor vertical para teléfono. Morí, elegí una reliquia permanente,
-volvé más fuerte. Matá al Guardián a los 3 min → Descenso completado → NG+ (Corrupción y bloque de
-reliquias nuevas). Arte ocultista pulp procedural en Canvas 2D (papel sepia, tinta negra, dorado);
-todo por código, sin assets externos.
+volvé más fuerte. Matá al Guardián y arrancá el NG+. Arte ocultista pulp procedural en Canvas 2D
+(tinta casi negra sobre pergamino, oro para el peregrino, bermellón para lo que duele); sin assets.
 
-- **Run (interior)**: joystick flotante de una mano, armas automáticas (6: Púa del Hereje, Litania
-  de Fuego, Cadenas del Abismo, Lectura de Runas, Campana Espectral, Leviatán), 8 pasivas, críticas,
-  imán de almas, combo/FIEBRE. Al subir de nivel elegís 1 de 3 cartas (teclas 1/2/3 en compu).
-  A los 180 s aparece el **Guardián del Umbral**: te persigue, invoca horda, lanza dash y gira 3 runas
-  que queman; 3 fases y su vida se calibra con tu DPS para que la pelea dure ~25 s.
-- **Descenso (exterior)**: al morir o vencer elegís 1 de 3 reliquias permanentes (15 en total;
-  NG+ con 4 nuevas tras vencer 1 vez, NG++ con 3 tras vencer 2). Cada muerte sube la Corrupción
-  (más densa la horda, pero más botín). Cofre por Descenso completado y misiones diarias.
-- **Persistencia** localStorage `abismo.save`: reliquias, Descensos, corrupción, récords, misiones,
-  cofres, skins y ajustes. Sin cuenta, sin nube.
-- **Cámara** que sigue al peregrino con zoom de teléfono (el Abismo es un círculo de 1100 unidades),
-  arte ocultista pulp procedural y audio Web Audio sin archivos.
+- **Tres sistemas que se cruzan.** (1) **DASH**: dos cargas con i-frames; atravesar a un enemigo lo
+  **marca** y la marca sube el daño 65 % y suelta almas extra — el Bruto y el Verdugo solo se abren
+  así. (2) **ARENA DEL RELOJ**: los dashes perfectos (esquivar en el último instante) y las marcas
+  cargan arena; gastarla **DILATA el tiempo** (la tinta al 32 %, el peregrino al 88 %). (3) **El
+  Guardián**: pelea por patrones rotativos y telegrafiados (rayo que cortan los pilares, barrido en
+  cono, nova de proyectiles, invocación) y queda con el **núcleo expuesto** después de cada ataque:
+  ahí recibís el doble. Tres fases; en la última el círculo se cierra.
+- **Enemigos con respuesta propia.** Sombra (persigue), Rapaz (telegrafía y embiste), Cuspidista
+  (dispara a distancia), Espiral (explota al morir), Bruto (frente blindada) y Verdugo (escudo que
+  solo rompe la marca).
+- **Run**: 6 armas (Púa, Litania, Cadenas orbitales, Runas, Campana, Leviatán), 9 pasivas, críticas,
+  imán de almas, combo. Al subir de nivel elegís 1 de 3 cartas (teclas 1/2/3). El jefe aparece a los
+  120 s y su vida se calibra con tu DPS: la pelea dura lo mismo con cualquier build.
+- **Descenso (exterior)**: al morir o vencer elegís 1 de 3 reliquias permanentes (16; las de NG+ se
+  desbloquean venciendo). Cada muerte sube la Corrupción. Cofre por Descenso y misiones diarias.
+- **Persistencia** localStorage `abismo.save`. Sin cuenta ni nube. Cámara que sigue al peregrino,
+  hit-stop, sacudón, telegrafías y sonido procedural (el filtro global se cierra al dilatar).
 
 Depuración: `__abismo.start()`, `advance(seg)`, `state()`, `sim()`, `save`, `showcase()`.

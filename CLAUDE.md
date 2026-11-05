@@ -238,11 +238,31 @@ Pinball roguelite vertical para teléfono: la bola mata a los enemigos que bajan
 
 ### ABISMO (`games/abismo/`)
 
-Roguelite dentro de roguelite, survivor vertical para teléfono. Morí → elegí 1 de 3 reliquias permanentes → reentrás más fuerte. Matá al Guardián a los 180 s → Descenso completado → NG+ (Corrupción y bloque de reliquias nuevas). Arte ocultista pulp procedural (papel sepia, tinta negra, dorado; Canvas 2D sin assets externos), audio Web Audio procedural.
+Roguelite dentro de roguelite, survivor vertical para teléfono. Tres sistemas acoplados: **dash con
+marca** (i-frames; atravesar enemigos los marca y la marca sube el daño 65 %; el Bruto y el Verdugo
+solo se abren así), **arena del reloj** (los dashes perfectos y las marcas cargan arena; gastarla
+dilata el tiempo: la tinta va al 32 %, el peregrino al 88 %) y el **Guardián** por patrones
+(rayo que cortan los pilares, barrido en cono, nova, invocación) con ventana de **núcleo expuesto**
+que recibe el doble. Arte ocultista pulp procedural, audio Web Audio.
 
-- `src/sim.js` es pura (corre en Node): `createSim`/`step(s, input, dt)` a 60 Hz. `attachHelpers` cuelga `kthNearest`/`spawnShot` del estado para que las armas de `data.js` disparen sin importar la sim (evita el ciclo). `spawnFoe` elige del pool por tiempo (sombra/rapaz/bruto/cuspidista/espíritu/muro). `BOSS_AT = 180`; la vida del jefe sale de `estimateDps(s) * BOSS_SECS + BOSS_HP` (se calibra con tu build: la pelea dura ~25 s), tiene 3 fases con `iframe` al cruzar 66 % y 33 %, te persigue, invoca y lanza dash; mientras vive no spawnea la horda normal. Bot de prueba: huye de lo cercano, junta almas y prioriza armas; con build completa (4 armas a max) gana, con nivel 5 pierde.
-- `src/data.js`: 6 armas (púa/litania/cadenas/runas/campana/leviatán, 5 niveles), 8 pasivas, 15 reliquias (NG+ con 4 nuevas tras vencer 1 vez, NG++ con 3 tras vencer 2), 6 enemigos. MAX_WEAPONS = 4, MAX_LVL = 5.
-- `src/meta.js` (localStorage `abismo.save`): reliquias, Descensos, corrupción, récords, misiones diarias (3 por día con seed), cofres, skins y ajustes. `relicChoices(s, rng)` devuelve 3 al azar del pool desbloqueado.
-- `src/render.js`: cámara que sigue al peregrino con zoom `min(W,H)/620` y se encierra en el círculo; papel con textura cacheada, manchas de tinta fijas, sello con runas dibujadas (no texto: las fuentes del teléfono no traen glifos rúnicos), enemigos de tinta con borde hueso y el peregrino con capucha, halo y brasa. `src/audio.js`: drone + campana pentatónica por pasos con reverb de cueva.
-- `src/main.js`: flujo título → Descenso → muerte/victoria → elección de reliquia → próximo Descenso. Joystick flotante (una mano, cualquier lado), HUD con barra de HP/XP, runa del Guardián, pausa, skins, ajustes. `window.__abismo`: `start()`, `advance(seg)`, `state()`, `sim()`, `save`, `showcase()` (grabación de la portada).
-- Tests: `node --test games/abismo/tests/*.test.mjs` (balance, determinismo, serialización). La ficha de la portada y su entrada en `GAMES` de `tools/hub-media.mjs` están en el mismo PR.
+- `src/sim.js` pura (Node): `createSim`/`step(s, {x,y,slow}, dt)`, `requestDash(s, dir)`,
+  `damageFoe`, `estimateDps`. `attachHelpers` cuelga `nearest`/`kthNearest`/`shoot` del estado para
+  que las armas de `data.js` disparen sin importar la sim. Los enemigos aparecen **alrededor del
+  jugador** (210-340 u) y tienen comportamiento propio por `kind` (`walk`, `lunge`, `shoot`, `bomb`,
+  `armored`, `shield`). El jefe rota `BOSS_ROT` (no repite) y su vida es
+  `(BOSS_HP + estimateDps * BOSS_SECS) * (1 + ngp*0.35)`, así la pelea dura parecido con cualquier
+  build; `BOSS_AT = 120`.
+- `src/data.js`: 6 armas (una es aura orbital), 9 pasivas, 16 reliquias (NG+), 6 enemigos, 4 pilares
+  y las constantes del jefe/dash (`DASH`: cargas, i-frames, ventana de perfecto, dilación).
+- `src/render.js`: alto contraste tinta/pergamino; piso **cacheado** en un canvas aparte (papel,
+  manchas, velas, huesos, sello y runas dibujadas) porque redibujarlo cada cuadro costaba 30 fps en
+  un teléfono sin GPU; backdrop de catedral solo si el círculo no tapa la pantalla; viñeta y luz del
+  peregrino como sprites cacheados; telegrafías (embestida, mira, haz, cono, nova) y velo de dilación.
+  DPR limitado a 1.5.
+- `src/main.js`: joystick flotante + botón **DASH** y botón **TIEMPO** (mantener), teclado
+  WASD/flechas, ESPACIO dash, SHIFT dilatar; hit-stop y sacudón por evento. `window.__abismo`:
+  `start()`, `advance(seg, bot)`, `dash(dir)`, `input(v)` (grabación), `state()`, `sim()`, `save`,
+  `showcase()`.
+- Tests: `node --test games/abismo/tests/*.test.mjs` — cubren dash/marca, perfecto, dilación,
+  armadura del Bruto, patrones y fases del jefe, calibración por DPS, reliquias, determinismo y
+  serialización.

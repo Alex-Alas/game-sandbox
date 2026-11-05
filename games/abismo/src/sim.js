@@ -1,11 +1,18 @@
-// ABISMO — simulación pura (sin DOM). Corre a 60 Hz desde main.js y en Node (tests).
-// Jugador en el centro de un círculo (radio ARENA). Enemigos salen de la oscuridad
-// hacia el centro; si te tocan, -HP. Armas automáticas. XP = almas doradas.
-// A los BOSS_AT segundos aparece el Guardián: arena cerrada, runas que queman,
-// invocaciones. Al morir el Guardián → victoria del Descenso (NG+).
-// Eventos { k, ... } en s.ev que main.js vacía. Usan mulberry32 de acá para
-// que el azar sea determinista con la semilla.
-import { WEAPONS, PASSIVES, FOES, RELICS, ARENA, BOSS_AT, BOSS_HP, BOSS_ARMOR, BOSS_SECS, MAX_LVL, MAX_WEAPONS } from './data.js';
+// ABISMO — simulación pura (sin DOM). 60 Hz en main.js y en Node (tests).
+//
+// Tres sistemas que se cruzan:
+//  1. DASH: el peregrino tiene cargas de impulso con i-frames. Atravesar a un
+//     enemigo lo MARCA (tinta bermellón): la marca sube el daño 65 % y suelta
+//     almas extra. El Bruto y el Verdugo solo se abren por marca.
+//  2. ARENA DEL RELOJ: los dashes perfectos y las marcas cargan arena. Gastarla
+//     DILATA el tiempo: la tinta va al 32 %, vos al 88 %. Es el "ahora sí".
+//  3. EL GUARDIÁN: pelea por patrones telegrafiados (rayo que cortan los pilares,
+//     barrido en cono, nova de proyectiles, invocación) y queda con el núcleo
+//     EXPUESTO después de cada ataque: ahí se le pega el doble.
+import {
+  WEAPONS, PASSIVES, FOES, RELICS, ARENA, BOSS_AT, BOSS_HP, BOSS_ARMOR, BOSS_SECS,
+  MAX_LVL, MAX_WEAPONS, DASH, PILLARS, BOSS, FOE_UNLOCK,
+} from './data.js';
 
 export function mulberry32(a) {
   return () => {
@@ -15,341 +22,542 @@ export function mulberry32(a) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-export const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const len = Math.hypot;
 const rnd = (s) => s.rng();
+const TAU = Math.PI * 2;
 
-export const freshProfile = () => ({ // el Descenso: reliquias + NG+
-  relics: [], descents: 0, corruption: 0, bestTime: 0, kills: 0, chests: 0,
-});
+export const freshProfile = () => ({ relics: [], descents: 0, corruption: 0, bestTime: 0, kills: 0, chests: 0 });
 
-// Dificultad según el tiempo y NG+ (corrupción acumulada)
-export const diffAt = (t, ngp) => {
-  const base = 1 + t / 60 * 0.35 + (ngp || 0) * 0.5;
-  return base;
-};
-export const hpMul = (t, ngp) => 1 + t / 60 * 0.28 + (ngp || 0) * 0.4;
-export const spawnEvery = (t) => Math.max(0.55, 1.6 - t / 60 * 0.12);
-export const BASE_SPEED = 265;
+export const hpMul = (t, ngp) => 1 + t / 60 * 0.3 + (ngp || 0) * 0.35;
+export const spawnEvery = (t) => Math.max(0.4, 0.8 - t / 300);
+export const spawnCount = (t) => 1 + Math.min(6, Math.floor(t / 24));
+export const BASE_SPEED = 300;
 
-export function createSim({ seed = 1, profile = freshProfile(), runes = [], weapons = ['pua', 'litania'] } = {}) {
+export function createSim({ seed = 1, profile = freshProfile(), weapons = ['pua', 'litania'] } = {}) {
   const s = {
-    seed, rng: mulberry32(seed), t: 0, dead: false, won: false, over: false, inv: 0,
-    profile: { ...profile }, relics: [...(runes.length ? runes : profile.relics)],
-    ngp: profile.descents || 0,
-    p: { x: 0, y: 0, vx: 0, vy: 0 },
-    hp: 100, maxhp: 100, speedMul: 1, dmgMul: 1, rateMul: 1, magnet: 130,
+    seed, rng: mulberry32(seed), t: 0, dead: false, won: false,
+    profile: { ...profile }, relics: [...(profile.relics || [])], ngp: profile.descents || 0,
+    p: { x: 0, y: 0, face: -Math.PI / 2 },
+    hp: 120, maxhp: 120, speedMul: 1, dmgMul: 1, rateMul: 1, magnet: 150,
     xpMul: 1, crit: 5, armor: 0, regen: 0, bellAtStart: false, startMax: false,
-    weapons: [], passives: {}, souls: [], foes: [], shots: [], waves: [], hits: [], parts: [],
-    minion: null, spawnT: 0.8, boss: null, bossAt: false, runes: [], ev: [],
-    kills: 0, soulsGot: 0, level: 1, xp: 0, xpNeed: 5, combo: 0, comboT: 0,
-    maxCombo: 0, score: 0, fever: 0, rerolls: 2, choices: null,
-    stats: { time: 0, kills: 0 },
+    dashMax: DASH.charges, dashCharges: DASH.charges, dashRecharge: DASH.recharge,
+    dashTimer: 0, dashCd: 0, dashT: 0, dashDir: -Math.PI / 2, inv: 0,
+    sand: 0.3, dilate: false, dilateHeld: false,
+    weapons: [], passives: {}, souls: [], foes: [], shots: [], eshots: [], fields: [], waves: [], parts: [],
+    pet: null, spawnT: 0.7, boss: null, bossAt: false, arenaR: ARENA,
+    pillars: PILLARS.map((q) => ({ ...q })),
+    kills: 0, soulsGot: 0, level: 1, xp: 0, xpNeed: 4, combo: 0, comboT: 0, maxCombo: 0,
+    score: 0, choices: null, perfects: 0, dashes: 0, marks: 0, dilateTime: 0, ev: [],
   };
-  s.hp = s.maxhp = 100;
-  s.weapons = weapons.map((id) => ({ id, lvl: 1, cd: 0.5 }));
-  // reliquias del Descenso
+  s.weapons = weapons.map((id) => ({ id, lvl: 1, cd: 0.4, spin: 0 }));
   for (const r of s.relics) {
     const re = RELICS.find((x) => x.id === r);
     if (re) re.apply(s);
   }
-  if (s.bellAtStart) { // campana gratis al aparecer
-    s.weapons.push({ id: 'campana', lvl: 1, cd: 0.3 });
-  }
+  if (s.bellAtStart) s.weapons.push({ id: 'campana', lvl: 1, cd: 0.3, spin: 0 });
   if (s.startMax) for (const w of s.weapons) w.lvl = MAX_LVL;
+  s.hp = s.maxhp;
+  s.dashCharges = s.dashMax;
   attachHelpers(s);
+  for (let i = 0; i < 3; i++) spawnFoe(s);
   s.ev.push({ k: 'start' });
   return s;
 }
 
-// El jefe también es un blanco: las armas automáticas lo apuntan cuando es lo más cercano.
-function nearest(s, skip = 0) {
-  const targets = s.foes;
-  s.foes.sort((a, b) => ((a.x - s.p.x) ** 2 + (a.y - s.p.y) ** 2) - ((b.x - s.p.x) ** 2 + (b.y - s.p.y) ** 2));
-  const t = targets[skip] || null;
-  if (skip === 0 && s.boss && !s.boss.dead) {
-    const db = (s.boss.x - s.p.x) ** 2 + (s.boss.y - s.p.y) ** 2;
-    const dt = t ? (t.x - s.p.x) ** 2 + (t.y - s.p.y) ** 2 : Infinity;
-    if (db < dt) return s.boss;
-  }
-  return t;
+// ── helpers que las armas usan a través del estado ─────────────────────────
+function nearestFoe(s, k = 0) {
+  const list = s.foes.filter((f) => !f.dead);
+  if (s.boss && !s.boss.dead) list.push(s.boss);
+  list.sort((a, b) => ((a.x - s.p.x) ** 2 + (a.y - s.p.y) ** 2) - ((b.x - s.p.x) ** 2 + (b.y - s.p.y) ** 2));
+  return list[k] || null;
 }
-// helpers que las armas usan a través del estado (evita el ciclo de imports)
 export function attachHelpers(s) {
-  s.kthNearest = (k) => nearest(s, k);
-  s.spawnShot = (kind, x, y, a, speed, dmg, rate, extra = {}) => {
-    s.shots.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, dmg, life: 1.4, kind, ...extra });
+  s.nearest = () => nearestFoe(s, 0);
+  s.kthNearest = (k) => nearestFoe(s, k);
+  s.shoot = (kind, a, speed, dmg, extra = {}) => {
+    s.shots.push({
+      x: s.p.x + Math.cos(a) * 20, y: s.p.y + Math.sin(a) * 20,
+      vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+      dmg, kind, life: extra.life || 1.25, a, pierce: extra.pierce ?? 0, aoe: extra.aoe || 0, hit: new Set(),
+    });
   };
 }
 
-export function spawnFoe(s, atBoss = false) {
-  const t = s.t;
-  const pool = FOES.filter((f) =>
-    (f.id === 'sombra') ||
-    (f.id === 'rapaz' && t > 25) ||
-    (f.id === 'cuspidista' && t > 55) ||
-    (f.id === 'espiritu' && t > 90) ||
-    (f.id === 'bruto' && t > 45) ||
-    (f.id === 'muro' && t > 130));
+// ── daño ───────────────────────────────────────────────────────────────────
+export function damageFoe(s, f, dmg, opts = {}) {
+  if (!f || f.dead) return 0;
+  const crit = rnd(s) * 100 < s.crit;
+  let d = dmg * s.dmgMul * (crit ? 2 : 1);
+  let kind = crit ? 'crit' : 'hit';
+
+  if (f === s.boss) {
+    if (f.iframe > 0) return 0;
+    if (f.exposed > 0) d *= 2;
+    d *= BOSS_ARMOR;
+  } else {
+    if (f.mark > 0) {
+      d *= DASH.markBonus;
+      s.sand = Math.min(1, s.sand + 0.03);
+    }
+    if (f.kind === 'armored' && !f.mark && !opts.behind) { d *= 0.22; kind = 'clank'; }
+    if (f.kind === 'shield' && f.shield > 0 && !f.mark) { d *= 0.15; kind = 'clank'; f.shieldT = 3; }
+  }
+  d = Math.max(1, Math.round(d));
+  f.hp -= d;
+  f.hitT = 0.09;
+  if (f !== s.boss) {
+    s.combo++; s.comboT = 2.2;
+    if (s.combo > s.maxCombo) s.maxCombo = s.combo;
+  }
+  s.ev.push({ k: kind, x: f.x, y: f.y, dmg: d });
+  const n = crit ? 4 : 2;
+  for (let i = 0; i < n; i++) {
+    const a = rnd(s) * TAU;
+    s.parts.push({ x: f.x, y: f.y, vx: Math.cos(a) * 130, vy: Math.sin(a) * 130, life: 0.26 + rnd(s) * 0.2, kind: crit ? 'gold' : 'ink', r: 2 + rnd(s) * 3 });
+  }
+  if (f.hp <= 0) killFoe(s, f);
+  return d;
+}
+
+function killFoe(s, f) {
+  if (f.dead) return;
+  f.dead = true;
+  if (f === s.boss) {
+    s.won = true;
+    s.ev.push({ k: 'bosskill', x: f.x, y: f.y });
+    return;
+  }
+  s.kills++;
+  s.ev.push({ k: 'kill', x: f.x, y: f.y, id: f.id });
+  const n = f.xp + (f.mark > 0 ? 3 : 0);
+  for (let i = 0; i < n; i++) {
+    const a = rnd(s) * TAU, r = rnd(s) * 14;
+    s.souls.push({ x: f.x + Math.cos(a) * r, y: f.y + Math.sin(a) * r, vx: Math.cos(a) * 40, vy: Math.sin(a) * 40, v: 1 });
+  }
+  if (f.kind === 'bomb') {
+    s.fields.push({ x: f.x, y: f.y, r: 96, dmg: 16, t: 0.35, max: 0.35, kind: 'boom', done: false, hostile: true });
+    s.ev.push({ k: 'explode', x: f.x, y: f.y });
+  }
+}
+
+function hurt(s, amt, src) {
+  if (s.dead || s.won || s.inv > 0) return;
+  const dmg = Math.max(1, Math.round(amt - s.armor));
+  s.hp -= dmg;
+  s.inv = 0.55;
+  s.combo = 0;
+  s.ev.push({ k: 'hurt', dmg, x: src ? src.x : s.p.x, y: src ? src.y : s.p.y });
+  if (s.hp <= 0) { s.hp = 0; s.dead = true; s.ev.push({ k: 'die' }); }
+}
+
+// ── pilares: bloquean movimiento y cortan el rayo del jefe ─────────────────
+export function pillarBlocks(s, x1, y1, x2, y2) {
+  for (const q of s.pillars) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const L = dx * dx + dy * dy || 1;
+    const u = clamp(((q.x - x1) * dx + (q.y - y1) * dy) / L, 0, 1);
+    const px = x1 + dx * u, py = y1 + dy * u;
+    if (len(px - q.x, py - q.y) < q.r) return true;
+  }
+  return false;
+}
+function pushOutPillars(s, o, extra = 0) {
+  for (const q of s.pillars) {
+    const dx = o.x - q.x, dy = o.y - q.y, d = len(dx, dy) || 1;
+    if (d < q.r + extra) { o.x = q.x + (dx / d) * (q.r + extra); o.y = q.y + (dy / d) * (q.r + extra); }
+  }
+}
+
+// ── enemigos ───────────────────────────────────────────────────────────────
+export function spawnFoe(s, at = null) {
+  const pool = FOES.filter((f) => f.id === 'sombra' || (FOE_UNLOCK[f.id] !== undefined && s.t >= FOE_UNLOCK[f.id]));
   const d = pool[Math.floor(rnd(s) * pool.length)];
-  // la horda entra por el borde del círculo, hacia el centro
-  const a = rnd(s) * Math.PI * 2;
-  const r = ARENA + 30 + rnd(s) * 60;
-  const hp = Math.round(d.hp * hpMul(t, s.ngp));
+  const a = rnd(s) * TAU;
+  const hp = Math.round(d.hp * hpMul(s.t, s.ngp));
+  // aparecen alrededor del jugador (fuera de cuadro) para que la acción nunca quede lejos
+  const r = 210 + rnd(s) * 130;
+  let fx = at ? at.x : s.p.x + Math.cos(a) * r;
+  let fy = at ? at.y : s.p.y + Math.sin(a) * r;
+  const dd = len(fx, fy);
+  if (dd > s.arenaR - 30) { const k = (s.arenaR - 30) / dd; fx *= k; fy *= k; }
   s.foes.push({
-    id: d.id, name: d.name, x: Math.cos(a) * r, y: Math.sin(a) * r,
-    hp, maxhp: hp, speed: d.speed * (1 + t / 300), dmg: d.dmg, xp: d.xp,
-    r: d.r, kind: d.kind, t: 0, hitT: 0, shootT: 2 + rnd(s) * 2,
+    id: d.id, kind: d.kind, x: fx, y: fy,
+    hp, maxhp: hp, speed: d.speed * (1 + s.t / 420), dmg: d.dmg, xp: d.xp, r: d.r,
+    st: 'walk', tm: 0, hitT: 0, mark: 0, shield: d.kind === 'shield' ? 160 : 0, shieldT: 0,
+    vx: 0, vy: 0, face: 0, t: 0,
   });
 }
 
-// DPS teórico del build actual: el jefe se calibra con esto para que la pelea
-// dure siempre parecido sin importar cuán rota salga la run.
+function stepFoes(s, dt) {
+  const p = s.p;
+  for (const f of s.foes) {
+    if (f.dead) continue;
+    f.t += dt;
+    f.hitT = Math.max(0, f.hitT - dt);
+    f.mark = Math.max(0, f.mark - dt);
+    f.shieldT = Math.max(0, f.shieldT - dt);
+    const dx = p.x - f.x, dy = p.y - f.y, d = len(dx, dy) || 1;
+    const ux = dx / d, uy = dy / d;
+    f.face = Math.atan2(dy, dx);
+    let vx = 0, vy = 0;
+
+    if (f.kind === 'lunge') {
+      f.tm -= dt;
+      if (f.st === 'walk') {
+        vx = ux * f.speed; vy = uy * f.speed;
+        if (d < 280) { f.st = 'warn'; f.tm = 0.5; }
+      } else if (f.st === 'warn') {
+        if (f.tm <= 0) { f.st = 'lunge'; f.tm = 0.24; f.vx = ux * 760; f.vy = uy * 760; }
+      } else if (f.st === 'lunge') {
+        vx = f.vx; vy = f.vy;
+        if (f.tm <= 0) { f.st = 'rest'; f.tm = 0.65; }
+      } else if (f.st === 'rest' && f.tm <= 0) f.st = 'walk';
+    } else if (f.kind === 'shoot') {
+      f.tm -= dt;
+      if (f.st === 'walk') {
+        if (d > 300) { vx = ux * f.speed; vy = uy * f.speed; }
+        else if (d < 210) { vx = -ux * f.speed; vy = -uy * f.speed; }
+        if (f.tm <= 0 && d < 460) { f.st = 'aim'; f.tm = 0.55; s.ev.push({ k: 'aim', x: f.x, y: f.y, a: f.face }); }
+      } else if (f.st === 'aim' && f.tm <= 0) {
+        f.st = 'walk'; f.tm = 2.1;
+        s.eshots.push({ x: f.x, y: f.y, vx: ux * 300, vy: uy * 300, dmg: f.dmg, life: 2.2 });
+        s.ev.push({ k: 'spit', x: f.x, y: f.y });
+      }
+    } else {
+      vx = ux * f.speed; vy = uy * f.speed;
+    }
+
+    f.x += vx * dt; f.y += vy * dt;
+    pushOutPillars(s, f, f.r * 0.6);
+    const dc = len(f.x, f.y);
+    if (dc > s.arenaR - f.r * 0.4 && f.st !== 'lunge') { const k = (s.arenaR - f.r * 0.4) / dc; f.x *= k; f.y *= k; }
+    if (d < f.r + 22) hurt(s, f.dmg, f);
+  }
+  s.foes = s.foes.filter((f) => !f.dead);
+}
+
+// ── jefe ───────────────────────────────────────────────────────────────────
 export function estimateDps(s) {
   let dps = 0;
   for (const w of s.weapons) {
     const wb = WEAPONS.find((x) => x.id === w.id);
     if (!wb) continue;
     const d = { ...wb.base, ...(wb.lv[Math.min(w.lvl - 1, wb.lv.length - 1)] || {}) };
-    dps += (d.dmg * (d.count || 1)) / d.rate;
+    dps += ((d.dmg || 0) * (d.count || 1)) / d.rate;
   }
   return dps * s.dmgMul * s.rateMul * (1 + s.crit / 100);
 }
 
 function spawnBoss(s) {
-  const effective = Math.round(BOSS_HP + estimateDps(s) * BOSS_SECS);
-  const hp = Math.round((effective / BOSS_ARMOR) * (1 + s.ngp * 0.35));
-  s.boss = { x: 0, y: -ARENA * 0.45, hp, maxhp: hp, phase: 1, t: 0, summonT: 4, dashT: 0, iframe: 0, dead: false };
+  const hp = Math.round(((BOSS_HP + estimateDps(s) * BOSS_SECS) * (1 + s.ngp * 0.35)) / BOSS_ARMOR);
+  s.boss = {
+    x: 0, y: -s.arenaR * 0.55, hp, maxhp: hp, r: BOSS.r,
+    st: 'idle', tm: 1.4, phase: 1, iframe: 0, exposed: 0, t: 0, face: 0, rot: 0,
+    warnA: 0, warnArc: 0, dead: false,
+  };
   s.bossAt = true;
   s.ev.push({ k: 'boss', hp });
 }
 
-function hurt(s, amt) {
-  if (s.dead || s.won || s.inv > 0) return;
-  const dmg = Math.max(1, Math.round(amt - s.armor));
-  s.hp -= dmg;
-  s.inv = 0.45; // invulnerabilidad breve (el toque no te derrite)
-  s.ev.push({ k: 'hurt', dmg });
-  if (s.hp <= 0) {
-    s.hp = 0; s.dead = true; s.over = true;
-    s.ev.push({ k: 'die' });
-  }
-}
+const BOSS_ROT = ['gaze', 'sweep', 'nova', 'summon'];
 
-// daño a un enemigo (con crítico y combo)
-export function damageFoe(s, f, dmg) {
-  if (!f || f.hp <= 0) return;
-  const crit = rnd(s) * 100 < s.crit;
-  const d = Math.round(dmg * s.dmgMul * (crit ? 2 : 1));
-  if (f === s.boss) { // el jefe amortigua el daño y no da almas ni combo
-    if (f.iframe > 0) return;
-    const bd = Math.round(d * BOSS_ARMOR);
-    f.hp -= bd;
-    if (crit) s.ev.push({ k: 'crit', x: f.x, y: f.y, dmg: bd });
-    if (f.hp <= 0) { f.dead = true; s.won = true; s.over = true; s.ev.push({ k: 'bosskill', x: f.x, y: f.y }); }
-    return;
+function stepBoss(s, dt) {
+  const b = s.boss, p = s.p;
+  if (!b || b.dead) return;
+  b.t += dt;
+  b.iframe = Math.max(0, b.iframe - dt);
+  b.exposed = Math.max(0, b.exposed - dt);
+  b.tm -= dt;
+  const dx = p.x - b.x, dy = p.y - b.y, d = len(dx, dy) || 1;
+  const ux = dx / d, uy = dy / d;
+  b.face = Math.atan2(dy, dx);
+
+  if (b.phase === 3 && Math.floor(b.t / BOSS.shrink) !== Math.floor((b.t - dt) / BOSS.shrink)) {
+    s.arenaR = Math.max(ARENA * 0.45, s.arenaR - 42);
+    s.ev.push({ k: 'shrink', r: s.arenaR });
   }
-  f.hp -= d;
-  f.hitT = 0.1;
-  s.combo = Math.min(999, s.combo + 1); s.comboT = 2.5;
-  s.maxCombo = Math.max(s.maxCombo, s.combo);
-  if (crit) s.ev.push({ k: 'crit', x: f.x, y: f.y, dmg: d });
-  else s.parts.push({ x: f.x, y: f.y, vx: (rnd(s) - 0.5) * 60, vy: (rnd(s) - 0.5) * 60, life: 0.3, kind: 'ink' });
-  if (f.hp <= 0 && !f.dead) {
-    f.dead = true; s.kills++; s.stats.kills++;
-    s.ev.push({ k: 'kill', x: f.x, y: f.y, id: f.id, xp: f.xp });
-    // almas doradas
-    for (let i = 0; i < f.xp; i++) {
-      s.souls.push({ x: f.x + (rnd(s) - 0.5) * 20, y: f.y + (rnd(s) - 0.5) * 20, vx: (rnd(s) - 0.5) * 40, vy: (rnd(s) - 0.5) * 40, v: 1 });
+
+  if (b.st === 'idle') {
+    if (d > b.r * 1.55) { b.x += ux * 70 * dt; b.y += uy * 70 * dt; }
+    if (b.tm <= 0) {
+      b.st = BOSS_ROT[b.rot++ % BOSS_ROT.length]; // rotación fija: se ven todos los patrones
+      b.tm = b.st === 'gaze' ? BOSS.gaze.warn : b.st === 'sweep' ? BOSS.sweep.warn : b.st === 'nova' ? BOSS.nova.warn : 0.5;
+      if (b.st === 'sweep') { b.warnA = Math.atan2(dy, dx); b.warnArc = BOSS.sweep.arc; }
+      s.ev.push({ k: 'boss_warn', atk: b.st });
     }
+  } else if (b.st === 'gaze') {
+    if (b.tm <= 0) {
+      if (!pillarBlocks(s, b.x, b.y, p.x, p.y)) {
+        const proj = (p.x - b.x) * ux + (p.y - b.y) * uy;
+        const perp = Math.abs((p.x - b.x) * -uy + (p.y - b.y) * ux);
+        if (proj > 0 && perp < BOSS.gaze.width) hurt(s, BOSS.gaze.dmg * dt * 4.2, b);
+      }
+      if (b.tm < -BOSS.gaze.hit) { b.st = 'exposed'; b.tm = BOSS.exposed; b.exposed = BOSS.exposed; s.ev.push({ k: 'boss_exposed' }); }
+    }
+  } else if (b.st === 'sweep') {
+    if (b.tm <= 0) {
+      const da = Math.atan2(p.y - b.y, p.x - b.x);
+      const diff = Math.abs((((da - b.warnA + Math.PI * 3) % TAU) - Math.PI));
+      if (diff < b.warnArc && d < BOSS.sweep.radius) hurt(s, BOSS.sweep.dmg, b);
+      if (b.tm < -BOSS.sweep.hit) { b.st = 'exposed'; b.tm = BOSS.exposed; b.exposed = BOSS.exposed; s.ev.push({ k: 'boss_exposed' }); }
+    }
+  } else if (b.st === 'nova') {
+    if (b.tm <= 0) {
+      for (let i = 0; i < BOSS.nova.count; i++) {
+        const a = (i / BOSS.nova.count) * TAU + 0.2;
+        s.eshots.push({ x: b.x, y: b.y, vx: Math.cos(a) * BOSS.nova.speed, vy: Math.sin(a) * BOSS.nova.speed, dmg: BOSS.nova.dmg, life: 2.4 });
+      }
+      s.ev.push({ k: 'nova', x: b.x, y: b.y });
+      b.st = 'exposed'; b.tm = BOSS.exposed; b.exposed = BOSS.exposed; s.ev.push({ k: 'boss_exposed' });
+    }
+  } else if (b.st === 'summon') {
+    if (b.tm <= 0) {
+      const n = 1 + b.phase;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU + b.t * 0.5;
+        spawnFoe(s, { x: b.x + Math.cos(a) * 96, y: b.y + Math.sin(a) * 96 });
+      }
+      s.ev.push({ k: 'summon' });
+      b.st = 'exposed'; b.tm = BOSS.exposed * 0.8; b.exposed = BOSS.exposed * 0.8; s.ev.push({ k: 'boss_exposed' });
+    }
+  } else if (b.st === 'exposed' && b.tm <= 0) {
+    b.st = 'idle'; b.tm = 0.9 + rnd(s) * 0.5;
   }
+
+  if (b.phase === 1 && b.hp < b.maxhp * BOSS.phase2) { b.phase = 2; b.iframe = 1.1; b.st = 'idle'; b.tm = 0.8; s.ev.push({ k: 'bossphase', phase: 2 }); }
+  if (b.phase === 2 && b.hp < b.maxhp * BOSS.phase3) { b.phase = 3; b.iframe = 1.1; b.st = 'idle'; b.tm = 0.8; s.ev.push({ k: 'bossphase', phase: 3 }); }
+
+  if (d < b.r * 0.7) hurt(s, 8, b);
 }
 
-export function step(s, input = { x: 0, y: 0 }, dt = 1 / 60) {
-  if (s.dead || s.won) return;
-  s.t += dt; s.stats.time = s.t;
-  s.inv = Math.max(0, (s.inv || 0) - dt);
-  s.comboT = Math.max(0, s.comboT - dt);
-  if (s.comboT <= 0) s.combo = 0;
+// ── jugador ────────────────────────────────────────────────────────────────
+export function requestDash(s, dir) {
+  if (s.dead || s.won || s.dashT > 0 || s.dashCd > 0 || s.dashCharges <= 0) return false;
+  s.dashT = DASH.time;
+  s.dashDir = dir;
+  s.inv = Math.max(s.inv, DASH.iframes);
+  s.dashes++;
+  if (threatened(s)) { // dash perfecto: arena + dilación
+    s.sand = Math.min(1, s.sand + 0.34);
+    s.perfects++;
+    s.dilate = true;
+    s.ev.push({ k: 'perfect', x: s.p.x, y: s.p.y });
+  } else {
+    s.dashCharges--;
+    s.dashTimer = 0;
+  }
+  s.ev.push({ k: 'dash', x: s.p.x, y: s.p.y, a: dir });
+  return true;
+}
 
-  // ── jugador (rayo del joystick) ──
+function threatened(s) {
   const p = s.p;
-  const ix = input.x, iy = input.y;
-  const mag = Math.hypot(ix, iy);
-  if (mag > 0.15) {
-    const sp = BASE_SPEED * s.speedMul;
-    p.x += (ix / (mag || 1)) * sp * Math.min(1, mag) * dt;
-    p.y += (iy / (mag || 1)) * sp * Math.min(1, mag) * dt;
+  for (const f of s.foes) {
+    if (f.dead) continue;
+    // "a punto de pegar": casi encima, o embistiendo con el aviso ya terminado
+    if (len(f.x - p.x, f.y - p.y) < f.r + 30) return true;
+    if (f.kind === 'lunge' && (f.st === 'warn' || f.st === 'lunge') && len(f.x - p.x, f.y - p.y) < 210) return true;
   }
-  // el círculo es el mundo
-  const dp = Math.hypot(p.x, p.y);
-  if (dp > ARENA - 16) { p.x *= (ARENA - 16) / dp; p.y *= (ARENA - 16) / dp; }
-  if (s.regen > 0) s.hp = Math.min(s.maxhp, s.hp + s.regen * dt);
-  s.fever = Math.max(0, s.fever - dt);
+  for (const e of s.eshots) if (len(e.x - p.x, e.y - p.y) < 58) return true;
+  const b = s.boss;
+  if (b && !b.dead && (b.st === 'gaze' || b.st === 'sweep' || b.st === 'nova') && b.tm < 0.2) return true;
+  return false;
+}
 
-  // ── spawns ──
-  s.spawnT -= dt;
-  if (s.spawnT <= 0) {
-    s.spawnT = spawnEvery(s.t) * (0.8 + rnd(s) * 0.4);
-    // con el Guardián en la arena la horda se frena: el jefe invoca lo suyo
-    if (!(s.bossAt && s.boss && !s.boss.dead)) {
-      spawnFoe(s);
-      if (s.t > 100) spawnFoe(s);
+function stepPlayer(s, input, dt) {
+  const p = s.p;
+  const ix = input.x || 0, iy = input.y || 0;
+  const mag = len(ix, iy);
+  if (mag > 0.15) p.face = Math.atan2(iy, ix);
+
+  if (s.dashT > 0) {
+    s.dashT -= dt;
+    p.x += Math.cos(s.dashDir) * DASH.speed * dt;
+    p.y += Math.sin(s.dashDir) * DASH.speed * dt;
+    for (const f of s.foes) {
+      if (f.dead || f.mark > 0) continue;
+      if (len(f.x - p.x, f.y - p.y) < f.r + 34) {
+        f.mark = DASH.markTime; s.marks++;
+        s.sand = Math.min(1, s.sand + 0.06);
+        s.ev.push({ k: 'mark', x: f.x, y: f.y });
+      }
     }
+    if (s.boss && !s.boss.dead && len(s.boss.x - p.x, s.boss.y - p.y) < s.boss.r + 24) {
+      s.boss.exposed = Math.max(s.boss.exposed, 0.4);
+    }
+    s.parts.push({ x: p.x, y: p.y, vx: 0, vy: 0, life: 0.26, kind: 'gold', r: 6 });
+    if (s.dashT <= 0) s.dashCd = 0.12;
+  } else {
+    if (s.dashCd > 0) s.dashCd -= dt;
+    if (mag > 0.15) {
+      const sp = BASE_SPEED * s.speedMul;
+      p.x += (ix / mag) * sp * Math.min(1, mag) * dt;
+      p.y += (iy / mag) * sp * Math.min(1, mag) * dt;
+    }
+  }
+
+  s.dashTimer += dt;
+  if (s.dashCharges < s.dashMax && s.dashTimer > s.dashRecharge) {
+    s.dashTimer = 0;
+    s.dashCharges++;
+    s.ev.push({ k: 'charge' });
+  }
+
+  pushOutPillars(s, p, 16);
+  const dc = len(p.x, p.y);
+  if (dc > s.arenaR - 18) { const k = (s.arenaR - 18) / dc; p.x *= k; p.y *= k; }
+
+  if (s.regen > 0) s.hp = Math.min(s.maxhp, s.hp + s.regen * dt);
+  s.inv = Math.max(0, s.inv - dt);
+  s.comboT -= dt;
+  if (s.comboT <= 0 && s.combo > 0) s.combo = 0;
+}
+
+// ── step principal ─────────────────────────────────────────────────────────
+export function step(s, input = {}, dt = 1 / 60) {
+  if (s.dead || s.won) return s;
+
+  // ARENA DEL RELOJ: gastar arena dilata todo lo que no sea el peregrino
+  s.dilateHeld = !!input.slow;
+  const wantSlow = s.dilateHeld && s.sand > 0.02;
+  if (wantSlow !== s.dilate) s.ev.push({ k: wantSlow ? 'dilate_on' : 'dilate_off' });
+  s.dilate = wantSlow;
+  if (s.dilate) {
+    s.sand = Math.max(0, s.sand - dt * 0.34);
+    s.dilateTime += dt;
+    if (s.sand <= 0) { s.dilate = false; s.ev.push({ k: 'dilate_off' }); }
+  } else {
+    s.sand = Math.min(1, s.sand + dt * 0.01);
+  }
+  const wdt = dt * (s.dilate ? 0.32 : 1);
+  const pdt = dt * (s.dilate ? 0.88 : 1);
+
+  s.t += dt;
+  stepPlayer(s, input, pdt);
+
+  s.spawnT -= wdt;
+  if (s.spawnT <= 0) {
+    if (!(s.boss && !s.boss.dead)) {
+      s.spawnT = spawnEvery(s.t) * (0.8 + rnd(s) * 0.4);
+      const n = spawnCount(s.t);
+      for (let i = 0; i < n; i++) spawnFoe(s);
+    } else s.spawnT = 1;
   }
   if (!s.bossAt && s.t >= BOSS_AT) spawnBoss(s);
 
-  // ── jefe: runas que queman + invocaciones + dash ──
-  if (s.boss && !s.boss.dead) {
-    const b = s.boss; b.t += dt;
-    if (b.iframe > 0) b.iframe = Math.max(0, b.iframe - dt);
-    // el Guardián te persigue despacio: su cuerpo quema, no se puede quedar pegado
-    const bdx = p.x - b.x, bdy = p.y - b.y, bdd = Math.hypot(bdx, bdy) || 1;
-    b.x += (bdx / bdd) * 58 * dt; b.y += (bdy / bdd) * 58 * dt;
-    b.summonT -= dt;
-    if (b.summonT <= 0) { b.summonT = Math.max(3.6, 7 - b.phase); for (let i = 0; i < 1 + b.phase; i++) spawnFoe(s, true); s.ev.push({ k: 'summon' }); }
-    b.dashT -= dt;
-    if (b.dashT <= 0) {
-      b.dashT = Math.max(3.4, 7 - b.phase);
-      const a = Math.atan2(p.y - b.y, p.x - b.x);
-      s.shots.push({ x: b.x, y: b.y, vx: Math.cos(a) * 300, vy: Math.sin(a) * 300, dmg: 12 * (1 + s.ngp * 0.3), life: 2.5, kind: 'dash', foe: false });
-      s.ev.push({ k: 'bossdash' });
-    }
-    // runas giratorias (la zona quema si te quedás); más rápidas en cada fase
-    s.runes = [];
-    const ra = b.t * (0.4 + 0.12 * b.phase);
-    for (let i = 0; i < 3; i++) {
-      const ang = ra + i * 2.094;
-      s.runes.push({ x: Math.cos(ang) * 300, y: Math.sin(ang) * 300, r: 55 });
-      const rx = Math.cos(ang) * 300, ry = Math.sin(ang) * 300;
-      if (Math.hypot(p.x - rx, p.y - ry) < 55) hurt(s, 5);
-    }
-    // tres fases: al cruzar 66 % y 33 % el Guardián se encierra un instante y se enfurece
-    if (b.phase === 1 && b.hp < b.maxhp * 0.66) { b.phase = 2; b.iframe = 1.2; s.ev.push({ k: 'bossphase', phase: 2 }); }
-    if (b.phase === 2 && b.hp < b.maxhp * 0.33) { b.phase = 3; b.iframe = 1.2; s.ev.push({ k: 'bossphase', phase: 3 }); }
-  }
+  stepFoes(s, wdt);
+  stepBoss(s, wdt);
 
-  // ── enemigos ──
-  for (const f of s.foes) {
-    if (f.dead) continue;
-    f.t += dt; f.hitT = Math.max(0, f.hitT - dt);
-    const dx = p.x - f.x, dy = p.y - f.y, d = Math.hypot(dx, dy) || 1;
-    let vx = (dx / d) * f.speed, vy = (dy / d) * f.speed;
-    if (f.kind === 'shoot') {
-      f.shootT -= dt;
-      if (f.shootT <= 0) {
-        f.shootT = 3;
-        s.shots.push({ x: f.x, y: f.y, vx: (dx / d) * 180, vy: (dy / d) * 180, dmg: f.dmg, life: 2, kind: 'spit', foe: true });
-      }
-    }
-    if (f.kind === 'dash' && f.t % 3 < 0.5 && d < 400) { vx *= 2.4; vy *= 2.4; }
-    f.x += vx * dt; f.y += vy * dt;
-    if (d < f.r + 14) hurt(s, f.dmg);
-  }
-  s.foes = s.foes.filter((f) => !f.dead);
-
-  // ── armas automáticas ──
+  // armas
   for (const w of s.weapons) {
-    w.cd -= dt;
-    if (w.cd > 0) continue;
     const wb = WEAPONS.find((x) => x.id === w.id);
+    if (!wb) continue;
     const d = { ...wb.base, ...(wb.lv[Math.min(w.lvl - 1, wb.lv.length - 1)] || {}) };
-    const rate = d.rate * (1 / s.rateMul);
-    wb.fire(s, { ...d, rate }, s.rng);
-    w.cd = rate;
-  }
-  // minion (Leviatán): muerde al más cercano cada 0,4 s (también al jefe)
-  if (s.minion && s.minion.life > 0) {
-    s.minion.life -= dt; s.minion.t -= dt;
-    let t = nearest(s);
-    if (s.boss && !s.boss.dead && (!t || Math.hypot(s.boss.x - s.minion.x, s.boss.y - s.minion.y) < Math.hypot(t.x - s.minion.x, t.y - s.minion.y))) t = s.boss;
-    if (t && t !== s.boss) {
-      s.minion.x += (t.x - s.minion.x) * 8 * dt; s.minion.y += (t.y - s.minion.y) * 8 * dt;
-      if (s.minion.t <= 0 && Math.hypot(t.x - s.minion.x, t.y - s.minion.y) < 34) {
-        s.minion.t = 0.4; damageFoe(s, t, (s.minion.dmg || 14) * s.dmgMul);
+    const rate = d.rate / s.rateMul;
+    w.cd -= wdt;
+    w.spin = (w.spin || 0) + wdt * 6;
+    if (w.cd > 0) continue;
+    if (wb.aura) {
+      w.cd = rate;
+      const R = d.radius;
+      for (const f of s.foes) {
+        const dd = len(f.x - s.p.x, f.y - s.p.y);
+        if (dd < R + f.r && dd > R - 34) damageFoe(s, f, d.dmg);
       }
-    } else if (s.boss) {
-      s.minion.x += (s.boss.x - s.minion.x) * 8 * dt; s.minion.y += (s.boss.y - s.minion.y) * 8 * dt;
-      if (s.minion.t <= 0 && Math.hypot(s.boss.x - s.minion.x, s.boss.y - s.minion.y) < 70) {
-        s.minion.t = 0.4;
-        s.boss.hp -= Math.round((s.minion.dmg || 14) * s.dmgMul);
-        if (s.boss.hp <= 0) { s.boss.dead = true; s.won = true; s.over = true; s.ev.push({ k: 'bosskill', x: s.boss.x, y: s.boss.y }); }
+      if (s.boss && !s.boss.dead && len(s.boss.x - s.p.x, s.boss.y - s.p.y) < R + s.boss.r) damageFoe(s, s.boss, d.dmg * 0.6);
+      s.waves.push({ x: s.p.x, y: s.p.y, r: R - 18, max: R + 14, dmg: 0, life: 0.22, maxLife: 0.22, chain: true });
+    } else {
+      wb.fire(s, d);
+      w.cd = rate;
+    }
+  }
+
+  // mascota
+  if (s.pet && s.pet.life > 0) {
+    s.pet.life -= wdt; s.pet.t -= wdt;
+    const t = s.nearest();
+    if (t) {
+      const k = 10 * wdt;
+      s.pet.x += (t.x - s.pet.x) * k; s.pet.y += (t.y - s.pet.y) * k;
+      if (s.pet.t <= 0 && len(t.x - s.pet.x, t.y - s.pet.y) < t.r + 26) {
+        s.pet.t = 0.32;
+        for (let i = 0; i < (s.pet.bites || 1); i++) damageFoe(s, t, s.pet.dmg);
       }
     }
   }
 
-  // ── disparos ──
+  // disparos del jugador
   for (const sh of s.shots) {
-    sh.life -= dt;
-    sh.x += sh.vx * dt; sh.y += sh.vy * dt;
-    if (sh.foe) { // del enemigo: pega al jugador
-      if (Math.hypot(sh.x - p.x, sh.y - p.y) < 16) { sh.life = 0; hurt(s, sh.dmg); }
-      continue;
-    }
-    if (sh.kind === 'dash') { if (Math.hypot(sh.x - p.x, sh.y - p.y) < 26) { sh.life = 0; hurt(s, sh.dmg); } continue; }
-    if (sh.pierce) sh.pierce--;
+    sh.life -= wdt;
+    sh.x += sh.vx * wdt; sh.y += sh.vy * wdt;
+    if (sh.life <= 0) continue;
     for (const f of s.foes) {
-      if (f.dead) continue;
-      if (Math.hypot(f.x - sh.x, f.y - sh.y) < f.r + 10) {
+      if (f.dead || sh.hit.has(f)) continue;
+      if (len(f.x - sh.x, f.y - sh.y) < f.r + 8) {
+        sh.hit.add(f);
         damageFoe(s, f, sh.dmg);
-        if (sh.aoe) for (const g of s.foes) if (g !== f && Math.hypot(g.x - f.x, g.y - f.y) < sh.aoe) damageFoe(s, g, sh.dmg * 0.5);
-        if (sh.pierce === undefined || sh.pierce < 0) { sh.life = 0; break; }
+        if (sh.aoe) for (const g of s.foes) if (!g.dead && g !== f && len(g.x - f.x, g.y - f.y) < sh.aoe) damageFoe(s, g, sh.dmg * 0.6);
+        if (sh.pierce-- <= 0) { sh.life = 0; break; }
       }
     }
-    if (sh.life > 0 && s.boss && !s.boss.dead) {
-      const b = s.boss;
-      if (Math.hypot(b.x - sh.x, b.y - sh.y) < 46) {
-        damageFoe(s, b, sh.dmg);
-        sh.life = 0;
-      }
+    if (sh.life > 0 && s.boss && !s.boss.dead && !sh.hit.has(s.boss) && len(s.boss.x - sh.x, s.boss.y - sh.y) < s.boss.r) {
+      sh.hit.add(s.boss); damageFoe(s, s.boss, sh.dmg); sh.life = 0;
     }
   }
   s.shots = s.shots.filter((sh) => sh.life > 0);
 
-  // ── ondas, hits y runas del jugador ──
-  for (const wv of s.waves) {
-    wv.r += 520 * dt; wv.life -= dt;
-    for (const f of s.foes) {
-      if (f.dead || f._w === wv) continue;
-      if (Math.hypot(f.x - wv.x, f.y - wv.y) < wv.r + f.r && Math.hypot(f.x - wv.x, f.y - wv.y) > wv.r - 40) {
-        f._w = wv; damageFoe(s, f, wv.dmg);
-        const a = Math.atan2(f.y - wv.y, f.x - wv.x);
-        f.x += Math.cos(a) * 30; f.y += Math.sin(a) * 30; // empuja
-      }
-    }
-    if (s.boss && !s.boss.dead && !wv._b) {
-      const b = s.boss;
-      if (Math.hypot(b.x - wv.x, b.y - wv.y) < wv.r + 46 && Math.hypot(b.x - wv.x, b.y - wv.y) > wv.r - 40) {
-        wv._b = true;
-        b.hp -= Math.round(wv.dmg * s.dmgMul);
-        if (b.hp <= 0) { b.dead = true; s.won = true; s.over = true; s.ev.push({ k: 'bosskill', x: b.x, y: b.y }); }
-      }
-    }
+  // disparos enemigos
+  for (const e of s.eshots) {
+    e.life -= wdt;
+    e.x += e.vx * wdt; e.y += e.vy * wdt;
+    if (len(e.x - s.p.x, e.y - s.p.y) < 20) { e.life = 0; hurt(s, e.dmg, e); }
   }
-  s.waves = s.waves.filter((w) => w.r <= w.max && w.life > 0);
-  for (const h of s.hits) {
-    h.life -= dt;
-    if (!h.done) {
-      for (const f of s.foes) if (!f.dead && Math.hypot(f.x - h.x, f.y - h.y) < h.r) damageFoe(s, f, h.dmg);
-      if (s.boss && !s.boss.dead && Math.hypot(s.boss.x - h.x, s.boss.y - h.y) < h.r + 40) damageFoe(s, s.boss, h.dmg * 0.85);
-      h.done = true;
-    }
-  }
-  s.hits = s.hits.filter((h) => h.life > 0);
+  s.eshots = s.eshots.filter((e) => e.life > 0);
 
-  // ── almas ──
+  // sellos y explosiones
+  for (const f of s.fields) {
+    f.t -= wdt;
+    if (!f.done && f.t <= 0) {
+      f.done = true;
+      if (f.hostile) {
+        if (len(f.x - s.p.x, f.y - s.p.y) < f.r) hurt(s, f.dmg, f);
+      } else {
+        for (const g of s.foes) if (!g.dead && len(g.x - f.x, g.y - f.y) < f.r + g.r) damageFoe(s, g, f.dmg);
+        if (s.boss && !s.boss.dead && len(s.boss.x - f.x, s.boss.y - f.y) < f.r + s.boss.r) damageFoe(s, s.boss, f.dmg * 0.8);
+      }
+      s.ev.push({ k: f.hostile ? 'explode' : 'field', x: f.x, y: f.y, r: f.r, kind: f.kind });
+    }
+  }
+  s.fields = s.fields.filter((f) => f.t > -0.25);
+
+  // ondas
+  for (const w of s.waves) {
+    w.life -= wdt;
+    w.r += (w.max - w.r) * 6 * wdt;
+    if (w.dmg > 0) {
+      w.hitSet = w.hitSet || new Set();
+      for (const f of s.foes) {
+        if (f.dead || w.hitSet.has(f)) continue;
+        if (Math.abs(len(f.x - w.x, f.y - w.y) - w.r) < f.r + 18) { w.hitSet.add(f); damageFoe(s, f, w.dmg); }
+      }
+    }
+  }
+  s.waves = s.waves.filter((w) => w.life > 0);
+
+  // almas
   for (const so of s.souls) {
-    const dx = p.x - so.x, dy = p.y - so.y, d = Math.hypot(dx, dy) || 1;
-    if (d < s.magnet) { so.vx += (dx / d) * 900 * dt; so.vy += (dy / d) * 900 * dt; }
-    so.x += so.vx * dt; so.y += so.vy * dt;
-    if (Math.hypot(p.x - so.x, p.y - so.y) < 28) { so.v = 0; s.soulsGot++; addXp(s, 1); }
+    const dx = s.p.x - so.x, dy = s.p.y - so.y, d = len(dx, dy) || 1;
+    if (d < s.magnet) { so.vx += (dx / d) * 1400 * wdt; so.vy += (dy / d) * 1400 * wdt; }
+    so.x += so.vx * wdt; so.y += so.vy * wdt;
+    if (d < 34) { so.v = 0; s.soulsGot++; addXp(s, 1); s.ev.push({ k: 'soul' }); }
   }
   s.souls = s.souls.filter((so) => so.v > 0);
 
-  // ── partículas ──
-  for (const pt of s.parts) { pt.life -= dt; pt.x += pt.vx * dt; pt.y += pt.vy * dt; }
+  for (const pt of s.parts) { pt.life -= wdt; pt.x += pt.vx * wdt; pt.y += pt.vy * wdt; }
   s.parts = s.parts.filter((pt) => pt.life > 0);
 
-  s.score = Math.floor(s.t) * 10 + s.kills * 25 + Math.floor(s.soulsGot * 2);
+  s.score = Math.floor(s.t) * 12 + s.kills * 30 + s.soulsGot * 2 + s.perfects * 40;
   return s;
 }
 
@@ -360,24 +568,21 @@ function addXp(s, n) {
     s.level++;
     s.xpNeed = Math.round(4 + s.level * 2.4);
     s.ev.push({ k: 'level', level: s.level });
-    // propuesta de 3 cartas (el juego pausa hasta elegir)
     s.choices = offerUpgrades(s);
   }
 }
 
-// Opciones de mejora: armas nuevas, subir arma, pasivas
 export function offerUpgrades(s) {
   const pool = [];
   for (const w of WEAPONS) {
     const own = s.weapons.find((x) => x.id === w.id);
-    if (!own && s.weapons.length < MAX_WEAPONS) pool.push({ type: 'weapon', id: w.id, name: w.name, icon: w.icon, color: w.color, desc: w.desc, new: true });
-    else if (own && own.lvl < MAX_LVL) pool.push({ type: 'weapon', id: w.id, name: w.name + ' +' + (own.lvl + 1), icon: w.icon, color: w.color, desc: 'sube de nivel', lvl: own.lvl + 1 });
+    if (!own && s.weapons.length < MAX_WEAPONS) pool.push({ type: 'weapon', id: w.id, name: w.name, icon: w.icon, color: w.color, desc: w.desc, isNew: true });
+    else if (own && own.lvl < MAX_LVL) pool.push({ type: 'weapon', id: w.id, name: w.name, icon: w.icon, color: w.color, desc: `nivel ${own.lvl + 1}`, lvl: own.lvl + 1 });
   }
   for (const p of PASSIVES) {
     const n = s.passives[p.id] || 0;
     if (n < p.stack) pool.push({ type: 'passive', id: p.id, name: p.name, icon: p.icon, color: p.color, desc: p.desc });
   }
-  // baraja determinista
   const arr = [...pool];
   for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rnd(s) * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
   return arr.slice(0, 3);
@@ -387,12 +592,13 @@ export function applyUpgrade(s, choice) {
   if (!choice) return;
   if (choice.type === 'weapon') {
     const own = s.weapons.find((x) => x.id === choice.id);
-    if (own) own.lvl = Math.min(5, own.lvl + 1);
-    else s.weapons.push({ id: choice.id, lvl: 1, cd: 0.3 });
+    if (own) own.lvl = Math.min(MAX_LVL, own.lvl + 1);
+    else s.weapons.push({ id: choice.id, lvl: 1, cd: 0.3, spin: 0 });
   } else if (choice.type === 'passive') {
     const p = PASSIVES.find((x) => x.id === choice.id);
     s.passives[choice.id] = (s.passives[choice.id] || 0) + 1;
     p.apply(s);
+    s.dashCharges = Math.min(s.dashMax, s.dashCharges + (choice.id === 'dash' ? 1 : 0));
   }
   s.choices = null;
 }
