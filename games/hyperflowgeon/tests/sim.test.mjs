@@ -456,22 +456,25 @@ test('modo ancla: ATAQUE sostiene la liga sin GARFIO; apretar GARFIO otra vez la
   assert.deepEqual([s.d[0].vx, s.d[0].vy], [d0.vx, d0.vy]);
 });
 
-test('a la par: con ATAQUE mantenido un dummy lanzado atraviesa al héroe; sin ATAQUE choca', () => {
-  for (const atk of [false, true]) {
+test('a la par: solo el dummy agarrado con ATAQUE mantenido atraviesa al héroe; sin agarrar nada, ATAQUE no cambia el choque', () => {
+  const lanzado = (atk) => {
     const w = { spawn: [0, 0], rects: [], dummies: [{ x: 5, y: 0, kind: 'liviano' }] }, s = init(w, Z);
     Object.assign(s.d[0], { vx: -20, lz: true });
     for (let k = 0; k < 40; k++) step(s, w, { x: 0, jump: false, atk }, Z);
-    const d = s.d[0];
-    if (atk) assert.ok(d.x < -5 && d.vx === -20 && s.p.vx === 0, `atravesó: ${d.x}`);
-    else assert.ok(d.x - 0.4 >= s.p.x + 0.35 - 1e-6 && s.p.vx < 0, `chocó: dummy ${d.x}, héroe ${s.p.x}`);
+    return s;
+  };
+  for (const atk of [false, true]) { // sin liga: choca con o sin ATAQUE
+    const s = lanzado(atk), d = s.d[0];
+    assert.ok(!d.par && d.x - 0.4 >= s.p.x + 0.35 - 1e-6 && s.p.vx < 0, `atk ${atk}, chocó: dummy ${d.x}, héroe ${s.p.x}`);
   }
-  // soltar ATAQUE con el dummy encimado: sigue a la par hasta separarse (no se frena contra el héroe)
-  const w = { spawn: [0, 0], rects: [], dummies: [{ x: 5, y: 0, kind: 'liviano' }] }, s = init(w, Z);
-  Object.assign(s.d[0], { vx: -20, lz: true });
-  while (s.d[0].x - 0.4 > 0.35 - 0.1) step(s, w, { x: 0, jump: false, atk: true }, Z);
-  assert.ok(s.d[0].par, 'encimado');
-  for (let k = 0; k < 30; k++) step(s, w, { x: 0, jump: false }, Z);
-  assert.ok(s.d[0].x < -5 && s.d[0].vx === -20 && !s.d[0].par && s.p.vx === 0, JSON.stringify(s.d[0]));
+  // agarrado: el que tiene la liga pasa a la par y no frena al héroe; el otro dummy sigue chocando
+  const w = { spawn: [0, 0], rects: [], dummies: [{ x: 10, y: 0, kind: 'liviano' }, { x: -3, y: 0, kind: 'pesado' }] }, s = init(w, Z);
+  for (let k = 0; k < 3; k++) step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 1, ay: 0 }, Z);
+  assert.equal(s.p.hook.e, 0, 'agarró al liviano');
+  Object.assign(s.d[0], { x: 0.2, y: 0 });
+  step(s, w, { x: 0, jump: false, hook: true, atk: true, ax: 1, ay: 0 }, Z);
+  assert.ok(s.d[0].par, 'el agarrado pasa a la par');
+  assert.ok(!s.d[1].par, 'el otro no');
 });
 
 test('golpes: lo LANZADO se lastima al chocar según cuánto pierde por encima de IMPACT_V', () => {
@@ -678,4 +681,14 @@ test('ancla en el aire: la gravedad baja a ANCHOR_G mientras ATAQUE sostiene la 
   const vyAfter = hold => { const s = init(w, c); for (let k = 0; k < 6; k++) step(s, w, { x: 0, jump: false, hook: hold, atk: hold, ax: 1, ay: 0 }, c); return s.p.vy; };
   const flot = vyAfter(true), caida = vyAfter(false);
   assert.ok(flot > caida * 0.5 && caida < 0, `con ancla vy ${flot}, sin ella ${caida}`);
+});
+
+test('dummies: g escala la gravedad de cada uno (0 = flotador quieto en el aire)', () => {
+  const w = { spawn: [-30, 0], rects: [], dummies: [{ x: 0, y: 50, kind: 'mediano' }, { x: 5, y: 50, kind: 'mediano', g: 0.5 }, { x: 10, y: 50, kind: 'mediano', g: 0 }] };
+  const s = init(w);
+  for (let k = 0; k < 30; k++) step(s, w, { x: 0, jump: false }, C);
+  const fall = (d) => 50 - d.y;
+  assert.ok(fall(s.d[0]) > 1);
+  assert.ok(Math.abs(fall(s.d[1]) / fall(s.d[0]) - 0.5) < 0.02);
+  assert.equal(s.d[2].y, 50);
 });

@@ -7,7 +7,14 @@ import type { World } from './sim/sim.ts';
 const R = (x0: number, y0: number, x1: number, y1: number) => ({ x0, y0, x1, y1 });
 
 // Lugares para ir directo (AJUSTES → PATIO): x en el piso
-export const SPOTS = [['INICIO', 0], ['LIGA', 74], ['CORRAL', 206]] as const;
+export const SPOTS = [['INICIO', 0], ['LIGA', 74], ['CORRAL', 206], ['AIRE', 340]] as const;
+
+// El Aire: arena para relanzar con ATAQUE o anclarse a lo que vuela. Un tirador (`volley` en main.ts) lanza cada `every` s un
+// proyectil (los dummies con g > 0, desde el índice `first`) por una de sus rutas; los flotadores (g = 0) cuelgan quietos
+// del aire. g = gravedad de los proyectiles × la normal: baja, para que vuelen ~2 s. guns = bocas de los cañones (pies).
+export const AIRE = {
+  x0: 298, x1: 382, cx: 340, g: 0.3, every: 1.8, first: 5, guns: [[304.5, 1.2], [375.5, 1.2]] as const,
+};
 
 export const PATIO: World = {
   spawn: [0, 0],
@@ -26,6 +33,10 @@ export const PATIO: World = {
     R(150, 0, 156, 16),  // torre de 16 m
     R(166, 6, 196, 7),   // techo bajo a 6 m
     R(238, 4.6, 252, 5), // estante del corral
+    // El Aire (x 298–382, techo a 30 m): ver AIRE
+    R(296, -5, 298, 32), R(382, -5, 384, 32), R(296, -5, 384, 0), R(296, 30, 384, 32),
+    R(298, 0, 303, 1.2), R(377, 0, 382, 1.2),                            // los dos cañones
+    R(318, 7, 326, 7.5), R(354, 7, 362, 7.5), R(334, 14, 346, 14.5),     // vigas a 7 y 14 m para ganar altura
   ],
   // Chispas (devuelven una carga del garfio): sobre el foso del inicio, entre vigas, sobre el foso ancho y junto a la torre
   orbs: [[-11.5, 5], [87.5, 5], [127.5, 4], [146, 13]],
@@ -33,5 +44,9 @@ export const PATIO: World = {
   dummies: [
     { x: 214, y: 0, kind: 'liviano' }, { x: 222, y: 0, kind: 'mediano' }, { x: 230, y: 0, kind: 'pesado' },
     { x: 238.4, y: 5, kind: 'liviano' }, { x: 245, y: 5, kind: 'mediano' },
+    // El Aire. Proyectiles (5–12): el tirador los lanza en arcos; con g = 0,3 tardan ~2 s en caer. Flotadores (13–15): quietos en el aire
+    ...([['liviano', 312], ['mediano', 320], ['liviano', 328], ['mediano', 352], ['liviano', 360], ['pesado', 368], ['mediano', 336], ['pesado', 344]] as const)
+      .map(([kind, x]) => ({ x, y: 0, kind, g: AIRE.g })),
+    { x: 322, y: 10, kind: 'liviano', g: 0 }, { x: 358, y: 17, kind: 'mediano', g: 0 }, { x: 340, y: 22, kind: 'pesado', g: 0 },
   ],
 };

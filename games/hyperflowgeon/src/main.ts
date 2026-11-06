@@ -1,6 +1,6 @@
-import { init, step, aimDir, hookTarget, throwVel, raycast, attached, size, atkBox, DT, HW, H, HAND, ORB_R, D_HP, type Input, type State } from './sim/sim.ts';
+import { init, step, aimDir, hookTarget, throwVel, raycast, attached, size, atkBox, DT, HZ, HW, H, HAND, ORB_R, D_HP, type Input, type State } from './sim/sim.ts';
 import { RANGES, DEFAULTS, PROFILES, HOOK_KEYS, type Cfg, type HookCfg, type Profile } from './sim/params.ts';
-import { PATIO, SPOTS } from './patio.ts';
+import { PATIO, SPOTS, AIRE } from './patio.ts';
 import { CAM_RANGES, CAM_DEFAULTS, newCam, follow, type CamCfg } from './camera.ts';
 import { buildMenu, rows, refresh, type Section } from './menu.ts';
 import * as T from './touch.ts';
@@ -102,15 +102,16 @@ const SECTIONS: Section[] = [
     { rows: RANGES, keys: ATTACK.slice(0, 1), vals: cfg },
     { title: 'Modo ancla (ATAQUE mantenido)', note: 'Con la liga en un dummy, mantener ATAQUE te vuelve el ancla: pesás esto para la liga (el liviano viene sin frenarte), el péndulo queda libre y en el aire flotás (gravedad reducida). La mira ya no lo guía: un FLICK (tocar una flecha, mover rápido el stick o el ratón) le da UN empujón hacia donde flickeaste, con una pausa entre flicks, y vos retrocedés lo que conserva el momento. Lo que golpea, golpea como LANZADO. ATAQUE sostiene la liga aunque sueltes GARFIO (deslizar de GARFIO a ATAQUE se la pasa); apretar GARFIO otra vez la suelta sin lanzar; soltar ATAQUE lanza.' },
     { rows: RANGES, keys: ATTACK.slice(1, 7), vals: cfg },
-    { title: 'A la par', note: 'Mientras mantenés ATAQUE, con o sin liga, los dummies pasan a la par: no chocan con vos (entre ellos sí).' },
+    { title: 'A la par', note: 'Mientras mantenés ATAQUE con la liga en un dummy, ese dummy pasa a la par: no choca con vos (los demás sí). Sin nada agarrado no hay a la par.' },
     { title: 'Golpes', note: 'Lo LANZADO se lastima al chocar según cuánto cambia su velocidad por encima del umbral; el golpeado así también queda LANZADO.' },
     { rows: RANGES, keys: ATTACK.slice(7), vals: cfg },
   ], reset: () => resetKeys([...GOLPE, ...ATTACK]) },
   { id: 'patio', label: 'PATIO', fields: [
     { title: 'Ir a', note: 'Reinicia todo (también los dummies) en ese lugar. R reinicia en el último elegido.' },
     { buttons: SPOTS.map(([label, x]) => ({ label, onClick: () => { reset(x); menu.close(); } })) },
-    { title: 'Probar', note: 'LÁNZAME UNO (o L): un liviano sale LANZADO hacia vos desde 14 m. Para dejarlo pasar a la par (ATAQUE mantenido), engancharlo y devolverlo.' },
+    { title: 'Probar', note: 'LÁNZAME UNO (o L): un liviano sale LANZADO hacia vos desde 14 m. Para devolverlo, engancharlo (con ATAQUE mantenido te cruza a la par) y soltar ATAQUE.' },
     { buttons: [{ label: 'LÁNZAME UNO', onClick: () => { menu.close(); pitch(); } }] },
+    { title: 'El Aire', note: 'Ir a AIRE: dos cañones (puntos naranja) lanzan un dummy cada 1,8 s en seis rutas (entrante, cruces, globo vertical, entrante rápido, cruce alto) y tres flotadores cuelgan quietos en lo alto. Probar: relanzar un entrante con un golpe (o enganchado + soltar ATAQUE), o anclarte a uno en vuelo. Los proyectiles caen con 0,3 de gravedad; las vigas (7 y 14 m) dan altura. El tirador solo corre con vos adentro.' },
     { title: 'Dummies: peso', note: 'Masa × la del héroe. La liga tira de las dos puntas repartida por masa: el liviano viene, el pesado te lleva.' },
     { rows: RANGES, keys: DUMMY.slice(0, 3), vals: cfg },
     { title: 'Dummies' },
@@ -222,14 +223,15 @@ let s: State, prev = { x: 0, y: 0 }, prevD: { x: number, y: number }[] = [], sim
 // último golpe a un dummy
 const trail: { x: number, y: number, c: string }[] = [];
 let air: { x: number, y: number, top: number, t: number } | null = null, lastJump = '';
-let hookMax = 0, lastHook = '', lastHit = '', lastThrow = '';
+let hookMax = 0, lastHook = '', lastHit = '', lastThrow = '', lastVolley = '', shots = 0;
+const launched: number[] = []; // cuadro del último tiro de cada proyectil del Aire
 // Reinicia todo con el héroe en el piso de x (AJUSTES → PATIO elige el lugar; R vuelve al último)
 function reset(x = spot) {
   T.clear(true);
   s = init(PATIO, cfg);
   spot = s.p.x = x;
   prev = { x: s.p.x, y: s.p.y }, prevD = s.d.map(d => ({ x: d.x, y: d.y }));
-  trail.length = 0, air = null, cam.vx = cam.vy = 0, lastHit = lastThrow = '';
+  trail.length = 0, air = null, cam.vx = cam.vy = 0, lastHit = lastThrow = lastVolley = '', launched.length = shots = 0;
 }
 reset();
 
@@ -248,6 +250,31 @@ function pitch() {
     prevD[k] = { x, y };
     return;
   }
+}
+
+// El Aire (ver AIRE en patio.ts): con el héroe adentro, cada AIRE.every s el tirador toma el proyectil libre que hace más
+// que no vuela (en el piso, quieto, sin liga) y lo lanza en un arco por la ruta que toca. No es LANZADO: no se rompe solo.
+const ROUTES = ['ENTRANTE', 'CRUCE →', 'CRUCE ←', 'GLOBO', 'ENTRANTE RÁPIDO', 'CRUCE ALTO'];
+function volley() {
+  const p = s.p, n = Math.round(AIRE.every * HZ);
+  if (p.x < AIRE.x0 || p.x > AIRE.x1 || s.t % n !== 0) return;
+  const free = s.d.flatMap((d, j) => j >= AIRE.first && (PATIO.dummies![j].g ?? 1) > 0 && d.hp > 0 && !d.lz && d.ground && Math.abs(d.vx) < 2 && p.hook?.e !== j ? [j] : []);
+  if (!free.length) return;
+  free.sort((a, b) => (launched[a] ?? 0) - (launched[b] ?? 0) || Math.abs(s.d[b].x - p.x) - Math.abs(s.d[a].x - p.x));
+  const k = free[0], { h } = size(PATIO, k), ge = 2 * cfg.JUMP_H / cfg.JUMP_T ** 2 * AIRE.g, [gl, gr] = AIRE.guns;
+  const far = p.x < AIRE.cx ? gr : gl, ty = p.y + (H - h) / 2, r = shots % ROUTES.length;
+  const clamp = (v: number, a: number, b: number) => Math.min(Math.max(v, a), b);
+  let x0: number = far[0], y0: number = far[1], tx = p.x, T = 1.6;
+  if (r === 0 || r === 4) T = clamp(Math.abs(p.x - x0) / (r ? 34 : 22), r ? 0.8 : 1.2, r ? 1.6 : 2.6), tx = p.x + p.vx * T * 0.5;
+  else if (r === 1) [x0, y0] = gl, tx = AIRE.cx + 12, T = 2.4;
+  else if (r === 2) [x0, y0] = gr, tx = AIRE.cx - 12, T = 2.4;
+  else if (r === 3) x0 = tx = clamp(p.x + p.face * 10, AIRE.x0 + 4, AIRE.x1 - 4), y0 = 0, T = 2.6;
+  else [x0, y0] = gl, tx = gr[0] - 6, T = 2.8;
+  const ey = r === 0 || r === 4 ? ty : 0; // los entrantes apuntan a la altura del héroe; el resto vuelve al piso
+  Object.assign(s.d[k], { x: x0, y: y0, vx: (tx - x0) / T, vy: (ey - y0) / T + ge * T / 2, lz: false, ground: false, par: false });
+  prevD[k] = { x: x0, y: y0 };
+  launched[k] = s.t, shots++;
+  lastVolley = `tirador: ${ROUTES[r]} · ${PATIO.dummies![k].kind}`;
 }
 
 const speed = () => Math.sqrt(s.p.vx * s.p.vx + s.p.vy * s.p.vy);
@@ -276,6 +303,7 @@ function tick(i: Input) {
   if (on && !hooked) hookMax = 0;
   if (on) hookMax = Math.max(hookMax, speed());
   if (!on && hooked) lastHook = `liga: máx ${hookMax.toFixed(1)} m/s · suelta a ${speed().toFixed(1)} m/s`;
+  volley();
 }
 
 // Color de la mira según lo que hará la liga con la velocidad actual: verde acelera, amarillo columpia, rojo frena
@@ -308,6 +336,10 @@ function draw(a: number, dt: number) {
   }
   ctx.fillStyle = '#5b5866';
   for (const r of PATIO.rects) ctx.fillRect(X(r.x0), Y(r.y1), (r.x1 - r.x0) * k, (r.y1 - r.y0) * k);
+  ctx.fillStyle = '#ff9a5b';
+  for (const [gx, gy] of AIRE.guns) { // bocas del tirador
+    ctx.beginPath(); ctx.arc(X(gx), Y(gy), 0.35 * k, 0, 2 * Math.PI); ctx.fill();
+  }
   PATIO.orbs?.forEach(([ox, oy], j) => {
     const on = s.t >= s.orbs[j];
     ctx.strokeStyle = ctx.fillStyle = on ? '#b98cff' : '#b98cff33';
@@ -442,10 +474,10 @@ function draw(a: number, dt: number) {
       ctx.beginPath(); ctx.moveTo(ex - 5, ey - 5); ctx.lineTo(ex + 5, ey + 5); ctx.moveTo(ex + 5, ey - 5); ctx.lineTo(ex - 5, ey + 5); ctx.stroke();
     }
   }
-  // Héroe: celeste enganchado, blanco en el suelo, amarillo en el aire; con ATAQUE mantenido (a la par), translúcido y con
+  // Héroe: celeste enganchado, blanco en el suelo, amarillo en el aire; con ATAQUE mantenido y un dummy agarrado (a la par), translúcido y con
   // contorno punteado. Debajo de los pies, en el aire, un triángulo por cada salto en el aire que queda.
   ctx.fillStyle = ctx.strokeStyle = on ? '#5ec8ff' : p.ground ? '#f2f2e8' : '#ffd84a';
-  if (p.atkHeld) {
+  if (p.atkHeld && on && p.hook!.e >= 0) {
     ctx.globalAlpha = 0.35;
     ctx.fillRect(X(px - HW), Y(py + H), 2 * HW * k, H * k);
     ctx.globalAlpha = 1;
@@ -484,16 +516,17 @@ function draw(a: number, dt: number) {
   const assist = [cfg.AIM_FOE > 0.5 && 'imán enemigos', cfg.AIM_EDGE > 0.5 && 'imán esquinas', cfg.AIM_16 > 0.5 && '16 dir.'].filter(Boolean).join(' · ');
   hud.textContent = `HYPERFLOWGEON · F1 paso E · ⚙ o Esc: ajustes (PATIO: ir al corral)${T.visible() ? `
 apuntar: ${scheme}${T.opts.scheme === 'drag' ? ' · arrastrar desde GARFIO y soltar · tocar GARFIO o SALTO suelta' : T.opts.scheme === 'tap' ? ' · tocar el mundo (mantener)' : ' · GARFIO (mantener) · deslizar a SALTO = soltar con impulso'}
-ATAQUE: golpe (joystick ↑ = pesado arriba; ↓ en el aire = picada) · mantener = a la par (y, con la liga en un dummy, modo ancla: deslizar de GARFIO a ATAQUE) · soltar = lanzar` : ` · R reiniciar · L lanzame uno
+ATAQUE: golpe (joystick ↑ = pesado arriba; ↓ en el aire = picada) · con la liga en un dummy, mantener = a la par y modo ancla (deslizar de GARFIO a ATAQUE) · soltar = lanzar` : ` · R reiniciar · L lanzame uno
 teclado: ←/→ A/D correr · espacio saltar (y doble salto) · flechas/WASD apuntan · K o Shift garfio (mantener) · 1/2/3 perfil
-J ataque: golpe (con ↑ pesado arriba; con ↓ en el aire, picada) · mantener = a la par (y, con la liga en un dummy, modo ancla: flick de la mira) · soltar = lanzar · K otra vez = soltar sin lanzar
+J ataque: golpe (con ↑ pesado arriba; con ↓ en el aire, picada) · con la liga en un dummy, mantener = a la par y modo ancla (flick de la mira) · soltar = lanzar · K otra vez = soltar sin lanzar
 ratón: moverlo apunta · clic izq. garfio · clic der. ataque`}
 garfio ${active.toUpperCase()} · cargas ${p.charge.toFixed(1)}/${cfg.HOOK_N}${assist ? ` · ${assist}` : ''}
-vx ${p.vx.toFixed(2).padStart(6)}   vy ${p.vy.toFixed(2).padStart(6)}   |v| ${speed().toFixed(1).padStart(5)}   ${on ? (p.anchor ? 'ancla' : p.hook!.e >= 0 ? 'liga→dummy' : 'liga ') : p.hook ? 'viaje' : p.ground ? 'suelo' : 'aire '}${p.atkHeld ? ' · a la par' : ''}   saltos aire ${p.air}/${cfg.AIR_JUMPS}   sim ${simMs.toFixed(3)} ms
+vx ${p.vx.toFixed(2).padStart(6)}   vy ${p.vy.toFixed(2).padStart(6)}   |v| ${speed().toFixed(1).padStart(5)}   ${on ? (p.anchor ? 'ancla' : p.hook!.e >= 0 ? 'liga→dummy' : 'liga ') : p.hook ? 'viaje' : p.ground ? 'suelo' : 'aire '}${p.atkHeld && on && p.hook!.e >= 0 ? ' · a la par' : ''}   saltos aire ${p.air}/${cfg.AIR_JUMPS}   sim ${simMs.toFixed(3)} ms
 ${lastJump}
 ${lastHook}
 ${lastThrow}
-${lastHit}`;
+${lastHit}${s.p.x > AIRE.x0 ? `
+${lastVolley}` : ''}`;
 }
 
 let acc = 0, last = 0;

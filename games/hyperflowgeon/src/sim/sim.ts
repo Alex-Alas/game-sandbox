@@ -20,9 +20,10 @@ export const KINDS = {
 } as const satisfies Record<string, { hw: number, h: number, m: keyof Cfg }>;
 export type Kind = keyof typeof KINDS;
 // orbs: chispas que devuelven una carga del garfio al tocarlas y reaparecen a los ORB_T s; dummies: dónde aparecen (pies)
-export type World = { rects: Rect[], spawn: [number, number], orbs?: [number, number][], dummies?: { x: number, y: number, kind: Kind }[] };
+// y g, su gravedad × la normal (1 si falta; 0 = flotador que solo se mueve si lo empujan)
+export type World = { rects: Rect[], spawn: [number, number], orbs?: [number, number][], dummies?: { x: number, y: number, kind: Kind, g?: number }[] };
 export const ORB_R = 0.4, D_HP = 100;
-// x en [-1, 1]; GARFIO mantenido = enganchado; ATAQUE (mantenido: a la par y, con la liga a un dummy, modo ancla);
+// x en [-1, 1]; GARFIO mantenido = enganchado; ATAQUE (con la liga a un dummy, mantenido: modo ancla y a la par con ese dummy);
 // (ax, ay) = mira (sin largo: adelante y arriba)
 export type Input = { x: number, jump: boolean, hook?: boolean, atk?: boolean, ax?: number, ay?: number };
 // ancla, cuadro en que llega (antes viaja: no tira) y largo en reposo de la liga (se fija al llegar); e = el dummy
@@ -41,7 +42,7 @@ export type Player = {
   air: number,     // saltos en el aire que quedan (doble salto; vuelven al tocar suelo)
   hook: Hook | null,
   hookHeld: boolean, // GARFIO apretado en el cuadro anterior
-  atkHeld: boolean,  // ATAQUE apretado en el cuadro anterior (mantenido: los dummies pasan a la par)
+  atkHeld: boolean,  // ATAQUE apretado en el cuadro anterior (mantenido con un dummy agarrado: pasa a la par)
   anchor: boolean,   // modo ancla: ATAQUE mantenido con la liga enganchada a un dummy
   hookT: number,     // primer cuadro en que se puede volver a disparar (tras fallar)
   shot: Shot | null,
@@ -283,7 +284,7 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
     if (t < d.stopT) return; // hitstop: quieto (sigue en los choques de abajo)
     if (d.ground) d.vx = approach(d.vx, 0, c.D_FRIC * DT);
     const vy0 = d.vy;
-    d.vy -= g * DT;
+    d.vy -= g * (w.dummies![k].g ?? 1) * DT;
     const wx = d.vx * DT, mx = sweepX(w, d, hw, h, wx);
     d.x += mx;
     if (mx !== wx) { if (d.lz) hit(d, Math.abs(d.vx)); d.vx = 0; }
@@ -294,13 +295,14 @@ export function step(s: State, w: World, i: Input, c: Cfg): void {
   });
 
   // Choques entre cajas (ver collide): el héroe con cada dummy y los dummies entre sí. Pararse arriba de uno es suelo.
-  // Con ATAQUE mantenido los dummies pasan a la par del héroe (no chocan con él): para pasar rápido sobre uno y
-  // engancharlo, o dejar pasar uno lanzado y devolverlo; entre ellos siguen chocando. El que quedó encimado sigue a la
-  // par hasta separarse: soltar ATAQUE (lanzar) con el péndulo encima no lo frena contra vos.
+  // Con ATAQUE mantenido, el dummy que tenés agarrado (la liga enganchada a él) pasa a la par del héroe (no chocan): para
+  // que el péndulo te cruce; los demás siguen chocando, y sin nada agarrado no hay «a la par». El que quedó encimado
+  // sigue a la par hasta separarse: soltar ATAQUE (lanzar) con el péndulo encima no lo frena contra vos.
+  const held = on && p.hook!.e >= 0 ? p.hook!.e : -1;
   const live = s.d.flatMap((d, k) => d.hp > 0 ? [k] : []);
   for (const k of live) {
     const d = s.d[k], { hw, h } = size(w, k);
-    if (i.atk || d.par) { d.par = overlap(p, HW, H, d, hw, h); continue; }
+    if ((i.atk && k === held) || d.par) { d.par = overlap(p, HW, H, d, hw, h); continue; }
     const r = collide(w, p, HW, H, 1, d, hw, h, 1 / mass(w, k, c));
     if (!r) continue;
     if (r.vert && r.n < 0) p.ground = true, p.rise = false;
