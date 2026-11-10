@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Atlas demo</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #14121f; color: #f4efe3; font-family: system-ui, sans-serif; }
+  body { display: grid; place-items: center; overflow: hidden; touch-action: none; }
+  #wrap { position: relative; height: 100vh; aspect-ratio: 2 / 3; max-width: 100vw; }
+  canvas { width: 100%; height: 100%; image-rendering: pixelated; display: block; }
+  #hud { position: absolute; top: 8px; left: 10px; right: 10px; display: flex; justify-content: space-between; font-weight: 700; pointer-events: none; }
+  #msg { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; background: rgba(20,18,31,.7); }
+  #msg[hidden] { display: none; }
+  button { font: inherit; font-weight: 700; padding: 10px 22px; border: 0; border-radius: 8px; background: #f4c542; color: #14121f; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="160" height="240"></canvas>
+  <div id="hud"><span id="score">0</span><span id="lives">♥♥♥</span></div>
+  <div id="msg"><div><p id="text">Atrapá los sprites con el canasto</p><button id="go">Jugar</button><p style="font-size:13px;opacity:.7">← → / A D / arrastrar</p></div></div>
+</div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

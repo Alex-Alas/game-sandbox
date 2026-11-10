@@ -26,6 +26,7 @@ export default defineConfig({
         grisu: resolve(import.meta.dirname, 'games/grisu/index.html'),
         chibolazo: resolve(import.meta.dirname, 'games/chibolazo/index.html'),
         abismo: resolve(import.meta.dirname, 'games/abismo/index.html'),
+        atlasDemo: resolve(import.meta.dirname, 'games/atlas-demo/index.html'),
       },
     },
   },
