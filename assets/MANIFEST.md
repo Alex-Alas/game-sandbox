@@ -137,3 +137,6 @@ llega solo lo exportado y optimizado.
   - 1.409.404 sprites de 16×16 con fondo transparente y subtítulos en inglés (6.194 sujetos), generados con IA (Krea 2 Turbo + LoRA de pixel art). Formato parquet.
   - Licencia **CC0-1.0** (apta para uso comercial). Ojo: no se revisó que cada subtítulo coincida con su imagen.
   - Guardado el 2026-11-10 a pedido de Alex; para consultar cuando se arme un juego 2D de sprites chicos (la red del entorno alcanza `huggingface.co`). Nada bajado: pesa mucho, sacar solo lo que se use.
+- **Patch** (biblioteca de assets abiertos y app para jugar/armar mods): <https://patch.gg/> (empresa New Save Labs, Inc.).
+  - Dice tener unos 50.000 assets abiertos y listos para juego: modelos 3D, personajes, texturas, materiales y efectos de sonido. Cada asset trae su licencia y su línea de crédito, así que la licencia se revisa **por asset**, no por la plataforma.
+  - Solo hay app para Windows (Mac en lista de espera). Guardado el 2026-11-10 a pedido de Alex, para consultar cuando haga falta un asset 3D, de textura o de sonido. Nada bajado.
