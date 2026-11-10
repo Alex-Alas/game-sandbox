@@ -130,3 +130,10 @@ node tools/assets-inventory.mjs assets/packs --pack "<Nombre del pack>"
 
 Verificar el tamaño contra `fileSize` de Drive. Los packs brutos pesan ~1 GB y no van al repositorio; al juego
 llega solo lo exportado y optimizado.
+
+## 5. Recursos externos guardados para más adelante
+
+- **Pixel Art Atlas · 1.4M Synthetic Sprites** — dataset de Hugging Face: <https://huggingface.co/datasets/Angais/pixel-art-atlas-1.4m> (`Angais/pixel-art-atlas-1.4m`).
+  - 1.409.404 sprites de 16×16 con fondo transparente y subtítulos en inglés (6.194 sujetos), generados con IA (Krea 2 Turbo + LoRA de pixel art). Formato parquet.
+  - Licencia **CC0-1.0** (apta para uso comercial). Ojo: no se revisó que cada subtítulo coincida con su imagen.
+  - Guardado el 2026-11-10 a pedido de Alex; para consultar cuando se arme un juego 2D de sprites chicos (la red del entorno alcanza `huggingface.co`). Nada bajado: pesa mucho, sacar solo lo que se use.
